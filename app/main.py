@@ -6,6 +6,7 @@ Skeleton only – no business logic
 
 from fastapi import FastAPI
 from app.health import router as health_router
+from app.webhooks import router as webhook_router
 
 app = FastAPI(
     title="KLResolute WhatsApp SaaS MVP",
@@ -13,6 +14,7 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(webhook_router)
 
 
 @app.get("/")
