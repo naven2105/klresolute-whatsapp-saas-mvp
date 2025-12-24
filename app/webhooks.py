@@ -1,6 +1,6 @@
 """
 WhatsApp webhook endpoint
-T-04: Contact resolution (conditional create)
+T-05: Conversation resolution (read or create)
 """
 
 from fastapi import APIRouter, Request, Response, status, Depends
@@ -8,7 +8,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import WhatsAppNumber, Client, Contact
+from app.models import WhatsAppNumber, Client, Contact, Conversation
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -24,10 +24,6 @@ def _extract_destination_number(payload: dict) -> str | None:
 
 
 def _extract_sender_number(payload: dict) -> str | None:
-    """
-    Meta inbound message payloads typically include the sender in:
-    entry[0].changes[0].value.messages[0].from
-    """
     try:
         return payload["entry"][0]["changes"][0]["value"]["messages"][0]["from"]
     except Exception:
@@ -40,12 +36,11 @@ async def whatsapp_webhook(
     db: Session = Depends(get_db),
 ):
     """
-    T-04 responsibilities:
-    - Read JSON payload
-    - Extract destination number
-    - Extract sender number
-    - Resolve/create Contact (DB write allowed)
-    - Log what happened
+    T-05 responsibilities:
+    - Resolve client
+    - Resolve contact
+    - Resolve or create conversation
+    - Log conversation_id
     - Always return 200
     """
     try:
@@ -55,19 +50,16 @@ async def whatsapp_webhook(
         return Response(status_code=status.HTTP_200_OK)
 
     destination_number = _extract_destination_number(payload)
-    if not destination_number:
-        logger.warning("Destination number not found in payload")
-        return Response(status_code=status.HTTP_200_OK)
-
     sender_number = _extract_sender_number(payload)
-    if not sender_number:
-        logger.warning("Sender number not found in payload")
+
+    if not destination_number or not sender_number:
+        logger.warning("Required identifiers missing")
         return Response(status_code=status.HTTP_200_OK)
 
     logger.info("Destination number: %s", destination_number)
     logger.info("Sender number: %s", sender_number)
 
-    # --- DB: resolve client number mapping (read-only) ---
+    # ---- Client resolution (read only) ----
     try:
         wa_number = (
             db.query(WhatsAppNumber)
@@ -88,12 +80,10 @@ async def whatsapp_webhook(
         .one_or_none()
     )
     if not client:
-        logger.error("WhatsApp number exists but client missing (data error)")
+        logger.error("Client missing for WhatsApp number")
         return Response(status_code=status.HTTP_200_OK)
 
-    logger.info("Resolved client: id=%s name=%s", client.client_id, client.client_name)
-
-    # --- DB: resolve/create contact (write allowed) ---
+    # ---- Contact resolution (read / create) ----
     try:
         contact = (
             db.query(Contact)
@@ -106,13 +96,43 @@ async def whatsapp_webhook(
             db.add(contact)
             db.commit()
             db.refresh(contact)
-            logger.info("Created new contact: contact_id=%s", contact.contact_id)
+            logger.info("Created contact: %s", contact.contact_id)
         else:
-            logger.info("Found existing contact: contact_id=%s", contact.contact_id)
+            logger.info("Found contact: %s", contact.contact_id)
 
     except Exception:
         db.rollback()
         logger.warning("Database unavailable during contact resolution")
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ---- Conversation resolution (read / create) ----
+    try:
+        conversation = (
+            db.query(Conversation)
+            .filter(
+                Conversation.wa_number_id == wa_number.wa_number_id,
+                Conversation.contact_id == contact.contact_id,
+                Conversation.closed_at.is_(None),
+            )
+            .one_or_none()
+        )
+
+        if not conversation:
+            conversation = Conversation(
+                client_id=client.client_id,
+                wa_number_id=wa_number.wa_number_id,
+                contact_id=contact.contact_id,
+            )
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+            logger.info("Created conversation: %s", conversation.conversation_id)
+        else:
+            logger.info("Reused conversation: %s", conversation.conversation_id)
+
+    except Exception:
+        db.rollback()
+        logger.warning("Database unavailable during conversation resolution")
         return Response(status_code=status.HTTP_200_OK)
 
     return Response(status_code=status.HTTP_200_OK)
