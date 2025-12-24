@@ -7,6 +7,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.config import DATABASE_URL
 from app.models import Base
+from sqlalchemy.orm import Session
+
+
 
 engine = create_engine(
     DATABASE_URL,
@@ -27,3 +30,10 @@ def create_all_tables():
     For local/dev only.
     """
     Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
