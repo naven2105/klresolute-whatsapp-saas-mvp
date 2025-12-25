@@ -1,6 +1,6 @@
 """
 WhatsApp webhook endpoint
-T-05: Conversation resolution (read or create)
+T-06: Message persistence (immutable)
 """
 
 from fastapi import APIRouter, Request, Response, status, Depends
@@ -8,7 +8,13 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import WhatsAppNumber, Client, Contact, Conversation
+from app.models import (
+    WhatsAppNumber,
+    Client,
+    Contact,
+    Conversation,
+    Message,
+)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -30,17 +36,24 @@ def _extract_sender_number(payload: dict) -> str | None:
         return None
 
 
+def _extract_message_text(payload: dict) -> str | None:
+    try:
+        return payload["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"]
+    except Exception:
+        return None
+
+
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
     """
-    T-05 responsibilities:
+    T-06 responsibilities:
     - Resolve client
     - Resolve contact
-    - Resolve or create conversation
-    - Log conversation_id
+    - Resolve conversation
+    - Persist inbound message (immutable)
     - Always return 200
     """
     try:
@@ -51,15 +64,17 @@ async def whatsapp_webhook(
 
     destination_number = _extract_destination_number(payload)
     sender_number = _extract_sender_number(payload)
+    message_text = _extract_message_text(payload)
 
-    if not destination_number or not sender_number:
-        logger.warning("Required identifiers missing")
+    if not destination_number or not sender_number or not message_text:
+        logger.warning("Required message fields missing")
         return Response(status_code=status.HTTP_200_OK)
 
     logger.info("Destination number: %s", destination_number)
     logger.info("Sender number: %s", sender_number)
+    logger.info("Message text: %s", message_text)
 
-    # ---- Client resolution (read only) ----
+    # ---- Client resolution ----
     try:
         wa_number = (
             db.query(WhatsAppNumber)
@@ -83,7 +98,7 @@ async def whatsapp_webhook(
         logger.error("Client missing for WhatsApp number")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- Contact resolution (read / create) ----
+    # ---- Contact resolution ----
     try:
         contact = (
             db.query(Contact)
@@ -105,7 +120,7 @@ async def whatsapp_webhook(
         logger.warning("Database unavailable during contact resolution")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- Conversation resolution (read / create) ----
+    # ---- Conversation resolution ----
     try:
         conversation = (
             db.query(Conversation)
@@ -133,6 +148,22 @@ async def whatsapp_webhook(
     except Exception:
         db.rollback()
         logger.warning("Database unavailable during conversation resolution")
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ---- Message persistence (immutable) ----
+    try:
+        message = Message(
+            conversation_id=conversation.conversation_id,
+            direction="inbound",
+            message_text=message_text,
+        )
+        db.add(message)
+        db.commit()
+        logger.info("Stored inbound message")
+
+    except Exception:
+        db.rollback()
+        logger.warning("Database unavailable during message persistence")
         return Response(status_code=status.HTTP_200_OK)
 
     return Response(status_code=status.HTTP_200_OK)
