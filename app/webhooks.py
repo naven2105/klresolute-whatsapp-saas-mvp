@@ -1,10 +1,31 @@
 """
-WhatsApp webhook endpoint
-T-06: Message persistence (immutable)
+File: app/webhooks.py
+
+Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+Inbound WhatsApp webhook handler responsible for message ingestion and state resolution.
+Implements the sequential pipeline defined in the BRS.
+
+Processing order (STRICT — do not reorder):
+T-01 Webhook ingress
+T-02 Destination number extraction
+T-03 Client resolution
+T-04 Contact resolution
+T-05 Conversation resolution
+T-06 Message persistence (immutable)
+T-07 FAQ matching (read-only)
+T-08 Response selection (dry-run only; no sending)
+
+Critical design rules:
+- Logic is strictly sequential; later stages depend on earlier resolution
+- No outbound messages are sent from this module
+- Failures degrade gracefully and always return HTTP 200
+- Outbound message creation is delegated to MessageService (authoritative)
 """
 
-from fastapi import APIRouter, Request, Response, status, Depends
 import logging
+from fastapi import APIRouter, Request, Response, status, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -14,7 +35,9 @@ from app.models import (
     Contact,
     Conversation,
     Message,
+    FaqItem,
 )
+from app.services.message_service import MessageService
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -48,20 +71,14 @@ async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """
-    T-06 responsibilities:
-    - Resolve client
-    - Resolve contact
-    - Resolve conversation
-    - Persist inbound message (immutable)
-    - Always return 200
-    """
+    # ---- T-01: Parse payload ----
     try:
         payload = await request.json()
     except Exception:
         logger.warning("Webhook received non-JSON payload")
         return Response(status_code=status.HTTP_200_OK)
 
+    # ---- T-02: Extract routing + content ----
     destination_number = _extract_destination_number(payload)
     sender_number = _extract_sender_number(payload)
     message_text = _extract_message_text(payload)
@@ -74,7 +91,7 @@ async def whatsapp_webhook(
     logger.info("Sender number: %s", sender_number)
     logger.info("Message text: %s", message_text)
 
-    # ---- Client resolution ----
+    # ---- T-03: Client resolution ----
     try:
         wa_number = (
             db.query(WhatsAppNumber)
@@ -94,11 +111,12 @@ async def whatsapp_webhook(
         .filter(Client.client_id == wa_number.client_id)
         .one_or_none()
     )
+
     if not client:
         logger.error("Client missing for WhatsApp number")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- Contact resolution ----
+    # ---- T-04: Contact resolution ----
     try:
         contact = (
             db.query(Contact)
@@ -120,7 +138,7 @@ async def whatsapp_webhook(
         logger.warning("Database unavailable during contact resolution")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- Conversation resolution ----
+    # ---- T-05: Conversation resolution ----
     try:
         conversation = (
             db.query(Conversation)
@@ -150,20 +168,82 @@ async def whatsapp_webhook(
         logger.warning("Database unavailable during conversation resolution")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- Message persistence (immutable) ----
+    # ---- T-06: Persist inbound message (immutable) ----
     try:
-        message = Message(
+        inbound_msg = Message(
             conversation_id=conversation.conversation_id,
             direction="inbound",
             message_text=message_text,
         )
-        db.add(message)
+        db.add(inbound_msg)
         db.commit()
-        logger.info("Stored inbound message")
+        db.refresh(inbound_msg)
+        logger.info("Stored inbound message (message_id=%s)", inbound_msg.message_id)
 
     except Exception:
         db.rollback()
         logger.warning("Database unavailable during message persistence")
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ---- T-23: Enforce handover = bot silence ----
+    if conversation.status == "handed_over":
+        logger.info(
+            "Bot suppressed — conversation handed over (conversation_id=%s)",
+            conversation.conversation_id,
+        )
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ---- T-07: FAQ matching (read-only) ----
+    try:
+        faqs = (
+            db.query(FaqItem)
+            .filter(
+                FaqItem.client_id == client.client_id,
+                FaqItem.is_active.is_(True),
+            )
+            .all()
+        )
+    except Exception:
+        logger.warning("Database unavailable during FAQ lookup")
+        return Response(status_code=status.HTTP_200_OK)
+
+    matched_faq = None
+    message_lower = message_text.lower()
+
+    for faq in faqs:
+        if faq.match_pattern.lower() in message_lower:
+            matched_faq = faq
+            break
+
+    if matched_faq:
+        logger.info(
+            "Matched FAQ: faq_id=%s faq_name=%s",
+            matched_faq.faq_id,
+            matched_faq.faq_name,
+        )
+    else:
+        logger.info("No FAQ match found")
+
+    # ---- T-08: Response selection (DRY-RUN ONLY; NO SEND) ----
+    selected_response = matched_faq.response_text if matched_faq else None
+
+    if not selected_response:
+        logger.info("Dry-run: No response selected")
+        return Response(status_code=status.HTTP_200_OK)
+
+    logger.info("Dry-run: Selected response: %s", selected_response)
+
+    # ---- Delegate outbound creation (authoritative) ----
+    try:
+        MessageService(db=db).handle_inbound_message(
+            inbound_message_id=inbound_msg.message_id,
+            conversation_id=conversation.conversation_id,
+            inbound_text=message_text,
+            selected_response=selected_response,
+        )
+    except Exception:
+        db.rollback()
+        logger.warning("Database unavailable during outbound creation delegation")
         return Response(status_code=status.HTTP_200_OK)
 
     return Response(status_code=status.HTTP_200_OK)

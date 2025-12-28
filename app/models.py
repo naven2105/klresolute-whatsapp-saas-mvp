@@ -1,12 +1,24 @@
 """
-SQLAlchemy models
-Authoritative mapping from Technical_Design/schema.sql (BRS v1.0)
+File: app/models.py
 
-Rules:
-- No business logic
-- No queries
-- Structure mirrors schema.sql
+Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+SQLAlchemy ORM models defining the core data schema for the WhatsApp SaaS platform.
+These models are the authoritative representation of the database structure and
+must remain aligned with the BRS and schema definitions.
+
+Design principles:
+- Tables map 1:1 with BRS data entities
+- No business logic in models
+- Relationships kept minimal and explicit
+- All writes are controlled by application logic, not model side-effects
+
+Change control:
+- Schema changes require explicit justification
+- No fields may be removed without BRS update
 """
+
 
 import uuid
 from sqlalchemy import (
@@ -14,6 +26,7 @@ from sqlalchemy import (
     String,
     Text,
     Boolean,
+    Integer,
     DateTime,
     Enum,
     ForeignKey,
@@ -168,9 +181,29 @@ class Message(Base):
 
 
 # ---------------------------------------------------------------------
+# Delivery Event (audit) — T-15 / T-16
+# ---------------------------------------------------------------------
+class DeliveryEvent(Base):
+    __tablename__ = "delivery_events"
+
+    delivery_event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.message_id"),
+        nullable=False,
+    )
+    event_type = Column(Text, nullable=False)
+    event_detail = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Optional relationship (safe): helps joins, does not change schema
+    message = relationship("Message")
+
+
+# ---------------------------------------------------------------------
 # FAQ Item
 # ---------------------------------------------------------------------
-class FAQItem(Base):
+class FaqItem(Base):
     __tablename__ = "faq_items"
 
     faq_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
