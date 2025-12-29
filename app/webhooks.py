@@ -98,8 +98,8 @@ async def whatsapp_webhook(
             .filter(WhatsAppNumber.destination_number == destination_number)
             .one_or_none()
         )
-    except Exception:
-        logger.warning("Database unavailable during client resolution")
+    except Exception as e:
+        logger.exception("Client resolution failed")
         return Response(status_code=status.HTTP_200_OK)
 
     if not wa_number:
