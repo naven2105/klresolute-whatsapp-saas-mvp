@@ -8,7 +8,7 @@ Meta WhatsApp Cloud API Client (Outbound)
 Purpose:
 - Send WhatsApp messages via Meta Cloud API
 - Supports:
-  - Session text messages (MVP inbound replies)
+  - Session text messages (inbound replies)
   - Template messages (business-initiated)
 """
 
@@ -18,8 +18,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
-
-from app.outbound.settings import MetaWhatsAppSettings
 
 
 class MetaWhatsAppError(RuntimeError):
@@ -34,13 +32,13 @@ class MetaSendResult:
 
 
 class MetaWhatsAppClient:
-    def __init__(self, settings: MetaWhatsAppSettings, session: Optional[requests.Session] = None) -> None:
+    def __init__(self, settings, session: Optional[requests.Session] = None) -> None:
+        # settings must provide:
+        # - access_token (str)
+        # - messages_url (str)
         self._settings = settings
         self._session = session or requests.Session()
 
-    # -------------------------------------------------
-    # SESSION MESSAGE (MVP)
-    # -------------------------------------------------
     def send_session_text(self, *, to_msisdn: str, text: str) -> MetaSendResult:
         payload: Dict[str, Any] = {
             "messaging_product": "whatsapp",
@@ -69,9 +67,6 @@ class MetaWhatsAppClient:
         ok = 200 <= resp.status_code < 300
         return MetaSendResult(ok=ok, status_code=resp.status_code, response_json=data)
 
-    # -------------------------------------------------
-    # TEMPLATE MESSAGE
-    # -------------------------------------------------
     def send_template(
         self,
         *,
@@ -122,7 +117,6 @@ class MetaWhatsAppClient:
         blob_text = (blob_text or "").strip()
         if not blob_text:
             raise MetaWhatsAppError("blob_text cannot be empty.")
-
         if len(blob_text) > 900:
             raise MetaWhatsAppError("blob_text too long for MVP safety.")
 
