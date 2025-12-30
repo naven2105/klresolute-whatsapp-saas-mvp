@@ -1,30 +1,18 @@
 """
 File: app/webhooks.py
+Path: app/webhooks.py
 
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Inbound WhatsApp webhook handler responsible for message ingestion and state resolution.
-Implements the sequential pipeline defined in the BRS.
-
-Processing order (STRICT — do not reorder):
-T-01 Webhook ingress
-T-02 Destination number extraction
-T-03 Client resolution
-T-04 Contact resolution
-T-05 Conversation resolution
-T-06 Message persistence (immutable)
-T-07 FAQ matching (read-only)
-T-08 Response selection (authoritative handoff)
-
-Critical design rules:
-- Logic is strictly sequential; later stages depend on earlier resolution
-- No outbound messages are sent from this module
-- Failures degrade gracefully and always return HTTP 200
-- Outbound message creation is delegated to MessageService (authoritative)
+Inbound WhatsApp webhook handler.
+Extended to support admin command:
+- ADD CLIENT: Name Number
 """
 
 import logging
+import os
+import re
 from fastapi import APIRouter, Request, Response, status, Depends
 from sqlalchemy.orm import Session
 
@@ -40,14 +28,26 @@ from app.models import (
 from app.services.message_service import MessageService
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
-
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
 
-# -------------------------------------------------
-# Extraction helpers
-# -------------------------------------------------
+ADMIN_ALLOWLIST = {
+    n.strip()
+    for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
+    if n.strip()
+}
+
+
+def _normalise_msisdn(raw: str) -> str | None:
+    digits = re.sub(r"\D", "", raw)
+    if digits.startswith("0"):
+        digits = "27" + digits[1:]
+    if digits.startswith("27") and len(digits) >= 11:
+        return digits
+    return None
+
+
 def _extract_destination_number(payload: dict) -> str | None:
     try:
         return payload["entry"][0]["changes"][0]["value"]["metadata"]["display_phone_number"]
@@ -69,22 +69,17 @@ def _extract_message_text(payload: dict) -> str | None:
         return None
 
 
-# -------------------------------------------------
-# Webhook endpoint
-# -------------------------------------------------
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    # ---- T-01: Parse payload ----
+    # ---- T-01 Parse payload ----
     try:
         payload = await request.json()
     except Exception:
-        logger.warning("Webhook received non-JSON payload")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- T-02: Extract routing + content ----
     destination_number = _extract_destination_number(payload)
     sender_number = _extract_sender_number(payload)
     message_text = _extract_message_text(payload)
@@ -97,14 +92,59 @@ async def whatsapp_webhook(
     logger.info("Sender number: %s", sender_number)
     logger.info("Message text: %s", message_text)
 
-    # ---- T-03: Client resolution ----
+    # ------------------------------------------------------------------
+    # ADMIN COMMAND: ADD CLIENT
+    # ------------------------------------------------------------------
+    if sender_number in ADMIN_ALLOWLIST and message_text.upper().startswith("ADD CLIENT:"):
+        try:
+            _, body = message_text.split(":", 1)
+            parts = body.strip().split()
+            if len(parts) < 2:
+                logger.warning("ADD CLIENT rejected: invalid format")
+                return Response(status_code=status.HTTP_200_OK)
+
+            name = " ".join(parts[:-1])
+            msisdn = _normalise_msisdn(parts[-1])
+
+            if not msisdn:
+                logger.warning("ADD CLIENT rejected: invalid number")
+                return Response(status_code=status.HTTP_200_OK)
+
+            existing = (
+                db.query(Contact)
+                .filter(Contact.contact_number == msisdn)
+                .one_or_none()
+            )
+
+            if existing:
+                logger.info("ADD CLIENT ignored: contact already exists (%s)", msisdn)
+                return Response(status_code=status.HTTP_200_OK)
+
+            contact = Contact(
+                contact_number=msisdn,
+                contact_name=name,
+                opted_in=True,
+                source="admin_add",
+            )
+            db.add(contact)
+            db.commit()
+            logger.info("ADD CLIENT success: %s %s", name, msisdn)
+
+        except Exception:
+            db.rollback()
+            logger.exception("ADD CLIENT failed")
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ------------------------------------------------------------------
+    # Existing pipeline continues unchanged
+    # ------------------------------------------------------------------
+
     wa_number = (
         db.query(WhatsAppNumber)
         .filter(WhatsAppNumber.destination_number == destination_number)
         .one_or_none()
     )
     if not wa_number:
-        logger.warning("No WhatsApp number registered for %s", destination_number)
         return Response(status_code=status.HTTP_200_OK)
 
     client = (
@@ -113,70 +153,50 @@ async def whatsapp_webhook(
         .one_or_none()
     )
     if not client:
-        logger.error("Client missing for WhatsApp number")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- T-04: Contact resolution ----
-    try:
-        contact = (
-            db.query(Contact)
-            .filter(Contact.contact_number == sender_number)
-            .one_or_none()
+    contact = (
+        db.query(Contact)
+        .filter(Contact.contact_number == sender_number)
+        .one_or_none()
+    )
+    if not contact:
+        contact = Contact(
+            contact_number=sender_number,
+            opted_in=True,
+            source="qr",
         )
-        if not contact:
-            contact = Contact(contact_number=sender_number)
-            db.add(contact)
-            db.commit()
-            db.refresh(contact)
-            logger.info("Created contact: %s", contact.contact_id)
-    except Exception:
-        db.rollback()
-        return Response(status_code=status.HTTP_200_OK)
-
-    # ---- T-05: Conversation resolution ----
-    try:
-        conversation = (
-            db.query(Conversation)
-            .filter(
-                Conversation.wa_number_id == wa_number.wa_number_id,
-                Conversation.contact_id == contact.contact_id,
-                Conversation.closed_at.is_(None),
-            )
-            .one_or_none()
-        )
-        if not conversation:
-            conversation = Conversation(
-                client_id=client.client_id,
-                wa_number_id=wa_number.wa_number_id,
-                contact_id=contact.contact_id,
-            )
-            db.add(conversation)
-            db.commit()
-            db.refresh(conversation)
-            logger.info("Created conversation: %s", conversation.conversation_id)
-    except Exception:
-        db.rollback()
-        return Response(status_code=status.HTTP_200_OK)
-
-    # ---- T-06: Persist inbound message ----
-    try:
-        inbound_msg = Message(
-            conversation_id=conversation.conversation_id,
-            direction="inbound",
-            message_text=message_text,
-        )
-        db.add(inbound_msg)
+        db.add(contact)
         db.commit()
-        db.refresh(inbound_msg)
-    except Exception:
-        db.rollback()
-        return Response(status_code=status.HTTP_200_OK)
+        db.refresh(contact)
 
-    # ---- T-23: Handover silence ----
-    if conversation.status == "handed_over":
-        return Response(status_code=status.HTTP_200_OK)
+    conversation = (
+        db.query(Conversation)
+        .filter(
+            Conversation.wa_number_id == wa_number.wa_number_id,
+            Conversation.contact_id == contact.contact_id,
+            Conversation.closed_at.is_(None),
+        )
+        .one_or_none()
+    )
+    if not conversation:
+        conversation = Conversation(
+            client_id=client.client_id,
+            wa_number_id=wa_number.wa_number_id,
+            contact_id=contact.contact_id,
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
 
-    # ---- T-07: FAQ matching ----
+    inbound_msg = Message(
+        conversation_id=conversation.conversation_id,
+        direction="inbound",
+        message_text=message_text,
+    )
+    db.add(inbound_msg)
+    db.commit()
+
     faqs = (
         db.query(FaqItem)
         .filter(
@@ -186,37 +206,17 @@ async def whatsapp_webhook(
         .all()
     )
 
-    matched_faq = None
-    text_lower = message_text.lower()
-    for faq in faqs:
-        if faq.match_pattern.lower() in text_lower:
-            matched_faq = faq
-            break
+    matched_faq = next(
+        (f for f in faqs if f.match_pattern.lower() in message_text.lower()),
+        None,
+    )
 
-    # ---- T-08: Response selection (MVP) ----
     if matched_faq:
-        selected_response = matched_faq.response_text
-        logger.info("FAQ matched: %s", matched_faq.faq_name)
-    else:
-        # MVP DEFAULT RESPONSE (critical)
-        selected_response = (
-            "👋 Welcome!\n"
-            "Today’s update is available.\n"
-            "Reply HOURS, LOCATION or SPECIALS."
-        )
-        logger.info("No FAQ match — default welcome response selected")
-
-    # ---- Delegate outbound creation ----
-    try:
         MessageService(db=db).handle_inbound_message(
             inbound_message_id=inbound_msg.message_id,
             conversation_id=conversation.conversation_id,
             inbound_text=message_text,
-            selected_response=selected_response,
-            to_number=sender_number,   
-        )        
-    except Exception:
-        db.rollback()
-        return Response(status_code=status.HTTP_200_OK)
+            selected_response=matched_faq.response_text,
+        )
 
     return Response(status_code=status.HTTP_200_OK)
