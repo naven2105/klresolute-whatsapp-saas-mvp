@@ -1,122 +1,134 @@
 """
 File: app/outbound/meta.py
+Path: app/outbound/meta.py
 
 Project: KLResolute WhatsApp SaaS MVP
+Meta WhatsApp Cloud API Client (Outbound)
 
 Purpose:
-T-24 Meta WhatsApp gateway (REAL SENDING, GUARDED)
-
-Design rules:
-- Never called directly from the webhook
-- Safe-by-default: refuses to send unless explicitly enabled
-- Allowlist safety: only numbers in allowlist can receive messages
-- Any misconfiguration fails safely (no send)
-
-Notes:
-- Uses Meta Graph API: POST /{phone_number_id}/messages
-- Minimal payload: text messages only
+- Send WhatsApp messages via Meta Cloud API
+- Supports:
+  - Session text messages (MVP inbound replies)
+  - Template messages (business-initiated)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
-import json
-import urllib.request
-import urllib.error
+from typing import Any, Dict, Optional
 
-from .gateway import SendGateway, OutboundSendRequest, OutboundSendReceipt, SendStatus
+import requests
+
+from app.outbound.settings import MetaWhatsAppSettings
+
+
+class MetaWhatsAppError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
-class MetaSendConfig:
-    enabled: bool
-    access_token: Optional[str] = None
-    phone_number_id: Optional[str] = None
-    api_base_url: str = "https://graph.facebook.com/v20.0"
-    test_allowlist: Sequence[str] = ()  # e.g. ("27627597357", "27735534607")
+class MetaSendResult:
+    ok: bool
+    status_code: int
+    response_json: Dict[str, Any]
 
 
-class MetaSendGateway(SendGateway):
-    def __init__(self, cfg: MetaSendConfig) -> None:
-        self._cfg = cfg
+class MetaWhatsAppClient:
+    def __init__(self, settings: MetaWhatsAppSettings, session: Optional[requests.Session] = None) -> None:
+        self._settings = settings
+        self._session = session or requests.Session()
 
-    def send_text(self, req: OutboundSendRequest) -> OutboundSendReceipt:
-        # Safety lock: must be enabled explicitly
-        if not self._cfg.enabled:
-            return OutboundSendReceipt.now(
-                status=SendStatus.DISABLED,
-                detail="MetaSendGateway disabled. No message sent.",
-                provider_message_id=None,
-            )
-
-        # Allowlist safety (Option 2)
-        allow = tuple(n.strip() for n in (self._cfg.test_allowlist or ()) if n and n.strip())
-        if allow and req.to_number not in allow:
-            return OutboundSendReceipt.now(
-                status=SendStatus.DISABLED,
-                detail=f"Recipient not in OUTBOUND_TEST_ALLOWLIST. No message sent. to={req.to_number}",
-                provider_message_id=None,
-            )
-
-        # Required config
-        if not self._cfg.access_token or not self._cfg.phone_number_id:
-            return OutboundSendReceipt.now(
-                status=SendStatus.FAILED,
-                detail="MetaSendGateway enabled but missing access_token and/or phone_number_id. No message sent.",
-                provider_message_id=None,
-            )
-
-        url = f"{self._cfg.api_base_url.rstrip('/')}/{self._cfg.phone_number_id}/messages"
-        payload = {
+    # -------------------------------------------------
+    # SESSION MESSAGE (MVP)
+    # -------------------------------------------------
+    def send_session_text(self, *, to_msisdn: str, text: str) -> MetaSendResult:
+        payload: Dict[str, Any] = {
             "messaging_product": "whatsapp",
-            "to": req.to_number,
+            "to": to_msisdn,
             "type": "text",
-            "text": {"body": req.body_text},
+            "text": {"body": text},
         }
 
-        data = json.dumps(payload).encode("utf-8")
-        request = urllib.request.Request(
-            url=url,
-            data=data,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self._cfg.access_token}",
-                "Content-Type": "application/json",
-            },
+        headers = {
+            "Authorization": f"Bearer {self._settings.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        resp = self._session.post(
+            self._settings.messages_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=20) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-                try:
-                    parsed = json.loads(raw) if raw else {}
-                except Exception:
-                    parsed = {}
+            data = resp.json()
+        except Exception:
+            data = {"raw_text": resp.text}
 
-                provider_message_id = None
-                # Typical response: {"messages":[{"id":"wamid...."}]}
-                if isinstance(parsed, dict):
-                    msgs = parsed.get("messages")
-                    if isinstance(msgs, list) and msgs and isinstance(msgs[0], dict):
-                        provider_message_id = msgs[0].get("id")
+        ok = 200 <= resp.status_code < 300
+        return MetaSendResult(ok=ok, status_code=resp.status_code, response_json=data)
 
-                return OutboundSendReceipt.now(
-                    status=SendStatus.SENT,
-                    detail="Sent via Meta Cloud API",
-                    provider_message_id=provider_message_id,
-                )
+    # -------------------------------------------------
+    # TEMPLATE MESSAGE
+    # -------------------------------------------------
+    def send_template(
+        self,
+        *,
+        to_msisdn: str,
+        template_name: str,
+        language_code: str = "en_US",
+        body_params: Optional[list[str]] = None,
+    ) -> MetaSendResult:
+        payload: Dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": to_msisdn,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code},
+            },
+        }
 
-        except urllib.error.HTTPError as e:
-            detail = f"Meta HTTPError {getattr(e, 'code', None)}: {e.read().decode('utf-8', errors='replace')}"
-            return OutboundSendReceipt.now(
-                status=SendStatus.FAILED,
-                detail=detail,
-                provider_message_id=None,
-            )
-        except Exception as e:
-            return OutboundSendReceipt.now(
-                status=SendStatus.FAILED,
-                detail=f"Meta send failed: {type(e).__name__}: {e}",
-                provider_message_id=None,
-            )
+        if body_params:
+            payload["template"]["components"] = [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": p} for p in body_params],
+                }
+            ]
+
+        headers = {
+            "Authorization": f"Bearer {self._settings.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        resp = self._session.post(
+            self._settings.messages_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw_text": resp.text}
+
+        ok = 200 <= resp.status_code < 300
+        return MetaSendResult(ok=ok, status_code=resp.status_code, response_json=data)
+
+    def send_generic_business_update_template(self, *, to_msisdn: str, blob_text: str) -> MetaSendResult:
+        blob_text = (blob_text or "").strip()
+        if not blob_text:
+            raise MetaWhatsAppError("blob_text cannot be empty.")
+
+        if len(blob_text) > 900:
+            raise MetaWhatsAppError("blob_text too long for MVP safety.")
+
+        return self.send_template(
+            to_msisdn=to_msisdn,
+            template_name="generic_business_update",
+            language_code="en_US",
+            body_params=[blob_text],
+        )
