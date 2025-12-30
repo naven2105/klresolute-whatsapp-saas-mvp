@@ -1,60 +1,73 @@
 """
 File: app/outbound/factory.py
+Path: app/outbound/factory.py
 
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-T-09/T-24 Outbound delivery abstraction - factory
+- Provide a single place to construct outbound clients/services
+- Reuse a single Meta WhatsApp client instance (singleton-style)
 
-One place to decide which gateway to use.
-Default must remain DRY-RUN to preserve MVP guardrails.
-
-Modes:
-- "dry_run" (default)
-- "disabled"
-- "meta" (real sending, still guarded by allowlist)
+Design rules:
+- No business logic here
+- Only construction / wiring
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Sequence
+from flask import Blueprint, Flask, jsonify, request
 
-from .dry_run import DryRunSendGateway
-from .gateway import SendGateway
-from .meta import MetaSendGateway, MetaSendConfig
+from app.outbound.meta import MetaWhatsAppClient, MetaWhatsAppError
+from app.outbound.settings import load_meta_settings
 
 
-@dataclass(frozen=True)
-class OutboundDeliverySettings:
-    """
-    Keep this separate from your app settings to avoid forcing a refactor.
-    You can map environment -> this dataclass inside app startup or in jobs.
-    """
-    mode: str = "dry_run"  # "dry_run" | "disabled" | "meta"
-    meta_enabled: bool = False
-    meta_access_token: str | None = None
-    meta_phone_number_id: str | None = None
-    meta_api_base_url: str = "https://graph.facebook.com/v20.0"
-    test_allowlist: Sequence[str] = ()  # numbers allowed to receive real sends
+# -------------------------------------------------
+# Meta client singleton
+# -------------------------------------------------
+_meta_client: MetaWhatsAppClient | None = None
 
 
-def build_send_gateway(s: OutboundDeliverySettings) -> SendGateway:
-    mode = (s.mode or "dry_run").strip().lower()
+def get_meta_client() -> MetaWhatsAppClient:
+    global _meta_client
+    if _meta_client is None:
+        settings = load_meta_settings()
+        _meta_client = MetaWhatsAppClient(settings=settings)
+    return _meta_client
 
-    if mode == "disabled":
-        return MetaSendGateway(MetaSendConfig(enabled=False))
 
-    if mode == "meta":
-        return MetaSendGateway(
-            MetaSendConfig(
-                enabled=bool(s.meta_enabled),
-                access_token=s.meta_access_token,
-                phone_number_id=s.meta_phone_number_id,
-                api_base_url=s.meta_api_base_url,
-                test_allowlist=tuple(s.test_allowlist or ()),
+# -------------------------------------------------
+# Optional outbound test routes (MVP only)
+# -------------------------------------------------
+def register_outbound_routes(app: Flask) -> None:
+    bp = Blueprint("outbound", __name__)
+
+    @bp.post("/outbound/test-template")
+    def outbound_test_template():
+        payload = request.get_json(silent=True) or {}
+        to_msisdn = (payload.get("to") or "").strip()
+        blob = (payload.get("blob") or "").strip()
+
+        if not to_msisdn:
+            return jsonify({"ok": False, "error": "Missing 'to'"}), 400
+        if not blob:
+            return jsonify({"ok": False, "error": "Missing 'blob'"}), 400
+
+        client = get_meta_client()
+        try:
+            result = client.send_generic_business_update_template(
+                to_msisdn=to_msisdn,
+                blob_text=blob,
             )
-        )
+        except MetaWhatsAppError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
 
-    # Default and recommended for now
-    return DryRunSendGateway()
+        status = 200 if result.ok else 502
+        return jsonify(
+            {
+                "ok": result.ok,
+                "status_code": result.status_code,
+                "meta": result.response_json,
+            }
+        ), status
+
+    app.register_blueprint(bp)
