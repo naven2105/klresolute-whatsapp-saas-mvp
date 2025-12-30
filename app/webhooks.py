@@ -6,8 +6,8 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Inbound WhatsApp webhook handler.
-Extended to support admin command:
-- ADD CLIENT: Name Number
+Supports admin command:
+- ADD CLIENT: <number>
 """
 
 import logging
@@ -31,13 +31,11 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
-
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
     if n.strip()
 }
-
 
 def _normalise_msisdn(raw: str) -> str | None:
     digits = re.sub(r"\D", "", raw)
@@ -47,13 +45,11 @@ def _normalise_msisdn(raw: str) -> str | None:
         return digits
     return None
 
-
 def _extract_destination_number(payload: dict) -> str | None:
     try:
         return payload["entry"][0]["changes"][0]["value"]["metadata"]["display_phone_number"]
     except Exception:
         return None
-
 
 def _extract_sender_number(payload: dict) -> str | None:
     try:
@@ -61,20 +57,17 @@ def _extract_sender_number(payload: dict) -> str | None:
     except Exception:
         return None
 
-
 def _extract_message_text(payload: dict) -> str | None:
     try:
         return payload["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"]
     except Exception:
         return None
 
-
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    # ---- T-01 Parse payload ----
     try:
         payload = await request.json()
     except Exception:
@@ -93,19 +86,18 @@ async def whatsapp_webhook(
     logger.info("Message text: %s", message_text)
 
     # ------------------------------------------------------------------
-    # ADMIN COMMAND: ADD CLIENT
+    # ADMIN COMMAND: ADD CLIENT (number-only)
     # ------------------------------------------------------------------
     if sender_number in ADMIN_ALLOWLIST and message_text.upper().startswith("ADD CLIENT:"):
         try:
             _, body = message_text.split(":", 1)
             parts = body.strip().split()
-            if len(parts) < 2:
-                logger.warning("ADD CLIENT rejected: invalid format")
+
+            if not parts:
+                logger.warning("ADD CLIENT rejected: empty body")
                 return Response(status_code=status.HTTP_200_OK)
 
-            name = " ".join(parts[:-1])
             msisdn = _normalise_msisdn(parts[-1])
-
             if not msisdn:
                 logger.warning("ADD CLIENT rejected: invalid number")
                 return Response(status_code=status.HTTP_200_OK)
@@ -115,9 +107,8 @@ async def whatsapp_webhook(
                 .filter(Contact.contact_number == msisdn)
                 .one_or_none()
             )
-
             if existing:
-                logger.info("ADD CLIENT ignored: contact already exists (%s)", msisdn)
+                logger.info("ADD CLIENT ignored: duplicate %s", msisdn)
                 return Response(status_code=status.HTTP_200_OK)
 
             contact = Contact(
@@ -127,17 +118,17 @@ async def whatsapp_webhook(
             )
             db.add(contact)
             db.commit()
-            logger.info("ADD CLIENT success: %s %s", name, msisdn)
+            logger.info("ADD CLIENT success: %s", msisdn)
 
         except Exception:
             db.rollback()
             logger.exception("ADD CLIENT failed")
+
         return Response(status_code=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
-    # Existing pipeline continues unchanged
+    # Existing pipeline (unchanged)
     # ------------------------------------------------------------------
-
     wa_number = (
         db.query(WhatsAppNumber)
         .filter(WhatsAppNumber.destination_number == destination_number)
