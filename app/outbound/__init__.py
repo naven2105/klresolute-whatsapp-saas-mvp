@@ -1,7 +1,7 @@
-# app/outbound/__init__.py
-from .gateway import SendGateway, OutboundSendRequest, OutboundSendReceipt, SendStatus
-from .dry_run import DryRunSendGateway
-from .factory import OutboundDeliverySettings, build_send_gateway
+"""
+File: app/outbound/__init__.py
+Path: app/outbound/__init__.py
 
-# Meta gateway intentionally disabled until T-12+
-# from .meta import MetaSendGateway, MetaSendConfig   
+Outbound package initialiser.
+Intentionally empty for MVP.
+"""
