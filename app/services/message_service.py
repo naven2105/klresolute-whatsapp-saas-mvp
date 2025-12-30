@@ -57,11 +57,17 @@ class MessageService:
         # ---- INLINE SEND (MVP) ----
         try:
             client = get_meta_client()
-            client.send_session_text(
+            result = client.send_session_text(
                 to_msisdn=to_number,
                 text=selected_response,
             )
-            logger.info("Sent session message to %s", to_number)
+
+            logger.info(
+                "Meta send result: ok=%s status=%s response=%s",
+                result.ok,
+                result.status_code,
+                result.response_json,
+            )
         except Exception:
             logger.exception("Failed to send session message")
 
