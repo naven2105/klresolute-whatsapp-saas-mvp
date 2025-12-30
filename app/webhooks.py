@@ -1,6 +1,5 @@
 """
 File: app/webhooks.py
-Path: app/webhooks.py
 
 Project: KLResolute WhatsApp SaaS MVP
 
@@ -214,7 +213,8 @@ async def whatsapp_webhook(
             conversation_id=conversation.conversation_id,
             inbound_text=message_text,
             selected_response=selected_response,
-        )
+            to_number=sender_number,   
+        )        
     except Exception:
         db.rollback()
         return Response(status_code=status.HTTP_200_OK)
