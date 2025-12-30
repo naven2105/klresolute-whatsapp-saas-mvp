@@ -6,14 +6,13 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 - Construct and reuse outbound Meta WhatsApp client
-- Avoid import-time and attribute resolution issues
+- Absolutely no imports from settings module
 """
 
 from __future__ import annotations
 
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import MetaWhatsAppSettings
 import os
+from app.outbound.meta import MetaWhatsAppClient
 
 
 _meta_client: MetaWhatsAppClient | None = None
@@ -23,11 +22,18 @@ def get_meta_client() -> MetaWhatsAppClient:
     global _meta_client
 
     if _meta_client is None:
-        settings = MetaWhatsAppSettings(
-            api_version=os.getenv("META_WA_API_VERSION", "v20.0"),
-            access_token=os.getenv("META_WA_ACCESS_TOKEN"),
-            phone_number_id=os.getenv("META_WA_PHONE_NUMBER_ID"),
-        )
+        settings = type(
+            "MetaSettings",
+            (),
+            {
+                "access_token": os.getenv("META_WA_ACCESS_TOKEN"),
+                "messages_url": (
+                    f"https://graph.facebook.com/"
+                    f"{os.getenv('META_WA_API_VERSION', 'v20.0')}/"
+                    f"{os.getenv('META_WA_PHONE_NUMBER_ID')}/messages"
+                ),
+            },
+        )()
 
         _meta_client = MetaWhatsAppClient(settings=settings)
 
