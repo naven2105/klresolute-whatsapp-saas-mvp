@@ -2,6 +2,9 @@
 File: app/outbound/__init__.py
 Path: app/outbound/__init__.py
 
-Outbound package initialiser.
+Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+Outbound package marker.
 Intentionally empty for MVP.
 """
