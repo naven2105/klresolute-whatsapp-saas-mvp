@@ -1,5 +1,6 @@
 """
 File: app/webhooks.py
+Path: app/webhooks.py
 
 Project: KLResolute WhatsApp SaaS MVP
 
@@ -15,7 +16,7 @@ T-04 Contact resolution
 T-05 Conversation resolution
 T-06 Message persistence (immutable)
 T-07 FAQ matching (read-only)
-T-08 Response selection (dry-run only; no sending)
+T-08 Response selection (authoritative handoff)
 
 Critical design rules:
 - Logic is strictly sequential; later stages depend on earlier resolution
@@ -45,6 +46,9 @@ logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
 
+# -------------------------------------------------
+# Extraction helpers
+# -------------------------------------------------
 def _extract_destination_number(payload: dict) -> str | None:
     try:
         return payload["entry"][0]["changes"][0]["value"]["metadata"]["display_phone_number"]
@@ -66,6 +70,9 @@ def _extract_message_text(payload: dict) -> str | None:
         return None
 
 
+# -------------------------------------------------
+# Webhook endpoint
+# -------------------------------------------------
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
@@ -92,16 +99,11 @@ async def whatsapp_webhook(
     logger.info("Message text: %s", message_text)
 
     # ---- T-03: Client resolution ----
-    try:
-        wa_number = (
-            db.query(WhatsAppNumber)
-            .filter(WhatsAppNumber.destination_number == destination_number)
-            .one_or_none()
-        )
-    except Exception as e:
-        logger.exception("Client resolution failed")
-        return Response(status_code=status.HTTP_200_OK)
-
+    wa_number = (
+        db.query(WhatsAppNumber)
+        .filter(WhatsAppNumber.destination_number == destination_number)
+        .one_or_none()
+    )
     if not wa_number:
         logger.warning("No WhatsApp number registered for %s", destination_number)
         return Response(status_code=status.HTTP_200_OK)
@@ -111,7 +113,6 @@ async def whatsapp_webhook(
         .filter(Client.client_id == wa_number.client_id)
         .one_or_none()
     )
-
     if not client:
         logger.error("Client missing for WhatsApp number")
         return Response(status_code=status.HTTP_200_OK)
@@ -123,19 +124,14 @@ async def whatsapp_webhook(
             .filter(Contact.contact_number == sender_number)
             .one_or_none()
         )
-
         if not contact:
             contact = Contact(contact_number=sender_number)
             db.add(contact)
             db.commit()
             db.refresh(contact)
             logger.info("Created contact: %s", contact.contact_id)
-        else:
-            logger.info("Found contact: %s", contact.contact_id)
-
     except Exception:
         db.rollback()
-        logger.warning("Database unavailable during contact resolution")
         return Response(status_code=status.HTTP_200_OK)
 
     # ---- T-05: Conversation resolution ----
@@ -149,7 +145,6 @@ async def whatsapp_webhook(
             )
             .one_or_none()
         )
-
         if not conversation:
             conversation = Conversation(
                 client_id=client.client_id,
@@ -160,15 +155,11 @@ async def whatsapp_webhook(
             db.commit()
             db.refresh(conversation)
             logger.info("Created conversation: %s", conversation.conversation_id)
-        else:
-            logger.info("Reused conversation: %s", conversation.conversation_id)
-
     except Exception:
         db.rollback()
-        logger.warning("Database unavailable during conversation resolution")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- T-06: Persist inbound message (immutable) ----
+    # ---- T-06: Persist inbound message ----
     try:
         inbound_msg = Message(
             conversation_id=conversation.conversation_id,
@@ -178,62 +169,45 @@ async def whatsapp_webhook(
         db.add(inbound_msg)
         db.commit()
         db.refresh(inbound_msg)
-        logger.info("Stored inbound message (message_id=%s)", inbound_msg.message_id)
-
     except Exception:
         db.rollback()
-        logger.warning("Database unavailable during message persistence")
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- T-23: Enforce handover = bot silence ----
+    # ---- T-23: Handover silence ----
     if conversation.status == "handed_over":
-        logger.info(
-            "Bot suppressed — conversation handed over (conversation_id=%s)",
-            conversation.conversation_id,
-        )
         return Response(status_code=status.HTTP_200_OK)
 
-    # ---- T-07: FAQ matching (read-only) ----
-    try:
-        faqs = (
-            db.query(FaqItem)
-            .filter(
-                FaqItem.client_id == client.client_id,
-                FaqItem.is_active.is_(True),
-            )
-            .all()
+    # ---- T-07: FAQ matching ----
+    faqs = (
+        db.query(FaqItem)
+        .filter(
+            FaqItem.client_id == client.client_id,
+            FaqItem.is_active.is_(True),
         )
-    except Exception:
-        logger.warning("Database unavailable during FAQ lookup")
-        return Response(status_code=status.HTTP_200_OK)
+        .all()
+    )
 
     matched_faq = None
-    message_lower = message_text.lower()
-
+    text_lower = message_text.lower()
     for faq in faqs:
-        if faq.match_pattern.lower() in message_lower:
+        if faq.match_pattern.lower() in text_lower:
             matched_faq = faq
             break
 
+    # ---- T-08: Response selection (MVP) ----
     if matched_faq:
-        logger.info(
-            "Matched FAQ: faq_id=%s faq_name=%s",
-            matched_faq.faq_id,
-            matched_faq.faq_name,
-        )
+        selected_response = matched_faq.response_text
+        logger.info("FAQ matched: %s", matched_faq.faq_name)
     else:
-        logger.info("No FAQ match found")
+        # MVP DEFAULT RESPONSE (critical)
+        selected_response = (
+            "👋 Welcome!\n"
+            "Today’s update is available.\n"
+            "Reply HOURS, LOCATION or SPECIALS."
+        )
+        logger.info("No FAQ match — default welcome response selected")
 
-    # ---- T-08: Response selection (DRY-RUN ONLY; NO SEND) ----
-    selected_response = matched_faq.response_text if matched_faq else None
-
-    if not selected_response:
-        logger.info("Dry-run: No response selected")
-        return Response(status_code=status.HTTP_200_OK)
-
-    logger.info("Dry-run: Selected response: %s", selected_response)
-
-    # ---- Delegate outbound creation (authoritative) ----
+    # ---- Delegate outbound creation ----
     try:
         MessageService(db=db).handle_inbound_message(
             inbound_message_id=inbound_msg.message_id,
@@ -243,7 +217,6 @@ async def whatsapp_webhook(
         )
     except Exception:
         db.rollback()
-        logger.warning("Database unavailable during outbound creation delegation")
         return Response(status_code=status.HTTP_200_OK)
 
     return Response(status_code=status.HTTP_200_OK)
