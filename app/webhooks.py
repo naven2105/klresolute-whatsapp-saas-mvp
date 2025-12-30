@@ -122,7 +122,6 @@ async def whatsapp_webhook(
 
             contact = Contact(
                 contact_number=msisdn,
-                contact_name=name,
                 opted_in=True,
                 source="admin_add",
             )
