@@ -6,15 +6,23 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Inbound WhatsApp webhook handler.
-Supports admin command:
-- ADD CLIENT: <number>
+Admin commands (Tier 1 in progress):
+- ADD CLIENT: <number>              (silent)
+- REMOVE CLIENT: <number>           (silent)
+
+Notes:
+- Admin allowlist is OUTBOUND_TEST_ALLOWLIST (comma-separated MSISDNs)
+- REMOVE CLIENT removes the contact from the broadcast list (future updates),
+  but does NOT block inbound messages from that number.
 """
 
 import logging
 import os
 import re
+
 from fastapi import APIRouter, Request, Response, status, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.db import get_db
 from app.models import (
@@ -31,19 +39,29 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
+# Admin allowlist (MSISDNs like 2762xxxxxxx), comma-separated
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
     if n.strip()
 }
 
+
 def _normalise_msisdn(raw: str) -> str | None:
-    digits = re.sub(r"\D", "", raw)
+    """
+    Normalise SA numbers to MSISDN format:
+    - "0XXXXXXXXX" -> "27XXXXXXXXX"
+    - strip spaces, +, etc
+    """
+    digits = re.sub(r"\D", "", raw or "")
+    if not digits:
+        return None
     if digits.startswith("0"):
         digits = "27" + digits[1:]
     if digits.startswith("27") and len(digits) >= 11:
         return digits
     return None
+
 
 def _extract_destination_number(payload: dict) -> str | None:
     try:
@@ -51,11 +69,13 @@ def _extract_destination_number(payload: dict) -> str | None:
     except Exception:
         return None
 
+
 def _extract_sender_number(payload: dict) -> str | None:
     try:
         return payload["entry"][0]["changes"][0]["value"]["messages"][0]["from"]
     except Exception:
         return None
+
 
 def _extract_message_text(payload: dict) -> str | None:
     try:
@@ -63,11 +83,13 @@ def _extract_message_text(payload: dict) -> str | None:
     except Exception:
         return None
 
+
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    # ---- T-01 Parse payload ----
     try:
         payload = await request.json()
     except Exception:
@@ -85,9 +107,11 @@ async def whatsapp_webhook(
     logger.info("Sender number: %s", sender_number)
     logger.info("Message text: %s", message_text)
 
-    # ------------------------------------------------------------------
-    # ADMIN COMMAND: ADD CLIENT (number-only)
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # ADMIN COMMANDS (silent)
+    # ==================================================================
+
+    # ---- ADD CLIENT: <number> ----
     if sender_number in ADMIN_ALLOWLIST and message_text.upper().startswith("ADD CLIENT:"):
         try:
             _, body = message_text.split(":", 1)
@@ -111,9 +135,7 @@ async def whatsapp_webhook(
                 logger.info("ADD CLIENT ignored: duplicate %s", msisdn)
                 return Response(status_code=status.HTTP_200_OK)
 
-            contact = Contact(
-                contact_number=msisdn,
-            )
+            contact = Contact(contact_number=msisdn)
             db.add(contact)
             db.commit()
             logger.info("ADD CLIENT success: %s", msisdn)
@@ -124,9 +146,50 @@ async def whatsapp_webhook(
 
         return Response(status_code=status.HTTP_200_OK)
 
-    # ------------------------------------------------------------------
-    # Existing pipeline (unchanged)
-    # ------------------------------------------------------------------
+    # ---- REMOVE CLIENT: <number> ----
+    if sender_number in ADMIN_ALLOWLIST and message_text.upper().startswith("REMOVE CLIENT:"):
+        try:
+            _, body = message_text.split(":", 1)
+            parts = body.strip().split()
+
+            if not parts:
+                logger.warning("REMOVE CLIENT rejected: empty body")
+                return Response(status_code=status.HTTP_200_OK)
+
+            msisdn = _normalise_msisdn(parts[-1])
+            if not msisdn:
+                logger.warning("REMOVE CLIENT rejected: invalid number")
+                return Response(status_code=status.HTTP_200_OK)
+
+            existing = (
+                db.query(Contact)
+                .filter(Contact.contact_number == msisdn)
+                .one_or_none()
+            )
+            if not existing:
+                logger.info("REMOVE CLIENT ignored: not found %s", msisdn)
+                return Response(status_code=status.HTTP_200_OK)
+
+            # Delete contact so they won't be included in broadcasts later
+            db.delete(existing)
+            db.commit()
+            logger.info("REMOVE CLIENT success: %s", msisdn)
+
+        except IntegrityError:
+            db.rollback()
+            # If DB FK constraints prevent deletion, we keep MVP safe:
+            # The contact remains, but we log loudly so we can decide next.
+            logger.exception("REMOVE CLIENT failed due to DB constraints (FK).")
+        except Exception:
+            db.rollback()
+            logger.exception("REMOVE CLIENT failed")
+
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ==================================================================
+    # Existing pipeline (unchanged) - inbound FAQs and session replies
+    # ==================================================================
+
     wa_number = (
         db.query(WhatsAppNumber)
         .filter(WhatsAppNumber.destination_number == destination_number)
@@ -149,11 +212,7 @@ async def whatsapp_webhook(
         .one_or_none()
     )
     if not contact:
-        contact = Contact(
-            contact_number=sender_number,
-            opted_in=True,
-            source="qr",
-        )
+        contact = Contact(contact_number=sender_number)
         db.add(contact)
         db.commit()
         db.refresh(contact)
