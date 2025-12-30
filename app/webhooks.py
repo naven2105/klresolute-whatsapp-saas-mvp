@@ -113,8 +113,6 @@ async def whatsapp_webhook(
 
             contact = Contact(
                 contact_number=msisdn,
-                opted_in=True,
-                source="admin_add",
             )
             db.add(contact)
             db.commit()
