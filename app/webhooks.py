@@ -6,14 +6,18 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Inbound WhatsApp webhook handler.
-Admin commands (Tier 1 in progress):
-- ADD CLIENT: <number>              (silent)
-- REMOVE CLIENT: <number>           (silent)
+
+Tier 1 Admin Commands (with confirmations):
+- ADD CLIENT: <number>
+- REMOVE CLIENT: <number>
+- SEND: <number> <message>
 
 Notes:
-- Admin allowlist is OUTBOUND_TEST_ALLOWLIST (comma-separated MSISDNs)
+- Admin allowlist is OUTBOUND_TEST_ALLOWLIST (comma-separated MSISDNs like 2762xxxxxxx)
 - REMOVE CLIENT removes the contact from the broadcast list (future updates),
   but does NOT block inbound messages from that number.
+- Admin confirmations are session messages (no templates).
+- Client operational messages (SEND) are session messages.
 """
 
 import logging
@@ -108,22 +112,26 @@ async def whatsapp_webhook(
     logger.info("Message text: %s", message_text)
 
     # ==================================================================
-    # ADMIN COMMANDS (silent)
+    # ADMIN COMMANDS (with confirmations)
     # ==================================================================
+    is_admin = sender_number in ADMIN_ALLOWLIST
 
     # ---- ADD CLIENT: <number> ----
-    if sender_number in ADMIN_ALLOWLIST and message_text.upper().startswith("ADD CLIENT:"):
+    if is_admin and message_text.upper().startswith("ADD CLIENT:"):
+        from app.messaging.admin_messenger import AdminMessenger
+
+        admin_msg = AdminMessenger()
         try:
             _, body = message_text.split(":", 1)
             parts = body.strip().split()
 
             if not parts:
-                logger.warning("ADD CLIENT rejected: empty body")
+                admin_msg.confirm(sender_number, "⚠️ Use: ADD CLIENT: <number>")
                 return Response(status_code=status.HTTP_200_OK)
 
             msisdn = _normalise_msisdn(parts[-1])
             if not msisdn:
-                logger.warning("ADD CLIENT rejected: invalid number")
+                admin_msg.confirm(sender_number, "⚠️ Invalid number")
                 return Response(status_code=status.HTTP_200_OK)
 
             existing = (
@@ -132,33 +140,39 @@ async def whatsapp_webhook(
                 .one_or_none()
             )
             if existing:
-                logger.info("ADD CLIENT ignored: duplicate %s", msisdn)
+                admin_msg.confirm(sender_number, f"ℹ️ Client already exists: {msisdn}")
                 return Response(status_code=status.HTTP_200_OK)
 
             contact = Contact(contact_number=msisdn)
             db.add(contact)
             db.commit()
+
             logger.info("ADD CLIENT success: %s", msisdn)
+            admin_msg.confirm(sender_number, f"✅ Client added: {msisdn}")
 
         except Exception:
             db.rollback()
             logger.exception("ADD CLIENT failed")
+            admin_msg.confirm(sender_number, "❌ Failed to add client")
 
         return Response(status_code=status.HTTP_200_OK)
 
     # ---- REMOVE CLIENT: <number> ----
-    if sender_number in ADMIN_ALLOWLIST and message_text.upper().startswith("REMOVE CLIENT:"):
+    if is_admin and message_text.upper().startswith("REMOVE CLIENT:"):
+        from app.messaging.admin_messenger import AdminMessenger
+
+        admin_msg = AdminMessenger()
         try:
             _, body = message_text.split(":", 1)
             parts = body.strip().split()
 
             if not parts:
-                logger.warning("REMOVE CLIENT rejected: empty body")
+                admin_msg.confirm(sender_number, "⚠️ Use: REMOVE CLIENT: <number>")
                 return Response(status_code=status.HTTP_200_OK)
 
             msisdn = _normalise_msisdn(parts[-1])
             if not msisdn:
-                logger.warning("REMOVE CLIENT rejected: invalid number")
+                admin_msg.confirm(sender_number, "⚠️ Invalid number")
                 return Response(status_code=status.HTTP_200_OK)
 
             existing = (
@@ -168,21 +182,67 @@ async def whatsapp_webhook(
             )
             if not existing:
                 logger.info("REMOVE CLIENT ignored: not found %s", msisdn)
+                admin_msg.confirm(sender_number, f"ℹ️ Client not found: {msisdn}")
                 return Response(status_code=status.HTTP_200_OK)
 
-            # Delete contact so they won't be included in broadcasts later
             db.delete(existing)
             db.commit()
+
             logger.info("REMOVE CLIENT success: %s", msisdn)
+            admin_msg.confirm(sender_number, f"✅ Client removed: {msisdn}")
 
         except IntegrityError:
             db.rollback()
-            # If DB FK constraints prevent deletion, we keep MVP safe:
-            # The contact remains, but we log loudly so we can decide next.
             logger.exception("REMOVE CLIENT failed due to DB constraints (FK).")
+            admin_msg.confirm(sender_number, "❌ Cannot remove (linked records)")
         except Exception:
             db.rollback()
             logger.exception("REMOVE CLIENT failed")
+            admin_msg.confirm(sender_number, "❌ Failed to remove client")
+
+        return Response(status_code=status.HTTP_200_OK)
+
+    # ---- SEND: <number> <message> ----
+    if is_admin and message_text.upper().startswith("SEND:"):
+        from app.messaging.admin_messenger import AdminMessenger
+        from app.messaging.client_messenger import ClientMessenger
+
+        admin_msg = AdminMessenger()
+        client_msg = ClientMessenger()
+
+        try:
+            _, body = message_text.split(":", 1)
+            parts = body.strip().split(maxsplit=1)
+
+            if len(parts) < 2:
+                admin_msg.confirm(sender_number, "⚠️ Use: SEND: <number> <message>")
+                return Response(status_code=status.HTTP_200_OK)
+
+            msisdn = _normalise_msisdn(parts[0])
+            text = parts[1].strip()
+
+            if not msisdn or not text:
+                admin_msg.confirm(sender_number, "⚠️ Invalid number or message")
+                return Response(status_code=status.HTTP_200_OK)
+
+            contact = (
+                db.query(Contact)
+                .filter(Contact.contact_number == msisdn)
+                .one_or_none()
+            )
+            if not contact:
+                admin_msg.confirm(sender_number, f"⚠️ Client not found: {msisdn}")
+                return Response(status_code=status.HTTP_200_OK)
+
+            # Client operational message (session)
+            client_msg.send_session(msisdn, text)
+
+            logger.info("SEND success to %s", msisdn)
+            admin_msg.confirm(sender_number, f"✅ Message sent to {msisdn}")
+
+        except Exception:
+            logger.exception("SEND failed")
+            admin_msg.confirm(sender_number, "❌ Failed to send message")
 
         return Response(status_code=status.HTTP_200_OK)
 
