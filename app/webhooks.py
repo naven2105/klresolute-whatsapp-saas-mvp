@@ -11,6 +11,7 @@ Admin commands (Tier 1 – LOCKED):
 - ADD CLIENT: <number>
 - REMOVE CLIENT: <number>
 - SEND: <number> <message>
+- BROADCAST: <message>
 - COUNT
 - PAUSE
 - RESUME
@@ -23,6 +24,8 @@ Standards:
 - Contacts table is source of truth
 - Contact exists = opted in
 - No schema changes required
+- PAUSE blocks all outbound (SEND + BROADCAST)
+- Admin numbers never receive BROADCAST
 """
 
 import logging
@@ -219,4 +222,59 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
             return Response(status_code=200)
 
+        # -------- BROADCAST --------
+        if upper.startswith("BROADCAST:"):
+            if client.is_paused:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="Outbound is PAUSED. RESUME to continue.",
+                )
+                return Response(status_code=200)
+
+            broadcast_text = message_text.split(":", 1)[1].strip()
+            if not broadcast_text:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="BROADCAST failed. Format: BROADCAST: <message>",
+                )
+                return Response(status_code=200)
+
+            recipients = (
+                db.query(Contact)
+                .filter(~Contact.contact_number.in_(list(ADMIN_ALLOWLIST)))
+                .all()
+            )
+
+            if not recipients:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="Broadcast not sent. No active clients.",
+                )
+                return Response(status_code=200)
+
+            sent = 0
+            failed = 0
+
+            for c in recipients:
+                try:
+                    meta.send_generic_business_update_template(
+                        to_msisdn=c.contact_number,
+                        blob_text=broadcast_text,
+                    )
+                    sent += 1
+                except Exception:
+                    failed += 1
+                    continue
+
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=f"Broadcast complete. Sent: {sent}. Failed: {failed}.",
+            )
+            logger.info("BROADCAST by %s sent=%s failed=%s", sender_number, sent, failed)
+            return Response(status_code=200)
+
+        # Unknown admin command → ignore
+        return Response(status_code=200)
+
+    # Non-admin, non-client-command → ignore
     return Response(status_code=200)
