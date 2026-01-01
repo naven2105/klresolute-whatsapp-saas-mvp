@@ -30,8 +30,8 @@ def handle_media_message(*, db, sender: str, msg: dict, admin_allowlist: set[str
 
     meta = get_meta_client()
     meta.send_generic_business_update_template(
-        sender,
-        "Image received. It will be included in the next BROADCAST.",
+        to_msisdn=sender,
+        blob_text="Image received. It will be included in the next BROADCAST.",
     )
 
     return True

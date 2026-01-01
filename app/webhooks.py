@@ -77,7 +77,7 @@ async def whatsapp_webhook(
     # ==================================================
     if handle_media_message(
         db=db,
-        sender_number=sender,
+        sender=sender,
         msg=msg,
         admin_allowlist=ADMIN_ALLOWLIST,
     ):
