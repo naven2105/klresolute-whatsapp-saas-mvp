@@ -105,7 +105,6 @@ async def whatsapp_webhook(
             db=db,
             sender_number=sender,
             message_text=msg["text"]["body"],
-            admin_allowlist=ADMIN_ALLOWLIST,
         ):
             return Response(status_code=200)
 
