@@ -5,27 +5,9 @@ Path: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Inbound WhatsApp webhook handler.
-
-Admin commands (Tier 1 – LOCKED):
-- ADD CLIENT: <number>
-- REMOVE CLIENT: <number>
-- SEND: <number> <message>
-- BROADCAST: <message>
-- COUNT
-- PAUSE
-- RESUME
-
-Client commands:
-- STOP    (remove contact)
-- RESUME  (add contact)
-
-Standards:
-- Contacts table is source of truth
-- Contact exists = opted in
-- No schema changes required
-- PAUSE blocks all outbound (SEND + BROADCAST)
-- Admin numbers never receive BROADCAST
+Inbound WhatsApp webhook entrypoint.
+- Parse payload
+- Route to correct handler (media → admin → client)
 """
 
 import logging
@@ -36,8 +18,12 @@ from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Client, Contact
+from app.models import Client
 from app.outbound.factory import get_meta_client
+
+from app.handlers.admin_commands import handle_admin_command
+from app.handlers.client_commands import handle_client_command
+from app.handlers.media_handler import handle_media_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
@@ -61,220 +47,68 @@ def _normalise_msisdn(raw: str | None) -> str | None:
     return None
 
 
-def _extract(payload: dict):
+def _extract_message(payload: dict):
     try:
-        value = payload["entry"][0]["changes"][0]["value"]
-        return (
-            value["messages"][0]["from"],
-            value["messages"][0]["text"]["body"],
-        )
+        msg = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+        sender = msg.get("from")
+        return msg, sender
     except Exception:
         return None, None
 
 
 @router.post("/whatsapp")
-async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
+async def whatsapp_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+):
     try:
         payload = await request.json()
     except Exception:
         return Response(status_code=200)
 
-    sender_number, message_text = _extract(payload)
-    sender_number = _normalise_msisdn(sender_number)
+    msg, sender_raw = _extract_message(payload)
+    sender = _normalise_msisdn(sender_raw)
 
-    if not sender_number or not message_text:
+    if not msg or not sender:
         return Response(status_code=200)
 
-    upper = message_text.upper().strip()
-    meta = get_meta_client()
-
-    # ==================================================
-    # CLIENT SELF-SERVICE
-    # ==================================================
-    if upper == "STOP":
-        contact = db.query(Contact).filter(Contact.contact_number == sender_number).one_or_none()
-        if contact:
-            db.delete(contact)
-            db.commit()
-
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text="You have been removed. You will no longer receive updates.",
-        )
+    # --------------------------------------------------
+    # 1. MEDIA HANDLER (admin image intake)
+    # --------------------------------------------------
+    if handle_media_message(
+        db=db,
+        sender=sender,
+        msg=msg,
+        admin_allowlist=ADMIN_ALLOWLIST,
+    ):
         return Response(status_code=200)
 
-    if upper == "RESUME" and sender_number not in ADMIN_ALLOWLIST:
-        existing = db.query(Contact).filter(Contact.contact_number == sender_number).one_or_none()
-        if not existing:
-            db.add(Contact(contact_number=sender_number))
-            db.commit()
+    # --------------------------------------------------
+    # 2. ADMIN COMMANDS (Tier-1)
+    # --------------------------------------------------
+    if msg.get("type") == "text":
+        text = msg["text"]["body"]
 
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text="You have been added back. You will receive updates again.",
-        )
+        if handle_admin_command(
+            db=db,
+            sender_number=sender,
+            message_text=text,
+            admin_allowlist=ADMIN_ALLOWLIST,
+        ):
+            return Response(status_code=200)
+
+    # --------------------------------------------------
+    # 3. CLIENT SELF-SERVICE (STOP / RESUME)
+    # --------------------------------------------------
+    if handle_client_command(
+        db=db,
+        sender=sender,
+        msg=msg,
+        admin_allowlist=ADMIN_ALLOWLIST,
+    ):
         return Response(status_code=200)
 
-    # ==================================================
-    # ADMIN COMMANDS
-    # ==================================================
-    if sender_number in ADMIN_ALLOWLIST:
-        client = db.query(Client).first()
-        if not client:
-            return Response(status_code=200)
-
-        # -------- PAUSE --------
-        if upper == "PAUSE":
-            client.is_paused = True
-            db.commit()
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text="Outbound messaging is now PAUSED.",
-            )
-            return Response(status_code=200)
-
-        # -------- RESUME --------
-        if upper == "RESUME":
-            client.is_paused = False
-            db.commit()
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text="Outbound messaging has been RESUMED.",
-            )
-            return Response(status_code=200)
-
-        # -------- COUNT --------
-        if upper == "COUNT":
-            total = db.query(Contact).count()
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=f"Active clients: {total}",
-            )
-            return Response(status_code=200)
-
-        # -------- ADD CLIENT --------
-        if upper.startswith("ADD CLIENT:"):
-            msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
-            if msisdn:
-                exists = db.query(Contact).filter(Contact.contact_number == msisdn).one_or_none()
-                if not exists:
-                    db.add(Contact(contact_number=msisdn))
-                    db.commit()
-                    msg = f"Client {msisdn} added."
-                else:
-                    msg = f"Client {msisdn} already exists."
-
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text=msg,
-                )
-            return Response(status_code=200)
-
-        # -------- REMOVE CLIENT --------
-        if upper.startswith("REMOVE CLIENT:"):
-            msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
-            contact = db.query(Contact).filter(Contact.contact_number == msisdn).one_or_none()
-            if contact:
-                db.delete(contact)
-                db.commit()
-                msg = f"Client {msisdn} removed."
-            else:
-                msg = f"Client {msisdn} not found."
-
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=msg,
-            )
-            return Response(status_code=200)
-
-        # -------- SEND --------
-        if upper.startswith("SEND:"):
-            if client.is_paused:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text="Outbound is PAUSED. RESUME to continue.",
-                )
-                return Response(status_code=200)
-
-            try:
-                _, body = message_text.split(":", 1)
-                raw, text = body.strip().split(maxsplit=1)
-                msisdn = _normalise_msisdn(raw)
-
-                contact = db.query(Contact).filter(Contact.contact_number == msisdn).one_or_none()
-                if not contact:
-                    raise ValueError()
-
-                meta.send_generic_business_update_template(
-                    to_msisdn=msisdn,
-                    blob_text=text,
-                )
-
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text=f"Message sent to {msisdn}.",
-                )
-            except Exception:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text="SEND failed. Format: SEND: <number> <message>",
-                )
-
-            return Response(status_code=200)
-
-        # -------- BROADCAST --------
-        if upper.startswith("BROADCAST:"):
-            if client.is_paused:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text="Outbound is PAUSED. RESUME to continue.",
-                )
-                return Response(status_code=200)
-
-            broadcast_text = message_text.split(":", 1)[1].strip()
-            if not broadcast_text:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text="BROADCAST failed. Format: BROADCAST: <message>",
-                )
-                return Response(status_code=200)
-
-            recipients = (
-                db.query(Contact)
-                .filter(~Contact.contact_number.in_(list(ADMIN_ALLOWLIST)))
-                .all()
-            )
-
-            if not recipients:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text="Broadcast not sent. No active clients.",
-                )
-                return Response(status_code=200)
-
-            sent = 0
-            failed = 0
-
-            for c in recipients:
-                try:
-                    meta.send_generic_business_update_template(
-                        to_msisdn=c.contact_number,
-                        blob_text=broadcast_text,
-                    )
-                    sent += 1
-                except Exception:
-                    failed += 1
-                    continue
-
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=f"Broadcast complete. Sent: {sent}. Failed: {failed}.",
-            )
-            logger.info("BROADCAST by %s sent=%s failed=%s", sender_number, sent, failed)
-            return Response(status_code=200)
-
-        # Unknown admin command → ignore
-        return Response(status_code=200)
-
-    # Non-admin, non-client-command → ignore
+    # --------------------------------------------------
+    # Ignore everything else (MVP)
+    # --------------------------------------------------
     return Response(status_code=200)
