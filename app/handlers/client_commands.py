@@ -72,7 +72,7 @@ def handle_client_command(
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
             blob_text="You have been added back and will receive updates again.",
-        )
+        )   
         return True
 
     return False
