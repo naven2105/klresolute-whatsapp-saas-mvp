@@ -100,13 +100,14 @@ async def whatsapp_webhook(
     # ==================================================
     # 3. CLIENT SELF-SERVICE (STOP / RESUME)
     # ==================================================
-    if handle_client_command(
-        db=db,
-        sender_number=sender,
-        msg=msg,
-        admin_allowlist=ADMIN_ALLOWLIST,
-    ):
-        return Response(status_code=200)
+    if msg.get("type") == "text":
+        if handle_client_command(
+            db=db,
+            sender_number=sender,
+            message_text=msg["text"]["body"],
+            admin_allowlist=ADMIN_ALLOWLIST,
+        ):
+            return Response(status_code=200)
 
     # ==================================================
     # Ignore everything else (MVP)
