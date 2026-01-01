@@ -8,9 +8,9 @@ Purpose:
 Meta WhatsApp Cloud API client.
 
 Supports:
-- Session text messages
-- Template messages (broadcast text)
-- Image messages (admin broadcast image)
+- Session text messages (admin confirmations, SEND)
+- Generic business update template (broadcast text)
+- Image messages using existing Meta media_id (image broadcast)
 """
 
 from dataclasses import dataclass
@@ -41,7 +41,7 @@ class MetaWhatsAppClient:
         self._session = session or requests.Session()
 
     # ---------------------------------------------------------
-    # SESSION MESSAGE (admin + SEND)
+    # SESSION MESSAGE (admin + SEND command)
     # ---------------------------------------------------------
     def send_session_message(self, *, to_msisdn: str, text: str) -> MetaSendResult:
         if not text:
@@ -54,12 +54,33 @@ class MetaWhatsAppClient:
             "text": {"body": text},
         }
 
-        return self._post(payload)
+        headers = {
+            "Authorization": f"Bearer {self._settings.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        resp = self._session.post(
+            self._settings.messages_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw_text": resp.text}
+
+        return MetaSendResult(
+            ok=200 <= resp.status_code < 300,
+            status_code=resp.status_code,
+            response_json=data,
+        )
 
     # ---------------------------------------------------------
-    # IMAGE MESSAGE (admin broadcast image)
+    # IMAGE MESSAGE (admin image broadcast)
     # ---------------------------------------------------------
-    def send_image(
+    def send_image_message(
         self,
         *,
         to_msisdn: str,
@@ -67,20 +88,42 @@ class MetaWhatsAppClient:
         caption: Optional[str] = None,
     ) -> MetaSendResult:
         if not media_id:
-            raise MetaWhatsAppError("media_id is required")
-
-        image_payload: Dict[str, Any] = {"id": media_id}
-        if caption:
-            image_payload["caption"] = caption
+            raise MetaWhatsAppError("media_id is required for image send")
 
         payload = {
             "messaging_product": "whatsapp",
             "to": to_msisdn,
             "type": "image",
-            "image": image_payload,
+            "image": {
+                "id": media_id,
+            },
         }
 
-        return self._post(payload)
+        if caption:
+            payload["image"]["caption"] = caption
+
+        headers = {
+            "Authorization": f"Bearer {self._settings.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        resp = self._session.post(
+            self._settings.messages_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw_text": resp.text}
+
+        return MetaSendResult(
+            ok=200 <= resp.status_code < 300,
+            status_code=resp.status_code,
+            response_json=data,
+        )
 
     # ---------------------------------------------------------
     # TEMPLATE MESSAGE (broadcast text)
@@ -111,27 +154,6 @@ class MetaWhatsAppClient:
                 }
             ]
 
-        return self._post(payload)
-
-    def send_generic_business_update_template(
-        self,
-        *,
-        to_msisdn: str,
-        blob_text: str,
-    ) -> MetaSendResult:
-        if not blob_text:
-            raise MetaWhatsAppError("blob_text cannot be empty")
-
-        return self.send_template(
-            to_msisdn=to_msisdn,
-            template_name="generic_business_update",
-            body_params=[blob_text],
-        )
-
-    # ---------------------------------------------------------
-    # INTERNAL POST
-    # ---------------------------------------------------------
-    def _post(self, payload: Dict[str, Any]) -> MetaSendResult:
         headers = {
             "Authorization": f"Bearer {self._settings.access_token}",
             "Content-Type": "application/json",
@@ -153,4 +175,23 @@ class MetaWhatsAppClient:
             ok=200 <= resp.status_code < 300,
             status_code=resp.status_code,
             response_json=data,
+        )
+
+    def send_generic_business_update_template(
+        self,
+        *,
+        to_msisdn: str,
+        blob_text: str,
+    ) -> MetaSendResult:
+        if not blob_text:
+            raise MetaWhatsAppError("blob_text cannot be empty")
+
+        if len(blob_text) > 900:
+            raise MetaWhatsAppError("blob_text too long")
+
+        return self.send_template(
+            to_msisdn=to_msisdn,
+            template_name="generic_business_update",
+            language_code="en_US",
+            body_params=[blob_text],
         )
