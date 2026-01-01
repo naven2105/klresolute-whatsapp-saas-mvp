@@ -1,37 +1,87 @@
 """
 File: app/handlers/media_handler.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin image intake (single image MVP).
+Handle admin image messages.
+
+RULE (LOCKED):
+- Admin sends an image → image is broadcast IMMEDIATELY
+- Optional caption from admin
+- If no caption → default caption is used
+- No pending state
+- No second command
 """
 
-from app.outbound.factory import get_meta_client
+from sqlalchemy.orm import Session
 
-PENDING_IMAGE = {
-    "media_id": None,
-    "caption": None,
-}
+from app.models import Contact, Client
+from app.outbound.factory import get_meta_client
 
 DEFAULT_CAPTION = "📸 Today’s update"
 
 
-def handle_media_message(*, db, sender: str, msg: dict, admin_allowlist: set[str]) -> bool:
+def handle_media_message(
+    *,
+    db: Session,
+    sender: str,
+    msg: dict,
+    admin_allowlist: set[str],
+) -> bool:
+    """
+    Returns True if message was handled (image).
+    Returns False if message is NOT an image.
+    """
+
+    # Only handle images
     if msg.get("type") != "image":
         return False
 
+    # Ignore images from non-admins (silent)
     if sender not in admin_allowlist:
-        return True  # ignore silently
+        return True
 
+    meta = get_meta_client()
+
+    # Check global pause flag
+    client = db.query(Client).first()
+    if client and client.is_paused:
+        meta.send_generic_business_update_template(
+            to_msisdn=sender,
+            blob_text="Outbound is PAUSED. RESUME to continue.",
+        )
+        return True
+
+    # Extract image + caption
     media_id = msg["image"]["id"]
     caption = msg["image"].get("caption") or DEFAULT_CAPTION
 
-    PENDING_IMAGE["media_id"] = media_id
-    PENDING_IMAGE["caption"] = caption
+    # Fetch recipients (exclude admins)
+    contacts = (
+        db.query(Contact)
+        .filter(~Contact.contact_number.in_(admin_allowlist))
+        .all()
+    )
 
-    meta = get_meta_client()
+    sent = 0
+    failed = 0
+
+    for c in contacts:
+        try:
+            meta.send_image_message(
+                to_msisdn=c.contact_number,
+                media_id=media_id,
+                caption=caption,
+            )
+            sent += 1
+        except Exception:
+            failed += 1
+            continue
+
+    # One confirmation to admin
     meta.send_generic_business_update_template(
         to_msisdn=sender,
-        blob_text="Image received. It will be included in the next BROADCAST.",
+        blob_text=f"Image broadcast sent. Delivered: {sent}. Failed: {failed}.",
     )
 
     return True
