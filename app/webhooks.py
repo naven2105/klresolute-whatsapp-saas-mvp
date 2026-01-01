@@ -18,7 +18,6 @@ from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.outbound.factory import get_meta_client
 
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
@@ -73,7 +72,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # ==================================================
-    # 1. MEDIA HANDLER (admin image intake)
+    # 1. MEDIA HANDLER (admin image intake → immediate broadcast)
     # ==================================================
     if handle_media_message(
         db=db,
@@ -84,11 +83,12 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # ==================================================
-    # 2. ADMIN COMMANDS (Tier-1)
+    # TEXT MESSAGE ROUTING
     # ==================================================
     if msg.get("type") == "text":
-        text = msg["text"]["body"].strip()
+        text = msg["text"]["body"]
 
+        # 2. ADMIN COMMANDS
         if handle_admin_command(
             db=db,
             sender_number=sender,
@@ -97,18 +97,16 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-    # ==================================================
-    # 3. CLIENT SELF-SERVICE (STOP / RESUME)
-    # ==================================================
-    if msg.get("type") == "text":
+        # 3. CLIENT SELF-SERVICE
         if handle_client_command(
             db=db,
             sender_number=sender,
-            message_text=msg["text"]["body"],
+            message_text=text,
         ):
             return Response(status_code=200)
 
     # ==================================================
     # Ignore everything else (MVP)
     # ==================================================
-    return Response(status_code=200)
+    return Response(status_code=200)  
+    
