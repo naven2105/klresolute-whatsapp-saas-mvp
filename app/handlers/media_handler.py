@@ -43,15 +43,6 @@ def handle_media_message(
 
     meta = get_meta_client()
 
-    # Check global pause flag
-    client = db.query(Client).first()
-    if client and client.is_paused:
-        meta.send_generic_business_update_template(
-            to_msisdn=sender,
-            blob_text="Outbound is PAUSED. RESUME to continue.",
-        )
-        return True
-
     # Extract image + caption
     media_id = msg["image"]["id"]
     caption = msg["image"].get("caption") or DEFAULT_CAPTION
@@ -60,7 +51,7 @@ def handle_media_message(
     contacts = (
         db.query(Contact)
         .filter(~Contact.contact_number.in_(admin_allowlist))
-        .all()
+        .all()  
     )
 
     sent = 0
