@@ -18,7 +18,6 @@ from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Client
 from app.outbound.factory import get_meta_client
 
 from app.handlers.admin_commands import handle_admin_command
@@ -29,6 +28,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
+# Admin allowlist (comma-separated MSISDNs)
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
@@ -37,9 +37,9 @@ ADMIN_ALLOWLIST = {
 
 
 def _normalise_msisdn(raw: str | None) -> str | None:
-    digits = re.sub(r"\D", "", raw or "")
-    if not digits:
+    if not raw:
         return None
+    digits = re.sub(r"\D", "", raw)
     if digits.startswith("0"):
         digits = "27" + digits[1:]
     if digits.startswith("27") and len(digits) >= 11:
@@ -72,9 +72,9 @@ async def whatsapp_webhook(
     if not msg or not sender:
         return Response(status_code=200)
 
-    # --------------------------------------------------
+    # ==================================================
     # 1. MEDIA HANDLER (admin image intake)
-    # --------------------------------------------------
+    # ==================================================
     if handle_media_message(
         db=db,
         sender=sender,
@@ -83,11 +83,11 @@ async def whatsapp_webhook(
     ):
         return Response(status_code=200)
 
-    # --------------------------------------------------
+    # ==================================================
     # 2. ADMIN COMMANDS (Tier-1)
-    # --------------------------------------------------
+    # ==================================================
     if msg.get("type") == "text":
-        text = msg["text"]["body"]
+        text = msg["text"]["body"].strip()
 
         if handle_admin_command(
             db=db,
@@ -97,9 +97,9 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-    # --------------------------------------------------
+    # ==================================================
     # 3. CLIENT SELF-SERVICE (STOP / RESUME)
-    # --------------------------------------------------
+    # ==================================================
     if handle_client_command(
         db=db,
         sender=sender,
@@ -108,7 +108,7 @@ async def whatsapp_webhook(
     ):
         return Response(status_code=200)
 
-    # --------------------------------------------------
+    # ==================================================
     # Ignore everything else (MVP)
-    # --------------------------------------------------
+    # ==================================================
     return Response(status_code=200)
