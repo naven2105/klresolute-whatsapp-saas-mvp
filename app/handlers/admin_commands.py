@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.models import Client, Contact
 from app.outbound.factory import get_meta_client
-from app.handlers.media_handler import PENDING_IMAGE, DEFAULT_CAPTION
 
 
 def _normalise_msisdn(raw: str | None) -> str | None:
@@ -164,14 +163,6 @@ def handle_admin_command(
         sent = 0
 
         for c in contacts:
-            # --- IMAGE FIRST ---
-            if PENDING_IMAGE["media_id"]:
-                meta.send_image(
-                    to_msisdn=c.contact_number,
-                    media_id=PENDING_IMAGE["media_id"],
-                    caption=PENDING_IMAGE["caption"] or DEFAULT_CAPTION,
-                )
-
             # --- TEXT SECOND ---
             if text:
                 meta.send_generic_business_update_template(
@@ -180,10 +171,6 @@ def handle_admin_command(
                 )
 
             sent += 1
-
-        # clear image after broadcast
-        PENDING_IMAGE["media_id"] = None
-        PENDING_IMAGE["caption"] = None
 
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
