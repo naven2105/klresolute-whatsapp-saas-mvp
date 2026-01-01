@@ -2,15 +2,15 @@ from __future__ import annotations
 
 """
 File: app/outbound/meta.py
-Path: app/outbound/meta.py
-
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Meta WhatsApp Cloud API client.
+
 Supports:
-- Session messages (admin + operational SEND)
-- Generic business update template
+- Session text messages
+- Template messages (broadcast text)
+- Image messages (admin broadcast image)
 """
 
 from dataclasses import dataclass
@@ -41,7 +41,7 @@ class MetaWhatsAppClient:
         self._session = session or requests.Session()
 
     # ---------------------------------------------------------
-    # SESSION MESSAGE (admin + SEND command)
+    # SESSION MESSAGE (admin + SEND)
     # ---------------------------------------------------------
     def send_session_message(self, *, to_msisdn: str, text: str) -> MetaSendResult:
         if not text:
@@ -54,31 +54,36 @@ class MetaWhatsAppClient:
             "text": {"body": text},
         }
 
-        headers = {
-            "Authorization": f"Bearer {self._settings.access_token}",
-            "Content-Type": "application/json",
-        }
-
-        resp = self._session.post(
-            self._settings.messages_url,
-            json=payload,
-            headers=headers,
-            timeout=30,
-        )
-
-        try:
-            data = resp.json()
-        except Exception:
-            data = {"raw_text": resp.text}
-
-        return MetaSendResult(
-            ok=200 <= resp.status_code < 300,
-            status_code=resp.status_code,
-            response_json=data,
-        )
+        return self._post(payload)
 
     # ---------------------------------------------------------
-    # TEMPLATE MESSAGE (broadcast)
+    # IMAGE MESSAGE (admin broadcast image)
+    # ---------------------------------------------------------
+    def send_image(
+        self,
+        *,
+        to_msisdn: str,
+        media_id: str,
+        caption: Optional[str] = None,
+    ) -> MetaSendResult:
+        if not media_id:
+            raise MetaWhatsAppError("media_id is required")
+
+        image_payload: Dict[str, Any] = {"id": media_id}
+        if caption:
+            image_payload["caption"] = caption
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to_msisdn,
+            "type": "image",
+            "image": image_payload,
+        }
+
+        return self._post(payload)
+
+    # ---------------------------------------------------------
+    # TEMPLATE MESSAGE (broadcast text)
     # ---------------------------------------------------------
     def send_template(
         self,
@@ -106,6 +111,27 @@ class MetaWhatsAppClient:
                 }
             ]
 
+        return self._post(payload)
+
+    def send_generic_business_update_template(
+        self,
+        *,
+        to_msisdn: str,
+        blob_text: str,
+    ) -> MetaSendResult:
+        if not blob_text:
+            raise MetaWhatsAppError("blob_text cannot be empty")
+
+        return self.send_template(
+            to_msisdn=to_msisdn,
+            template_name="generic_business_update",
+            body_params=[blob_text],
+        )
+
+    # ---------------------------------------------------------
+    # INTERNAL POST
+    # ---------------------------------------------------------
+    def _post(self, payload: Dict[str, Any]) -> MetaSendResult:
         headers = {
             "Authorization": f"Bearer {self._settings.access_token}",
             "Content-Type": "application/json",
@@ -127,20 +153,4 @@ class MetaWhatsAppClient:
             ok=200 <= resp.status_code < 300,
             status_code=resp.status_code,
             response_json=data,
-        )
-
-    def send_generic_business_update_template(
-        self, *, to_msisdn: str, blob_text: str
-    ) -> MetaSendResult:
-        if not blob_text:
-            raise MetaWhatsAppError("blob_text cannot be empty")
-
-        if len(blob_text) > 900:
-            raise MetaWhatsAppError("blob_text too long")
-
-        return self.send_template(
-            to_msisdn=to_msisdn,
-            template_name="generic_business_update",
-            language_code="en_US",
-            body_params=[blob_text],
         )
