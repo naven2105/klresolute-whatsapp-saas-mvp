@@ -16,7 +16,7 @@ from app.outbound.settings import load_meta_settings
 
 #specific client profile details
 #  
-from app.config.client_profile import ABOUT_TEXT
+from app.profiles.client_profile import ABOUT_TEXT
 
 
 # =========================

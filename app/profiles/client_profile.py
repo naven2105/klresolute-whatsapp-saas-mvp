@@ -1,9 +1,6 @@
 """
-client_profile.py
-
 Client-specific business details.
-This file is safe to edit per customer.
-No logic. No imports from handlers.
+Safe to edit per customer.
 """
 
 BUSINESS_NAME = "Your Store Name"
