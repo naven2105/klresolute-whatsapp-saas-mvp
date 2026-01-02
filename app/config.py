@@ -1,4 +1,5 @@
 """
+app/config.py
 Application configuration
 Environment-driven (Render compatible)
 """

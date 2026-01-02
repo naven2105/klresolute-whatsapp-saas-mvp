@@ -17,9 +17,10 @@ Rules enforced:
 - One outbound reply per inbound message
 """
 
+import os
+
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import MetaWhatsAppSettings
-from app.config import OUTBOUND_TEST_ALLOWLIST
 
 
 # =========================
@@ -54,7 +55,25 @@ FEEDBACK_ACK_TEXT = (
 
 
 # =========================
-# Client Setup
+# Environment / Admin Setup
+# =========================
+
+def _get_admin_msisdn() -> str:
+    """
+    Admin number is environment-driven (Render compatible).
+    Hand-over rule: Admin number = OUTBOUND_TEST_ALLOWLIST
+    """
+    admin = os.getenv("OUTBOUND_TEST_ALLOWLIST", "").strip()
+    if not admin:
+        raise RuntimeError("OUTBOUND_TEST_ALLOWLIST is not set (admin MSISDN required)")
+    return admin
+
+
+ADMIN_MSISDN = _get_admin_msisdn()
+
+
+# =========================
+# Meta Client
 # =========================
 
 _meta_client = MetaWhatsAppClient(settings=MetaWhatsAppSettings())
@@ -69,14 +88,11 @@ def _normalise_text(text: str) -> str:
     return text.strip().upper()
 
 
-def _send_text(to_number: str, text: str):
-    _meta_client.send_session_message(
-        to_msisdn=to_number,
-        text=text,
-    )
+def _send_text(to_number: str, text: str) -> None:
+    _meta_client.send_session_message(to_msisdn=to_number, text=text)
 
 
-def _send_menu(to_number: str):
+def _send_menu(to_number: str) -> None:
     _send_text(to_number, MENU_TEXT)
 
 
@@ -84,7 +100,7 @@ def _send_menu(to_number: str):
 # Main Entry Point
 # =========================
 
-def handle_client_message(client_number: str, message_text: str):
+def handle_client_message(client_number: str, message_text: str) -> None:
     """
     Entry point for all client messages.
 
@@ -99,29 +115,26 @@ def handle_client_message(client_number: str, message_text: str):
 
     keyword = _normalise_text(message_text)
 
-    # ---- MENU ----
     if keyword == "MENU":
         _send_menu(client_number)
         return
 
-    # ---- ABOUT ----
     if keyword == "ABOUT":
         _send_text(client_number, ABOUT_TEXT)
         return
 
-    # ---- FEEDBACK ----
     if keyword == "FEEDBACK":
         # Acknowledge client
         _send_text(client_number, FEEDBACK_ACK_TEXT)
 
-        # Notify admin
+        # Notify admin (owner)
         admin_message = (
             "📩 Client feedback received.\n\n"
             f"From: {client_number}\n"
             "Please check WhatsApp to view the message."
         )
-        _send_text(OUTBOUND_TEST_ALLOWLIST, admin_message)
+        _send_text(ADMIN_MSISDN, admin_message)
         return
 
-    # ---- FALLBACK ----
+    # Fallback: always show the menu
     _send_menu(client_number)
