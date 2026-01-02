@@ -13,12 +13,12 @@ Responsibilities:
 Rules enforced:
 - Exact keyword matching only
 - No shared state
-- No database writes (db passed in is ignored)
+- No database writes
 - One outbound reply per inbound message
 """
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
@@ -93,10 +93,10 @@ def _send_menu(to_number: str) -> None:
 
 
 # =========================
-# Core Logic
+# Core Logic (pure)
 # =========================
 
-def handle_client_message(client_number: str, message_text: str) -> None:
+def _handle(client_number: str, message_text: str) -> None:
     if not message_text:
         _send_menu(client_number)
         return
@@ -112,10 +112,8 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         return
 
     if keyword == "FEEDBACK":
-        # Acknowledge client
         _send_text(client_number, FEEDBACK_ACK_TEXT)
 
-        # Notify admin (no DB, no shared state)
         admin_message = (
             "📩 Client feedback received.\n\n"
             f"From: {client_number}\n"
@@ -124,22 +122,36 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         _send_text(ADMIN_MSISDN, admin_message)
         return
 
-    # Fallback: always show the menu
     _send_menu(client_number)
 
 
 # =========================
-# Compatibility Entry Point
+# Webhook Compatibility Entry
 # =========================
-# webhooks.py imports handle_client_command and passes db=...
-# We accept db and ignore it (Tier 1 client menu does not use the DB).
 
-def handle_client_command(
-    client_number: str,
-    message_text: str,
-    db: Optional[Any] = None,
-    **kwargs: Any,
-) -> None:
-    _ = db
-    _ = kwargs
-    handle_client_message(client_number, message_text)
+def handle_client_command(*args: Any, **kwargs: Any) -> None:
+    """
+    Compatibility wrapper for webhooks.py.
+
+    Expected (somewhere in args/kwargs):
+    - client_number
+    - message_text
+    """
+
+    client_number = kwargs.get("client_number")
+    message_text = kwargs.get("message_text")
+
+    # Fallback: positional extraction if used
+    if client_number is None and len(args) >= 1:
+        client_number = args[0]
+
+    if message_text is None and len(args) >= 2:
+        message_text = args[1]
+
+    if not client_number:
+        raise TypeError("handle_client_command: client_number not provided")
+
+    if message_text is None:
+        message_text = ""
+
+    _handle(client_number, message_text)
