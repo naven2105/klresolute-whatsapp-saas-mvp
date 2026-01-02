@@ -14,6 +14,10 @@ from typing import Any, Dict
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 
+#specific client profile details
+#  
+from app.config.client_profile import ABOUT_TEXT
+
 
 # =========================
 # Static Text Configuration
@@ -29,16 +33,7 @@ MENU_TEXT = (
     "a staff member will reply shortly."
 )
 
-ABOUT_TEXT = (
-    "🏪 Store Information\n\n"
-    "⏰ Trading Hours:\n"
-    "Mon–Sat: 8am – 6pm\n"
-    "Sun & Public Holidays: Closed\n\n"
-    "📍 Address:\n"
-    "123 Main Road, Your Area\n\n"
-    "📞 Contact:\n"
-    "081 000 0000"
-)
+
 
 FEEDBACK_ACK_TEXT = (
     "🙏 Thank you for your feedback.\n"
