@@ -59,9 +59,6 @@ FEEDBACK_ACK_TEXT = (
 # =========================
 
 def _get_admin_msisdn() -> str:
-    """
-    Admin number is environment-driven (Render compatible).
-    """
     admin = os.getenv("OUTBOUND_TEST_ALLOWLIST", "").strip()
     if not admin:
         raise RuntimeError("OUTBOUND_TEST_ALLOWLIST is not set (admin MSISDN required)")
@@ -85,7 +82,6 @@ _meta_client = MetaWhatsAppClient(
 # =========================
 
 def _normalise_text(text: str) -> str:
-    """Normalise inbound text for exact keyword matching."""
     return text.strip().upper()
 
 
@@ -101,14 +97,10 @@ def _send_menu(to_number: str) -> None:
 
 
 # =========================
-# Main Entry Point
+# Core Logic
 # =========================
 
 def handle_client_message(client_number: str, message_text: str) -> None:
-    """
-    Entry point for all client messages.
-    """
-
     if not message_text:
         _send_menu(client_number)
         return
@@ -124,10 +116,8 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         return
 
     if keyword == "FEEDBACK":
-        # Acknowledge client
         _send_text(client_number, FEEDBACK_ACK_TEXT)
 
-        # Notify admin
         admin_message = (
             "📩 Client feedback received.\n\n"
             f"From: {client_number}\n"
@@ -136,5 +126,13 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         _send_text(ADMIN_MSISDN, admin_message)
         return
 
-    # Fallback
     _send_menu(client_number)
+
+
+# =========================
+# Compatibility Alias
+# =========================
+# webhooks.py expects this name – DO NOT REMOVE
+
+def handle_client_command(client_number: str, message_text: str) -> None:
+    handle_client_message(client_number, message_text)
