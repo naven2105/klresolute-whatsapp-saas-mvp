@@ -17,7 +17,8 @@ Rules enforced:
 - One outbound reply per inbound message
 """
 
-from app.outbound.meta import send_text_message
+from app.outbound.meta import MetaWhatsAppClient
+from app.outbound.settings import MetaWhatsAppSettings
 from app.config import OUTBOUND_TEST_ALLOWLIST
 
 
@@ -53,6 +54,13 @@ FEEDBACK_ACK_TEXT = (
 
 
 # =========================
+# Client Setup
+# =========================
+
+_meta_client = MetaWhatsAppClient(settings=MetaWhatsAppSettings())
+
+
+# =========================
 # Helper Functions
 # =========================
 
@@ -61,8 +69,15 @@ def _normalise_text(text: str) -> str:
     return text.strip().upper()
 
 
+def _send_text(to_number: str, text: str):
+    _meta_client.send_session_message(
+        to_msisdn=to_number,
+        text=text,
+    )
+
+
 def _send_menu(to_number: str):
-    send_text_message(to_number, MENU_TEXT)
+    _send_text(to_number, MENU_TEXT)
 
 
 # =========================
@@ -91,22 +106,21 @@ def handle_client_message(client_number: str, message_text: str):
 
     # ---- ABOUT ----
     if keyword == "ABOUT":
-        send_text_message(client_number, ABOUT_TEXT)
+        _send_text(client_number, ABOUT_TEXT)
         return
 
     # ---- FEEDBACK ----
     if keyword == "FEEDBACK":
         # Acknowledge client
-        send_text_message(client_number, FEEDBACK_ACK_TEXT)
+        _send_text(client_number, FEEDBACK_ACK_TEXT)
 
-        # Forward feedback notice to admin
-        admin_number = OUTBOUND_TEST_ALLOWLIST
+        # Notify admin
         admin_message = (
-            "📩 *Client Feedback Received*\n\n"
-            f"From: {client_number}\n\n"
-            "Please check WhatsApp for the full message."
+            "📩 Client feedback received.\n\n"
+            f"From: {client_number}\n"
+            "Please check WhatsApp to view the message."
         )
-        send_text_message(admin_number, admin_message)
+        _send_text(OUTBOUND_TEST_ALLOWLIST, admin_message)
         return
 
     # ---- FALLBACK ----
