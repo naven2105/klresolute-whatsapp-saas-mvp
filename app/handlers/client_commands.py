@@ -3,22 +3,13 @@ client_commands.py
 
 Tier 1 Client Interaction Handler
 ---------------------------------
-Responsibilities:
-- Handle client-originated WhatsApp messages
-- Provide a simple keyword-based menu
-- Route feedback to admin
-- Never infer intent
-- Never answer stock or availability questions
-
-Rules enforced:
-- Exact keyword matching only
-- No shared state
-- No database writes
-- One outbound reply per inbound message
+- Keyword-based client menu
+- ABOUT / FEEDBACK
+- Safe fallback
 """
 
 import os
-from typing import Any
+from typing import Any, Dict
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
@@ -62,7 +53,7 @@ FEEDBACK_ACK_TEXT = (
 def _get_admin_msisdn() -> str:
     admin = os.getenv("OUTBOUND_TEST_ALLOWLIST", "").strip()
     if not admin:
-        raise RuntimeError("OUTBOUND_TEST_ALLOWLIST is not set (admin MSISDN required)")
+        raise RuntimeError("OUTBOUND_TEST_ALLOWLIST is not set")
     return admin
 
 
@@ -70,14 +61,14 @@ ADMIN_MSISDN = _get_admin_msisdn()
 
 
 # =========================
-# Meta Client (canonical)
+# Meta Client
 # =========================
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
 # =========================
-# Helper Functions
+# Helpers
 # =========================
 
 def _normalise_text(text: str) -> str:
@@ -117,7 +108,7 @@ def _handle(client_number: str, message_text: str) -> None:
         admin_message = (
             "📩 Client feedback received.\n\n"
             f"From: {client_number}\n"
-            "Please check WhatsApp to view the message."
+            "Please check WhatsApp."
         )
         _send_text(ADMIN_MSISDN, admin_message)
         return
@@ -126,32 +117,24 @@ def _handle(client_number: str, message_text: str) -> None:
 
 
 # =========================
-# Webhook Compatibility Entry
+# Webhook Entry (REALITY)
 # =========================
 
 def handle_client_command(*args: Any, **kwargs: Any) -> None:
     """
-    Compatibility wrapper for webhooks.py.
-
-    Expected (somewhere in args/kwargs):
-    - client_number
-    - message_text
+    Expected to receive a webhook payload dict as first arg.
     """
 
-    client_number = kwargs.get("client_number")
-    message_text = kwargs.get("message_text")
+    if not args:
+        raise TypeError("handle_client_command: payload missing")
 
-    # Fallback: positional extraction if used
-    if client_number is None and len(args) >= 1:
-        client_number = args[0]
+    payload: Dict[str, Any] = args[0]
 
-    if message_text is None and len(args) >= 2:
-        message_text = args[1]
+    # Adjust keys ONLY if your webhook structure differs
+    client_number = payload.get("from")
+    message_text = payload.get("text", "")
 
     if not client_number:
-        raise TypeError("handle_client_command: client_number not provided")
-
-    if message_text is None:
-        message_text = ""
+        raise TypeError("handle_client_command: 'from' missing in payload")
 
     _handle(client_number, message_text)
