@@ -13,11 +13,12 @@ Responsibilities:
 Rules enforced:
 - Exact keyword matching only
 - No shared state
-- No database writes
+- No database writes (db passed in is ignored)
 - One outbound reply per inbound message
 """
 
 import os
+from typing import Any, Optional
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
@@ -72,9 +73,7 @@ ADMIN_MSISDN = _get_admin_msisdn()
 # Meta Client (canonical)
 # =========================
 
-_meta_client = MetaWhatsAppClient(
-    settings=load_meta_settings()
-)
+_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
 # =========================
@@ -86,10 +85,7 @@ def _normalise_text(text: str) -> str:
 
 
 def _send_text(to_number: str, text: str) -> None:
-    _meta_client.send_session_message(
-        to_msisdn=to_number,
-        text=text,
-    )
+    _meta_client.send_session_message(to_msisdn=to_number, text=text)
 
 
 def _send_menu(to_number: str) -> None:
@@ -116,8 +112,10 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         return
 
     if keyword == "FEEDBACK":
+        # Acknowledge client
         _send_text(client_number, FEEDBACK_ACK_TEXT)
 
+        # Notify admin (no DB, no shared state)
         admin_message = (
             "📩 Client feedback received.\n\n"
             f"From: {client_number}\n"
@@ -126,13 +124,22 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         _send_text(ADMIN_MSISDN, admin_message)
         return
 
+    # Fallback: always show the menu
     _send_menu(client_number)
 
 
 # =========================
-# Compatibility Alias
+# Compatibility Entry Point
 # =========================
-# webhooks.py expects this name – DO NOT REMOVE
+# webhooks.py imports handle_client_command and passes db=...
+# We accept db and ignore it (Tier 1 client menu does not use the DB).
 
-def handle_client_command(client_number: str, message_text: str) -> None:
+def handle_client_command(
+    client_number: str,
+    message_text: str,
+    db: Optional[Any] = None,
+    **kwargs: Any,
+) -> None:
+    _ = db
+    _ = kwargs
     handle_client_message(client_number, message_text)
