@@ -1,78 +1,113 @@
 """
-File: app/handlers/client_commands.py
-Project: KLResolute WhatsApp SaaS MVP
+client_commands.py
 
-Purpose:
-Handle client self-service commands only.
+Tier 1 Client Interaction Handler
+---------------------------------
+Responsibilities:
+- Handle client-originated WhatsApp messages
+- Provide a simple keyword-based menu
+- Route feedback to admin
+- Never infer intent
+- Never answer stock or availability questions
 
-Supported commands:
-- STOP    → remove client from contacts (opt-out)
-- RESUME  → add client back to contacts (opt-in)
-
-Rules:
-- Contacts table is the source of truth
-- Deleting a contact = opted out
-- No admin logic here
+Rules enforced:
+- Exact keyword matching only
+- No shared state
+- No database writes
+- One outbound reply per inbound message
 """
 
-from sqlalchemy.orm import Session
-
-from app.models import Contact
-from app.outbound.factory import get_meta_client
+from app.outbound.meta import send_text_message
+from app.config import OUTBOUND_TEST_ALLOWLIST
 
 
-def handle_client_command(
-    *,
-    db: Session,
-    sender_number: str,
-    message_text: str,
-) -> bool:
+# =========================
+# Static Text Configuration
+# =========================
+
+MENU_TEXT = (
+    "👋 Hi! Welcome.\n"
+    "Please reply with *one word* from the options below:\n\n"
+    "ABOUT – Store details\n"
+    "FEEDBACK – Send feedback to the owner\n"
+    "MENU – See this menu again\n\n"
+    "If your question is about stock or availability, "
+    "a staff member will reply shortly."
+)
+
+ABOUT_TEXT = (
+    "🏪 Store Information\n\n"
+    "⏰ Trading Hours:\n"
+    "Mon–Sat: 8am – 6pm\n"
+    "Sun & Public Holidays: Closed\n\n"
+    "📍 Address:\n"
+    "123 Main Road, Your Area\n\n"
+    "📞 Contact:\n"
+    "081 000 0000"
+)
+
+FEEDBACK_ACK_TEXT = (
+    "🙏 Thank you for your feedback.\n"
+    "We’ve shared it with the owner."
+)
+
+
+# =========================
+# Helper Functions
+# =========================
+
+def _normalise_text(text: str) -> str:
+    """Normalise inbound text for exact keyword matching."""
+    return text.strip().upper()
+
+
+def _send_menu(to_number: str):
+    send_text_message(to_number, MENU_TEXT)
+
+
+# =========================
+# Main Entry Point
+# =========================
+
+def handle_client_message(client_number: str, message_text: str):
     """
-    Returns True if a client command was handled.
-    Returns False if message is NOT a client command.
+    Entry point for all client messages.
+
+    Args:
+        client_number (str): WhatsApp number of client
+        message_text (str): Raw inbound text
     """
 
-    upper = message_text.strip().upper()
-    meta = get_meta_client()
+    if not message_text:
+        _send_menu(client_number)
+        return
 
-    # ---------------------------
-    # STOP → opt out
-    # ---------------------------
-    if upper == "STOP":
-        contact = (
-            db.query(Contact)
-            .filter(Contact.contact_number == sender_number)
-            .one_or_none()
+    keyword = _normalise_text(message_text)
+
+    # ---- MENU ----
+    if keyword == "MENU":
+        _send_menu(client_number)
+        return
+
+    # ---- ABOUT ----
+    if keyword == "ABOUT":
+        send_text_message(client_number, ABOUT_TEXT)
+        return
+
+    # ---- FEEDBACK ----
+    if keyword == "FEEDBACK":
+        # Acknowledge client
+        send_text_message(client_number, FEEDBACK_ACK_TEXT)
+
+        # Forward feedback notice to admin
+        admin_number = OUTBOUND_TEST_ALLOWLIST
+        admin_message = (
+            "📩 *Client Feedback Received*\n\n"
+            f"From: {client_number}\n\n"
+            "Please check WhatsApp for the full message."
         )
+        send_text_message(admin_number, admin_message)
+        return
 
-        if contact:
-            db.delete(contact)
-            db.commit()
-
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text="You have been removed and will no longer receive updates.",
-        )
-        return True
-
-    # ---------------------------
-    # RESUME → opt in
-    # ---------------------------
-    if upper == "RESUME":
-        contact = (
-            db.query(Contact)
-            .filter(Contact.contact_number == sender_number)
-            .one_or_none()
-        )
-
-        if not contact:
-            db.add(Contact(contact_number=sender_number))
-            db.commit()
-
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text="You have been added back and will receive updates again.",
-        )   
-        return True
-
-    return False
+    # ---- FALLBACK ----
+    _send_menu(client_number)
