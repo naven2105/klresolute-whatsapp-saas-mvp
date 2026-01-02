@@ -20,7 +20,7 @@ Rules enforced:
 import os
 
 from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import MetaWhatsAppSettings
+from app.outbound.settings import load_meta_settings
 
 
 # =========================
@@ -61,7 +61,6 @@ FEEDBACK_ACK_TEXT = (
 def _get_admin_msisdn() -> str:
     """
     Admin number is environment-driven (Render compatible).
-    Hand-over rule: Admin number = OUTBOUND_TEST_ALLOWLIST
     """
     admin = os.getenv("OUTBOUND_TEST_ALLOWLIST", "").strip()
     if not admin:
@@ -73,10 +72,12 @@ ADMIN_MSISDN = _get_admin_msisdn()
 
 
 # =========================
-# Meta Client
+# Meta Client (canonical)
 # =========================
 
-_meta_client = MetaWhatsAppClient(settings=MetaWhatsAppSettings())
+_meta_client = MetaWhatsAppClient(
+    settings=load_meta_settings()
+)
 
 
 # =========================
@@ -89,7 +90,10 @@ def _normalise_text(text: str) -> str:
 
 
 def _send_text(to_number: str, text: str) -> None:
-    _meta_client.send_session_message(to_msisdn=to_number, text=text)
+    _meta_client.send_session_message(
+        to_msisdn=to_number,
+        text=text,
+    )
 
 
 def _send_menu(to_number: str) -> None:
@@ -103,10 +107,6 @@ def _send_menu(to_number: str) -> None:
 def handle_client_message(client_number: str, message_text: str) -> None:
     """
     Entry point for all client messages.
-
-    Args:
-        client_number (str): WhatsApp number of client
-        message_text (str): Raw inbound text
     """
 
     if not message_text:
@@ -127,7 +127,7 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         # Acknowledge client
         _send_text(client_number, FEEDBACK_ACK_TEXT)
 
-        # Notify admin (owner)
+        # Notify admin
         admin_message = (
             "📩 Client feedback received.\n\n"
             f"From: {client_number}\n"
@@ -136,5 +136,5 @@ def handle_client_message(client_number: str, message_text: str) -> None:
         _send_text(ADMIN_MSISDN, admin_message)
         return
 
-    # Fallback: always show the menu
+    # Fallback
     _send_menu(client_number)
