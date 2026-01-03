@@ -81,33 +81,37 @@ def _send_menu(to_number: str) -> None:
     _send_text(to_number, MENU_TEXT)
 
 
-def _extract_from_payload(payload: Dict[str, Any]) -> Tuple[Optional[str], str]:
+def _extract_from_payload(payload: Dict[str, Any]):
     """
-    Try common payload shapes.
-    We only need:
-      - client_number (sender)
-      - message_text
+    Extract client number and text from Meta WhatsApp Cloud payload.
     """
-    client_number = (
-        payload.get("from")
-        or payload.get("client_number")
-        or payload.get("sender")
-        or payload.get("from_msisdn")
-        or payload.get("wa_id")
-    )
+    try:
+        entry = payload.get("entry", [])
+        if not entry:
+            return None, ""
 
-    message_text = (
-        payload.get("text")
-        or payload.get("message_text")
-        or payload.get("body")
-        or ""
-    )
+        changes = entry[0].get("changes", [])
+        if not changes:
+            return None, ""
 
-    if isinstance(message_text, dict):
-        # Sometimes text is nested like {"body": "..."}
-        message_text = message_text.get("body", "")
+        value = changes[0].get("value", {})
+        messages = value.get("messages", [])
+        if not messages:
+            return None, ""
 
-    return (client_number, str(message_text))
+        msg = messages[0]
+
+        client_number = msg.get("from")
+
+        text = ""
+        if "text" in msg and isinstance(msg["text"], dict):
+            text = msg["text"].get("body", "")
+
+        return client_number, text
+
+    except Exception:
+        return None, ""
+
 
 
 def _extract_from_args_kwargs(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Tuple[Optional[str], str]:
