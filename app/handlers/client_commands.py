@@ -4,12 +4,9 @@ File: app/handlers/client_commands.py
 Purpose:
 Tier 1 Client & Admin Menu Handler
 
-Rules:
-- Admins get admin menu
-- Clients & guests get client menu
-- JOIN / STOP allowed for clients & guests
-- Admin still authoritative
-- Always respond
+Admin UX polish:
+- Clear grouped admin menu
+- No behavioural changes
 """
 
 import os
@@ -26,12 +23,16 @@ from app.services.contacts_service import add_contact, remove_contact
 
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
+    "Clients\n"
     "ADD CLIENT: <number>\n"
     "REMOVE CLIENT: <number>\n"
+    "COUNT\n\n"
+    "Messaging\n"
     "SEND: <number> <message>\n"
-    "BROADCAST: <message>\n"
-    "COUNT\n"
-    "PAUSE\n\n"
+    "BROADCAST: <message>\n\n"
+    "System\n"
+    "PAUSE – stop all outbound messages\n"
+    "RESUME – resume outbound messages\n\n"
     "📸 Send an image to broadcast it."
 )
 
@@ -53,20 +54,11 @@ FEEDBACK_ACK_TEXT = (
 )
 
 
-# =========================
-# Admin Allowlist
-# =========================
-
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
     if n.strip()
 }
-
-
-# =========================
-# Meta Client
-# =========================
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
@@ -78,60 +70,45 @@ def _send_text(to_number: str, text: str) -> None:
     )
 
 
-# =========================
-# ENTRY POINT
-# =========================
-
 def handle_client_command(
     *,
     db,
     sender_number: str,
     message_text: str,
 ) -> bool:
-    """
-    Client & guest handler.
-    """
 
     is_admin = sender_number in ADMIN_ALLOWLIST
-    keyword = (message_text or "").strip()
-    upper = keyword.upper()
+    text = (message_text or "").strip()
+    upper = text.upper()
 
-    # ---------------- MENU ----------------
     if upper == "MENU" or not upper:
-        _send_text(
-            sender_number,
-            ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT,
-        )
+        _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
         return True
 
-    # ---------------- JOIN ----------------
     if upper == "JOIN" and not is_admin:
         added = add_contact(db, msisdn=sender_number)
         _send_text(
             sender_number,
-            "✅ You’ll now receive updates from us."
+            "You’ll now receive updates from us."
             if added
-            else "ℹ️ You’re already receiving updates.",
+            else "You’re already receiving updates.",
         )
         return True
 
-    # ---------------- STOP ----------------
     if upper == "STOP" and not is_admin:
         removed = remove_contact(db, msisdn=sender_number)
         _send_text(
             sender_number,
-            "🛑 You’ve been opted out. You won’t receive updates."
+            "You’ve been opted out."
             if removed
-            else "ℹ️ You were not subscribed.",
+            else "You were not subscribed.",
         )
         return True
 
-    # ---------------- ABOUT ----------------
     if upper == "ABOUT" and not is_admin:
         _send_text(sender_number, ABOUT_TEXT)
         return True
 
-    # ---------------- FEEDBACK ----------------
     if upper.startswith("FEEDBACK") and not is_admin:
         _send_text(sender_number, FEEDBACK_ACK_TEXT)
 
@@ -146,9 +123,6 @@ def handle_client_command(
 
         return True
 
-    # ---------------- FALLBACK ----------------
-    _send_text(
-        sender_number,
-        ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT,
-    )
+    _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
     return True
+    

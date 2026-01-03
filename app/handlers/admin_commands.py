@@ -5,9 +5,10 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 All Tier-1 admin commands including IMAGE BROADCAST.
 
-Notes:
-- Contact add/remove delegated to contacts_service
-- Behaviour unchanged
+Admin UX polish:
+- Clear, factual confirmations
+- Neutral admin notifications
+- No misleading prompts
 """
 
 import re
@@ -45,7 +46,7 @@ def handle_admin_command(
     if not client:
         return True
 
-    # ---------------- PAUSE / RESUME ----------------
+    # ---------------- SYSTEM ----------------
     if upper == "PAUSE":
         client.is_paused = True
         db.commit()
@@ -111,12 +112,12 @@ def handle_admin_command(
         )
         return True
 
-    # ---------------- SEND (single client) ----------------
+    # ---------------- SEND ----------------
     if upper.startswith("SEND:"):
         if client.is_paused:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
-                blob_text="Outbound is PAUSED. RESUME to continue.",
+                blob_text="Outbound messaging is PAUSED.",
             )
             return True
 
@@ -150,12 +151,12 @@ def handle_admin_command(
 
         return True
 
-    # ---------------- BROADCAST (TEXT + IMAGE) ----------------
+    # ---------------- BROADCAST ----------------
     if upper.startswith("BROADCAST"):
         if client.is_paused:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
-                blob_text="Outbound is PAUSED. RESUME to continue.",
+                blob_text="Outbound messaging is PAUSED.",
             )
             return True
 
@@ -170,7 +171,6 @@ def handle_admin_command(
         )
 
         sent = 0
-
         for c in contacts:
             if text:
                 meta.send_generic_business_update_template(
