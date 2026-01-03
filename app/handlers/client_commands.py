@@ -2,11 +2,12 @@
 File: app/handlers/client_commands.py
 
 Purpose:
-Tier 1 Client Interaction Handler
+Tier 1 Client & Admin Menu Handler
 
 Rules:
-- Always respond to any text message
-- Exact keyword matching only
+- Admins get admin menu
+- Clients & guests get client menu
+- Always respond
 - No DB writes
 - No shared state
 """
@@ -19,10 +20,22 @@ from app.profiles.client_profile import ABOUT_TEXT
 
 
 # =========================
-# Static Text
+# Menus
 # =========================
 
-MENU_TEXT = (
+ADMIN_MENU_TEXT = (
+    "🛠️ *Admin Menu*\n\n"
+    "ADD CLIENT: <number>\n"
+    "REMOVE CLIENT: <number>\n"
+    "SEND: <number> <message>\n"
+    "BROADCAST: <message>\n"
+    "COUNT\n"
+    "PAUSE\n"
+    "RESUME\n\n"
+    "📸 Send an image to broadcast it."
+)
+
+CLIENT_MENU_TEXT = (
     "👋 Hi! Welcome.\n"
     "Please reply with *one word* from the options below:\n\n"
     "ABOUT – Store details\n"
@@ -74,24 +87,29 @@ def handle_client_command(
     message_text: str,
 ) -> bool:
     """
-    Always returns True after responding.
+    Always responds.
+    Admins get admin menu.
+    Clients & guests get client menu.
     """
 
-    # Normalise
+    is_admin = sender_number in ADMIN_ALLOWLIST
     keyword = (message_text or "").strip().upper()
 
-    # MENU
+    # MENU (admin or client)
     if keyword == "MENU" or not keyword:
-        _send_text(sender_number, MENU_TEXT)
+        if is_admin:
+            _send_text(sender_number, ADMIN_MENU_TEXT)
+        else:
+            _send_text(sender_number, CLIENT_MENU_TEXT)
         return True
 
-    # ABOUT
-    if keyword == "ABOUT":
+    # ABOUT (clients & guests only)
+    if keyword == "ABOUT" and not is_admin:
         _send_text(sender_number, ABOUT_TEXT)
         return True
 
-    # FEEDBACK
-    if keyword == "FEEDBACK":
+    # FEEDBACK (clients & guests only)
+    if keyword == "FEEDBACK" and not is_admin:
         _send_text(sender_number, FEEDBACK_ACK_TEXT)
 
         admin_message = (
@@ -105,6 +123,10 @@ def handle_client_command(
 
         return True
 
-    # FALLBACK — always show menu
-    _send_text(sender_number, MENU_TEXT)
+    # FALLBACK
+    if is_admin:
+        _send_text(sender_number, ADMIN_MENU_TEXT)
+    else:
+        _send_text(sender_number, CLIENT_MENU_TEXT)
+
     return True
