@@ -1,5 +1,5 @@
 """
-app/handlers/client_commands.py
+client_commands.py
 
 Tier 1 Client Interaction Handler
 ---------------------------------
@@ -214,6 +214,7 @@ def handle_client_command(*args: Any, **kwargs: Any) -> bool:
     if not client_number:
         # Don't crash the webhook. Let routing continue.
         return False
+
 
     _handle(client_number, message_text)
     return True
