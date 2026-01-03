@@ -7,9 +7,9 @@ Tier 1 Client & Admin Menu Handler
 Rules:
 - Admins get admin menu
 - Clients & guests get client menu
+- JOIN / STOP allowed for clients & guests
+- Admin still authoritative
 - Always respond
-- No DB writes
-- No shared state
 """
 
 import os
@@ -17,6 +17,7 @@ import os
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
+from app.services.contacts_service import add_contact, remove_contact
 
 
 # =========================
@@ -24,30 +25,31 @@ from app.profiles.client_profile import ABOUT_TEXT
 # =========================
 
 ADMIN_MENU_TEXT = (
-    "🛠️ *Admin Menu*\n\n"
+    "🛠️ Admin Menu\n\n"
     "ADD CLIENT: <number>\n"
     "REMOVE CLIENT: <number>\n"
     "SEND: <number> <message>\n"
     "BROADCAST: <message>\n"
     "COUNT\n"
-    "PAUSE\n"
-    "RESUME\n\n"
+    "PAUSE\n\n"
     "📸 Send an image to broadcast it."
 )
 
 CLIENT_MENU_TEXT = (
-    "👋 Hi! Welcome.\n"
-    "Please reply with *one word* from the options below:\n\n"
+    "👋 Hi! Welcome.\n\n"
+    "You can reply with one of the options below:\n\n"
     "ABOUT – Store details\n"
-    "FEEDBACK – Send feedback to the owner\n"
+    "FEEDBACK: your comments here – Feedback, join, or removal requests\n"
+    "JOIN – Receive updates from us\n"
+    "STOP – Opt out at any time\n"
     "MENU – See this menu again\n\n"
-    "If your question is about stock or availability, "
+    "If your question is about stock or availability,\n"
     "a staff member will reply shortly."
 )
 
 FEEDBACK_ACK_TEXT = (
-    "🙏 Thank you for your feedback.\n"
-    "We’ve shared it with the owner."
+    "🙏 Thank you for your message.\n"
+    "We’ve shared it with the manager."
 )
 
 
@@ -82,40 +84,61 @@ def _send_text(to_number: str, text: str) -> None:
 
 def handle_client_command(
     *,
-    db,                     # required by router, NOT used
+    db,
     sender_number: str,
     message_text: str,
 ) -> bool:
     """
-    Always responds.
-    Admins get admin menu.
-    Clients & guests get client menu.
+    Client & guest handler.
     """
 
     is_admin = sender_number in ADMIN_ALLOWLIST
-    keyword = (message_text or "").strip().upper()
+    keyword = (message_text or "").strip()
+    upper = keyword.upper()
 
-    # MENU (admin or client)
-    if keyword == "MENU" or not keyword:
-        if is_admin:
-            _send_text(sender_number, ADMIN_MENU_TEXT)
-        else:
-            _send_text(sender_number, CLIENT_MENU_TEXT)
+    # ---------------- MENU ----------------
+    if upper == "MENU" or not upper:
+        _send_text(
+            sender_number,
+            ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT,
+        )
         return True
 
-    # ABOUT (clients & guests only)
-    if keyword == "ABOUT" and not is_admin:
+    # ---------------- JOIN ----------------
+    if upper == "JOIN" and not is_admin:
+        added = add_contact(db, msisdn=sender_number)
+        _send_text(
+            sender_number,
+            "✅ You’ll now receive updates from us."
+            if added
+            else "ℹ️ You’re already receiving updates.",
+        )
+        return True
+
+    # ---------------- STOP ----------------
+    if upper == "STOP" and not is_admin:
+        removed = remove_contact(db, msisdn=sender_number)
+        _send_text(
+            sender_number,
+            "🛑 You’ve been opted out. You won’t receive updates."
+            if removed
+            else "ℹ️ You were not subscribed.",
+        )
+        return True
+
+    # ---------------- ABOUT ----------------
+    if upper == "ABOUT" and not is_admin:
         _send_text(sender_number, ABOUT_TEXT)
         return True
 
-    # FEEDBACK (clients & guests only)
-    if keyword == "FEEDBACK" and not is_admin:
+    # ---------------- FEEDBACK ----------------
+    if upper.startswith("FEEDBACK") and not is_admin:
         _send_text(sender_number, FEEDBACK_ACK_TEXT)
 
         admin_message = (
-            "📩 Client feedback received.\n\n"
+            "📩 Client message received\n\n"
             f"From: {sender_number}\n"
-            "Please check WhatsApp."
+            f"Message:\n{message_text}"
         )
 
         for admin in ADMIN_ALLOWLIST:
@@ -123,10 +146,9 @@ def handle_client_command(
 
         return True
 
-    # FALLBACK
-    if is_admin:
-        _send_text(sender_number, ADMIN_MENU_TEXT)
-    else:
-        _send_text(sender_number, CLIENT_MENU_TEXT)
-
+    # ---------------- FALLBACK ----------------
+    _send_text(
+        sender_number,
+        ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT,
+    )
     return True
