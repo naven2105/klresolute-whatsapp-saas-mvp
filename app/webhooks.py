@@ -8,7 +8,7 @@ Purpose:
 Inbound WhatsApp webhook entrypoint.
 - Parse payload
 - Route to correct handler (media → admin → client)
-- Log full processing flow for debugging
+- Minimal, production-safe logging
 """
 
 import logging
@@ -61,37 +61,32 @@ async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    logger.info("▶️ WhatsApp webhook hit")
+    # Entry log (keep)
+    logger.info("WhatsApp webhook received")
 
     try:
         payload = await request.json()
-        logger.info("📦 Payload JSON parsed")
     except Exception:
-        logger.info("❌ Failed to parse JSON payload")
+        # Keep parse failures visible
+        logger.warning("Webhook received invalid JSON payload")
         return Response(status_code=200)
 
     msg, sender_raw = _extract_message(payload)
-    logger.info(f"✉️ Message extracted: {bool(msg)} | sender_raw={sender_raw}")
-
     sender = _normalise_msisdn(sender_raw)
-    logger.info(f"📞 Normalised sender: {sender}")
 
     if not msg or not sender:
-        logger.info("⛔ No valid message or sender — exiting")
+        # Silent ignore (expected for non-message events)
         return Response(status_code=200)
 
     # ==================================================
-    # 1. MEDIA HANDLER
+    # 1. MEDIA HANDLER (admin image intake)
     # ==================================================
-    media_handled = handle_media_message(
+    if handle_media_message(
         db=db,
         sender=sender,
         msg=msg,
         admin_allowlist=ADMIN_ALLOWLIST,
-    )
-    logger.info(f"🖼️ Media handler handled={media_handled}")
-
-    if media_handled:
+    ):
         return Response(status_code=200)
 
     # ==================================================
@@ -99,22 +94,21 @@ async def whatsapp_webhook(
     # ==================================================
     if msg.get("type") == "text":
         text = msg["text"]["body"]
-        logger.info(f"💬 Text message body='{text}'")
 
-        admin_handled = handle_admin_command(
+        # Admin commands (may or may not act)
+        handle_admin_command(
             db=db,
             sender_number=sender,
             message_text=text,
             admin_allowlist=ADMIN_ALLOWLIST,
         )
-        logger.info(f"🛠️ Admin handler handled={admin_handled}")
 
-        client_handled = handle_client_command(
+        # Client / guest handling (always responds)
+        handle_client_command(
             db=db,
             sender_number=sender,
             message_text=text,
         )
-        logger.info(f"👤 Client handler handled={client_handled}")
 
-    logger.info("✅ Webhook processing complete")
+    # Exit silently
     return Response(status_code=200)
