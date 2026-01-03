@@ -8,6 +8,7 @@ Purpose:
 Inbound WhatsApp webhook entrypoint.
 - Parse payload
 - Route to correct handler (media → admin → client)
+- Log full processing flow for debugging
 """
 
 import logging
@@ -18,12 +19,12 @@ from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
@@ -60,26 +61,37 @@ async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    logger.info("▶️ WhatsApp webhook hit")
+
     try:
         payload = await request.json()
+        logger.info("📦 Payload JSON parsed")
     except Exception:
+        logger.info("❌ Failed to parse JSON payload")
         return Response(status_code=200)
 
     msg, sender_raw = _extract_message(payload)
+    logger.info(f"✉️ Message extracted: {bool(msg)} | sender_raw={sender_raw}")
+
     sender = _normalise_msisdn(sender_raw)
+    logger.info(f"📞 Normalised sender: {sender}")
 
     if not msg or not sender:
+        logger.info("⛔ No valid message or sender — exiting")
         return Response(status_code=200)
 
     # ==================================================
-    # 1. MEDIA HANDLER (admin image intake → immediate broadcast)
+    # 1. MEDIA HANDLER
     # ==================================================
-    if handle_media_message(
+    media_handled = handle_media_message(
         db=db,
         sender=sender,
         msg=msg,
         admin_allowlist=ADMIN_ALLOWLIST,
-    ):
+    )
+    logger.info(f"🖼️ Media handler handled={media_handled}")
+
+    if media_handled:
         return Response(status_code=200)
 
     # ==================================================
@@ -87,26 +99,22 @@ async def whatsapp_webhook(
     # ==================================================
     if msg.get("type") == "text":
         text = msg["text"]["body"]
+        logger.info(f"💬 Text message body='{text}'")
 
-        # 2. ADMIN COMMANDS
-        if handle_admin_command(
+        admin_handled = handle_admin_command(
             db=db,
             sender_number=sender,
             message_text=text,
             admin_allowlist=ADMIN_ALLOWLIST,
-        ):
-            return Response(status_code=200)
+        )
+        logger.info(f"🛠️ Admin handler handled={admin_handled}")
 
-        # 3. CLIENT SELF-SERVICE
-        if handle_client_command(
+        client_handled = handle_client_command(
             db=db,
             sender_number=sender,
             message_text=text,
-        ):
-            return Response(status_code=200)
+        )
+        logger.info(f"👤 Client handler handled={client_handled}")
 
-    # ==================================================
-    # Ignore everything else (MVP)
-    # ==================================================
-    return Response(status_code=200)  
-    
+    logger.info("✅ Webhook processing complete")
+    return Response(status_code=200)
