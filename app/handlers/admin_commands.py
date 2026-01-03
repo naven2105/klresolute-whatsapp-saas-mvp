@@ -4,6 +4,10 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 All Tier-1 admin commands including IMAGE BROADCAST.
+
+Notes:
+- Contact add/remove delegated to contacts_service
+- Behaviour unchanged
 """
 
 import re
@@ -11,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Client, Contact
 from app.outbound.factory import get_meta_client
+from app.services.contacts_service import add_contact, remove_contact
 
 
 def _normalise_msisdn(raw: str | None) -> str | None:
@@ -74,13 +79,12 @@ def handle_admin_command(
         if not msisdn:
             return True
 
-        contact = db.query(Contact).filter(Contact.contact_number == msisdn).one_or_none()
-        if contact:
-            msg = f"Client {msisdn} already exists."
-        else:
-            db.add(Contact(contact_number=msisdn))
-            db.commit()
-            msg = f"Client {msisdn} added."
+        added = add_contact(db, msisdn=msisdn)
+        msg = (
+            f"Client {msisdn} added."
+            if added
+            else f"Client {msisdn} already exists."
+        )
 
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
@@ -91,14 +95,15 @@ def handle_admin_command(
     # ---------------- REMOVE CLIENT ----------------
     if upper.startswith("REMOVE CLIENT:"):
         msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
-        contact = db.query(Contact).filter(Contact.contact_number == msisdn).one_or_none()
+        if not msisdn:
+            return True
 
-        if contact:
-            db.delete(contact)
-            db.commit()
-            msg = f"Client {msisdn} removed."
-        else:
-            msg = f"Client {msisdn} not found."
+        removed = remove_contact(db, msisdn=msisdn)
+        msg = (
+            f"Client {msisdn} removed."
+            if removed
+            else f"Client {msisdn} not found."
+        )
 
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
@@ -120,7 +125,11 @@ def handle_admin_command(
             raw, text = body.strip().split(maxsplit=1)
             msisdn = _normalise_msisdn(raw)
 
-            contact = db.query(Contact).filter(Contact.contact_number == msisdn).one_or_none()
+            contact = (
+                db.query(Contact)
+                .filter(Contact.contact_number == msisdn)
+                .one_or_none()
+            )
             if not contact:
                 raise ValueError()
 
@@ -163,13 +172,11 @@ def handle_admin_command(
         sent = 0
 
         for c in contacts:
-            # --- TEXT SECOND ---
             if text:
                 meta.send_generic_business_update_template(
                     to_msisdn=c.contact_number,
                     blob_text=text,
                 )
-
             sent += 1
 
         meta.send_generic_business_update_template(
