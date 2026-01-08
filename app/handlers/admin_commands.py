@@ -59,11 +59,21 @@ def handle_admin_command(
         return False
 
     meta = get_meta_client()
+    upper = message_text.strip().upper()
 
-    # ==================================================
-    # AUTO-CLOSE SURVEY (NEW – SAFE)
-    # ==================================================
-    closed = auto_close_expired_surveys(db, sender_number)
+    client = db.query(Client).first()
+    if not client:
+        return True
+
+    # ----------------------------------
+    # Resolve business identity ONCE
+    # ----------------------------------
+    business_number = getattr(client, "business_number", sender_number)
+
+    # ----------------------------------
+    # AUTO-CLOSE SURVEY (SAFE)
+    # ----------------------------------
+    closed = auto_close_expired_surveys(db, business_number)
     if closed:
         summary = build_survey_summary_text(db, closed)
         meta.send_generic_business_update_template(
@@ -71,25 +81,17 @@ def handle_admin_command(
             blob_text=summary,
         )
 
-    upper = message_text.strip().upper()
-    client = db.query(Client).first()
-
-    if not client:
-        return True
-
-    # ==================================================
-    # SAFE PAUSE FLAG (FIX)
-    # If the Client model has no is_paused column, default to False.
-    # ==================================================
+    # ----------------------------------
+    # SAFE PAUSE FLAG
+    # ----------------------------------
     paused = getattr(client, "is_paused", False)
 
     # ==================================================
     # SURVEYS (Tier 1)
     # ==================================================
 
-    # ---- END SURVEY ----
     if upper == SURVEY_COMMAND_END:
-        active = get_active_survey(db, sender_number)
+        active = get_active_survey(db, business_number)
         if not active:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
@@ -98,14 +100,12 @@ def handle_admin_command(
             return True
 
         close_survey(db, active, manual=True)
-        summary = build_survey_summary_text(db, active)
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text=summary,
+            blob_text=build_survey_summary_text(db, active),
         )
         return True
 
-    # ---- START SURVEY ----
     for command, button_set in SUPPORTED_SURVEY_COMMANDS.items():
         if upper.startswith(command):
             question = message_text.replace(command, "", 1).strip(": ").strip()
@@ -119,7 +119,7 @@ def handle_admin_command(
 
             started, survey = start_survey(
                 db=db,
-                business_number=sender_number,
+                business_number=business_number,
                 question=question,
                 button_set=button_set,
             )
@@ -168,11 +168,10 @@ def handle_admin_command(
             return True
 
     # ==================================================
-    # EXISTING COMMANDS (UNCHANGED)
+    # EXISTING COMMANDS
     # ==================================================
 
     if upper == "PAUSE":
-        # FIX: Only persist if the model supports it
         if hasattr(client, "is_paused"):
             client.is_paused = True
             db.commit()
@@ -184,7 +183,6 @@ def handle_admin_command(
         return True
 
     if upper == "RESUME":
-        # FIX: Only persist if the model supports it
         if hasattr(client, "is_paused"):
             client.is_paused = False
             db.commit()
@@ -196,10 +194,9 @@ def handle_admin_command(
         return True
 
     if upper == "COUNT":
-        total = db.query(Contact).count()
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text=f"Active clients: {total}",
+            blob_text=f"Active clients: {db.query(Contact).count()}",
         )
         return True
 
@@ -209,15 +206,13 @@ def handle_admin_command(
             return True
 
         added = add_contact(db, msisdn=msisdn)
-        msg = (
-            f"Client {msisdn} added."
-            if added
-            else f"Client {msisdn} already exists."
-        )
-
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text=msg,
+            blob_text=(
+                f"Client {msisdn} added."
+                if added
+                else f"Client {msisdn} already exists."
+            ),
         )
         return True
 
@@ -227,15 +222,13 @@ def handle_admin_command(
             return True
 
         removed = remove_contact(db, msisdn=msisdn)
-        msg = (
-            f"Client {msisdn} removed."
-            if removed
-            else f"Client {msisdn} not found."
-        )
-
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text=msg,
+            blob_text=(
+                f"Client {msisdn} removed."
+                if removed
+                else f"Client {msisdn} not found."
+            ),
         )
         return True
 
