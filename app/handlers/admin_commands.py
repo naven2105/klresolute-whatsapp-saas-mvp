@@ -78,6 +78,12 @@ def handle_admin_command(
         return True
 
     # ==================================================
+    # SAFE PAUSE FLAG (FIX)
+    # If the Client model has no is_paused column, default to False.
+    # ==================================================
+    paused = getattr(client, "is_paused", False)
+
+    # ==================================================
     # SURVEYS (Tier 1)
     # ==================================================
 
@@ -166,8 +172,11 @@ def handle_admin_command(
     # ==================================================
 
     if upper == "PAUSE":
-        client.is_paused = True
-        db.commit()
+        # FIX: Only persist if the model supports it
+        if hasattr(client, "is_paused"):
+            client.is_paused = True
+            db.commit()
+            paused = True
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
             blob_text="Outbound messaging is now PAUSED.",
@@ -175,8 +184,11 @@ def handle_admin_command(
         return True
 
     if upper == "RESUME":
-        client.is_paused = False
-        db.commit()
+        # FIX: Only persist if the model supports it
+        if hasattr(client, "is_paused"):
+            client.is_paused = False
+            db.commit()
+            paused = False
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
             blob_text="Outbound messaging has been RESUMED.",
@@ -228,7 +240,7 @@ def handle_admin_command(
         return True
 
     if upper.startswith("SEND:"):
-        if client.is_paused:
+        if paused:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
                 blob_text="Outbound messaging is PAUSED.",
@@ -266,7 +278,7 @@ def handle_admin_command(
         return True
 
     if upper.startswith("BROADCAST"):
-        if client.is_paused:
+        if paused:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
                 blob_text="Outbound messaging is PAUSED.",
