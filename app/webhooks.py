@@ -14,6 +14,7 @@ Inbound WhatsApp webhook entrypoint.
 import logging
 import os
 import re
+import json
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
@@ -89,35 +90,12 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # ==================================================
-    # 2. INTERACTIVE BUTTON RESPONSE (STORE)
+    # 2. INTERACTIVE BUTTON RESPONSE (LOG ONLY)
     # ==================================================
     if msg.get("type") == "interactive":
-        interactive = msg.get("interactive", {})
-        button_reply = interactive.get("button_reply")
-
-        if button_reply:
-            button_id = button_reply.get("id")
-            button_title = button_reply.get("title")
-
-            # Get latest active survey (Tier-1 assumption)
-            survey = (
-                db.query(Survey)
-                .filter(Survey.status == "active")
-                .order_by(Survey.started_at.desc())
-                .first()
-            )
-
-            if survey:
-                response = SurveyResponse(
-                    survey_id=survey.id,
-                    client_number=sender,
-                    button_id=button_id,
-                    tag=button_title,
-                )
-                db.add(response)
-                db.commit()
-
-            return Response(status_code=200)
+        logger.info("INTERACTIVE MESSAGE RECEIVED")
+        logger.info(json.dumps(msg, indent=2))
+        return Response(status_code=200)
 
     # ==================================================
     # 3. TEXT MESSAGE ROUTING
