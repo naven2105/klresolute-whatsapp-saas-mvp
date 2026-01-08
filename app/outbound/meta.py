@@ -11,6 +11,7 @@ Supports:
 - Session text messages (admin confirmations, SEND)
 - Generic business update template (broadcast text)
 - Image messages using existing Meta media_id (image broadcast)
+- Interactive button messages (surveys)
 """
 
 from dataclasses import dataclass
@@ -194,4 +195,80 @@ class MetaWhatsAppClient:
             template_name="generic_business_update",
             language_code="en_US",
             body_params=[blob_text],
+        )
+
+    # ---------------------------------------------------------
+    # INTERACTIVE BUTTON MESSAGE (surveys)
+    # ---------------------------------------------------------
+    def send_interactive_button_message(
+        self,
+        *,
+        to_msisdn: str,
+        body_text: str,
+        buttons: list[dict],
+        header_text: Optional[str] = None,
+    ) -> MetaSendResult:
+        """
+        Send an interactive WhatsApp button message.
+
+        buttons: list of dicts with:
+            - id: str
+            - title: str
+        """
+
+        if not body_text:
+            raise MetaWhatsAppError("body_text cannot be empty")
+
+        if not buttons or len(buttons) > 3:
+            raise MetaWhatsAppError("buttons must contain 1 to 3 items")
+
+        payload: Dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": to_msisdn,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": body_text},
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": b["id"],
+                                "title": b["title"],
+                            },
+                        }
+                        for b in buttons
+                    ]
+                },
+            },
+        }
+
+        if header_text:
+            payload["interactive"]["header"] = {
+                "type": "text",
+                "text": header_text,
+            }
+
+        headers = {
+            "Authorization": f"Bearer {self._settings.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        resp = self._session.post(
+            self._settings.messages_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw_text": resp.text}
+
+        return MetaSendResult(
+            ok=200 <= resp.status_code < 300,
+            status_code=resp.status_code,
+            response_json=data,
         )

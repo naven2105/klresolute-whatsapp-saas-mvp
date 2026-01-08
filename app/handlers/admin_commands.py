@@ -18,6 +18,25 @@ from app.models import Client, Contact
 from app.outbound.factory import get_meta_client
 from app.services.contacts_service import add_contact, remove_contact
 
+# =========================
+# Survey imports
+# =========================
+from app.survey import (
+    start_survey,
+    get_active_survey,
+    close_survey,
+    build_survey_summary_text,
+    auto_close_expired_surveys,
+    SUPPORTED_SURVEY_COMMANDS,
+    SURVEY_COMMAND_END,
+)
+from app.survey.survey_constants import (
+    ADMIN_SURVEY_STARTED_TEMPLATE,
+    ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE,
+    ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
+    SURVEY_BUTTON_SETS,
+)
+
 
 def _normalise_msisdn(raw: str | None) -> str | None:
     digits = re.sub(r"\D", "", raw or "")
@@ -39,14 +58,113 @@ def handle_admin_command(
     if sender_number not in admin_allowlist:
         return False
 
-    upper = message_text.strip().upper()
     meta = get_meta_client()
+
+    # ==================================================
+    # AUTO-CLOSE SURVEY (NEW – SAFE)
+    # ==================================================
+    closed = auto_close_expired_surveys(db, sender_number)
+    if closed:
+        summary = build_survey_summary_text(db, closed)
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=summary,
+        )
+
+    upper = message_text.strip().upper()
     client = db.query(Client).first()
 
     if not client:
         return True
 
-    # ---------------- SYSTEM ----------------
+    # ==================================================
+    # SURVEYS (Tier 1)
+    # ==================================================
+
+    # ---- END SURVEY ----
+    if upper == SURVEY_COMMAND_END:
+        active = get_active_survey(db, sender_number)
+        if not active:
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
+            )
+            return True
+
+        close_survey(db, active, manual=True)
+        summary = build_survey_summary_text(db, active)
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=summary,
+        )
+        return True
+
+    # ---- START SURVEY ----
+    for command, button_set in SUPPORTED_SURVEY_COMMANDS.items():
+        if upper.startswith(command):
+            question = message_text.replace(command, "", 1).strip(": ").strip()
+
+            if not question:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="Survey question cannot be empty.",
+                )
+                return True
+
+            started, survey = start_survey(
+                db=db,
+                business_number=sender_number,
+                question=question,
+                button_set=button_set,
+            )
+
+            if not started:
+                remaining = max(
+                    0,
+                    int(
+                        (survey.ends_at - survey.started_at).total_seconds() / 3600
+                    ),
+                )
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                        question=survey.question,
+                        hours_remaining=remaining,
+                    ),
+                )
+                return True
+
+            buttons_def = SURVEY_BUTTON_SETS[button_set]["buttons"]
+
+            contacts = (
+                db.query(Contact)
+                .filter(~Contact.contact_number.in_(admin_allowlist))
+                .all()
+            )
+
+            for c in contacts:
+                meta.send_interactive_button_message(
+                    to_msisdn=c.contact_number,
+                    header_text="🗳️ Quick question",
+                    body_text=question,
+                    buttons=[
+                        {"id": b["id"], "title": b["text"]}
+                        for b in buttons_def
+                    ],
+                )
+
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(
+                    question=question,
+                ),
+            )
+            return True
+
+    # ==================================================
+    # EXISTING COMMANDS (UNCHANGED)
+    # ==================================================
+
     if upper == "PAUSE":
         client.is_paused = True
         db.commit()
@@ -65,7 +183,6 @@ def handle_admin_command(
         )
         return True
 
-    # ---------------- COUNT ----------------
     if upper == "COUNT":
         total = db.query(Contact).count()
         meta.send_generic_business_update_template(
@@ -74,7 +191,6 @@ def handle_admin_command(
         )
         return True
 
-    # ---------------- ADD CLIENT ----------------
     if upper.startswith("ADD CLIENT:"):
         msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
         if not msisdn:
@@ -93,7 +209,6 @@ def handle_admin_command(
         )
         return True
 
-    # ---------------- REMOVE CLIENT ----------------
     if upper.startswith("REMOVE CLIENT:"):
         msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
         if not msisdn:
@@ -112,7 +227,6 @@ def handle_admin_command(
         )
         return True
 
-    # ---------------- SEND ----------------
     if upper.startswith("SEND:"):
         if client.is_paused:
             meta.send_generic_business_update_template(
@@ -151,7 +265,6 @@ def handle_admin_command(
 
         return True
 
-    # ---------------- BROADCAST ----------------
     if upper.startswith("BROADCAST"):
         if client.is_paused:
             meta.send_generic_business_update_template(

@@ -16,6 +16,17 @@ from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
 
+# =========================
+# Survey imports
+# =========================
+from app.survey import (
+    auto_close_expired_surveys,
+    get_active_survey,
+    record_response,
+    build_survey_summary_text,
+)
+from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
+
 
 # =========================
 # Menus
@@ -75,9 +86,53 @@ def handle_client_command(
     db,
     sender_number: str,
     message_text: str,
+    msg: dict | None = None,
 ) -> bool:
+    """
+    Handle client-facing commands and survey responses.
+    """
 
     is_admin = sender_number in ADMIN_ALLOWLIST
+
+    # ==================================================
+    # AUTO-CLOSE SURVEY (NEW – SAFE)
+    # ==================================================
+    closed = auto_close_expired_surveys(db, sender_number)
+    if closed:
+        summary = build_survey_summary_text(db, closed)
+        for admin in ADMIN_ALLOWLIST:
+            _send_text(admin, summary)
+
+    # ==================================================
+    # SURVEY BUTTON RESPONSE
+    # ==================================================
+    if msg and msg.get("type") == "interactive":
+        button_reply = (
+            msg.get("interactive", {})
+               .get("button_reply", {})
+               .get("id")
+        )
+
+        if button_reply:
+            active = get_active_survey(db, sender_number)
+            if active:
+                recorded = record_response(
+                    db=db,
+                    survey=active,
+                    client_number=sender_number,
+                    button_id=button_reply,
+                )
+                if recorded:
+                    _send_text(
+                        sender_number,
+                        CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
+                    )
+                return True
+
+    # ==================================================
+    # EXISTING LOGIC (UNCHANGED)
+    # ==================================================
+
     text = (message_text or "").strip()
     upper = text.upper()
 
@@ -125,4 +180,3 @@ def handle_client_command(
 
     _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
     return True
-    

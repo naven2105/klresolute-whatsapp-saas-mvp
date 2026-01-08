@@ -108,6 +108,7 @@ async def whatsapp_webhook(
             db=db,
             sender_number=sender,
             message_text=text,
+            msg=msg,
         )
 
     # Exit silently
