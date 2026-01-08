@@ -30,7 +30,6 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
-# Admin allowlist (comma-separated MSISDNs)
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
@@ -78,7 +77,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # ==================================================
-    # 1. MEDIA HANDLER (admin image intake)
+    # 1. MEDIA HANDLER
     # ==================================================
     if handle_media_message(
         db=db,
@@ -96,7 +95,13 @@ async def whatsapp_webhook(
 
         # TEMP: Auto-send survey when client replies YES
         if text.strip().upper() == "YES":
-            meta = MetaWhatsAppClient(MetaWhatsAppSettings())
+            settings = MetaWhatsAppSettings(
+                api_version=os.getenv("META_WA_API_VERSION"),
+                access_token=os.getenv("META_WA_ACCESS_TOKEN"),
+                phone_number_id=os.getenv("META_WA_PHONE_NUMBER_ID"),
+            )
+
+            meta = MetaWhatsAppClient(settings)
 
             meta.send_interactive_button_message(
                 to_msisdn=sender,
@@ -109,7 +114,6 @@ async def whatsapp_webhook(
             )
             return Response(status_code=200)
 
-        # Admin commands
         handle_admin_command(
             db=db,
             sender_number=sender,
@@ -117,7 +121,6 @@ async def whatsapp_webhook(
             admin_allowlist=ADMIN_ALLOWLIST,
         )
 
-        # Client / guest handling
         handle_client_command(
             db=db,
             sender_number=sender,
@@ -126,4 +129,3 @@ async def whatsapp_webhook(
         )
 
     return Response(status_code=200)
-  
