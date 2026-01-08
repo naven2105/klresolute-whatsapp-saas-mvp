@@ -72,6 +72,10 @@ async def whatsapp_webhook(
         logger.warning("Webhook received invalid JSON payload")
         return Response(status_code=200)
 
+    # 🔍 TEMP: log full payload to inspect Meta structure
+    logger.info("FULL PAYLOAD:")
+    logger.info(json.dumps(payload, indent=2))
+
     msg, sender_raw = _extract_message(payload)
     sender = _normalise_msisdn(sender_raw)
 
@@ -90,7 +94,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # ==================================================
-    # 2. INTERACTIVE BUTTON RESPONSE (LOG ONLY)
+    # 2. INTERACTIVE BUTTON RESPONSE (LOG ONLY FOR NOW)
     # ==================================================
     if msg.get("type") == "interactive":
         logger.info("INTERACTIVE MESSAGE RECEIVED")
