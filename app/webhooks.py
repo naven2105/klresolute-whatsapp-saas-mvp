@@ -8,15 +8,19 @@ Purpose:
 Inbound WhatsApp webhook entrypoint.
 - Parse payload
 - Route to correct handler (media → admin → client)
-- Store survey responses
+- Upsert WhatsApp end-users into clients
+- Update last_interaction_at on every inbound message
+- Store survey responses (admin-triggered surveys)
 """
 
 import logging
 import os
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import text as sql_text
 
 from app.db import get_db
 from app.handlers.admin_commands import handle_admin_command
@@ -58,6 +62,26 @@ def _extract_message(payload: dict):
         return None, None
 
 
+def _upsert_client(db: Session, client_number: str) -> None:
+    """
+    Insert client if not exists; always update last_interaction_at.
+    """
+    db.execute(
+        sql_text(
+            """
+            INSERT INTO clients (client_number, last_interaction_at)
+            VALUES (:client_number, now())
+            ON CONFLICT (client_number)
+            DO UPDATE SET
+                last_interaction_at = now(),
+                updated_at = now();
+            """
+        ),
+        {"client_number": client_number},
+    )
+    db.commit()
+
+
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
@@ -75,6 +99,11 @@ async def whatsapp_webhook(
 
     if not msg or not sender:
         return Response(status_code=200)
+
+    # --------------------------------------------------
+    # UPSERT CLIENT (ALWAYS)
+    # --------------------------------------------------
+    _upsert_client(db, sender)
 
     # --------------------------------------------------
     # MEDIA HANDLER
@@ -95,9 +124,6 @@ async def whatsapp_webhook(
         button_reply = interactive.get("button_reply")
 
         if button_reply:
-            button_id = button_reply.get("id")
-            button_title = button_reply.get("title")
-
             survey = (
                 db.query(Survey)
                 .filter(Survey.status == "active")
@@ -110,8 +136,8 @@ async def whatsapp_webhook(
                     SurveyResponse(
                         survey_id=survey.id,
                         client_number=sender,
-                        button_id=button_id,
-                        tag=button_title,
+                        button_id=button_reply.get("id"),
+                        tag=button_reply.get("title"),
                     )
                 )
                 db.commit()
@@ -125,7 +151,7 @@ async def whatsapp_webhook(
         text = msg["text"]["body"].strip()
 
         # ===============================================
-        # ADMIN: SEND SURVEY
+        # ADMIN: SEND SURVEY (NO 24h GUARD YET)
         # ===============================================
         if sender in ADMIN_ALLOWLIST and text.upper().startswith("SURVEY:"):
             question = text.split("SURVEY:", 1)[1].strip()
@@ -138,9 +164,8 @@ async def whatsapp_webhook(
                 )
                 meta = MetaWhatsAppClient(settings)
 
-                # Tier-1: all known clients
                 rows = db.execute(
-                    "SELECT DISTINCT client_number FROM clients"
+                    sql_text("SELECT client_number FROM clients WHERE is_paused = false")
                 ).fetchall()
 
                 for (client_number,) in rows:
@@ -156,7 +181,6 @@ async def whatsapp_webhook(
 
             return Response(status_code=200)
 
-        # Existing behaviour
         handle_admin_command(
             db=db,
             sender_number=sender,
