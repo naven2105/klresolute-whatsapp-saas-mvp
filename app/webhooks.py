@@ -11,12 +11,12 @@ Inbound WhatsApp webhook entrypoint.
 - Upsert WhatsApp end-users into clients
 - Update last_interaction_at on every inbound message
 - Store survey responses (admin-triggered surveys)
+- Enforce 24-hour session rule for admin surveys
 """
 
 import logging
 import os
 import re
-from datetime import datetime
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
@@ -151,7 +151,7 @@ async def whatsapp_webhook(
         text = msg["text"]["body"].strip()
 
         # ===============================================
-        # ADMIN: SEND SURVEY (NO 24h GUARD YET)
+        # ADMIN: SEND SURVEY (24h GUARDED)
         # ===============================================
         if sender in ADMIN_ALLOWLIST and text.upper().startswith("SURVEY:"):
             question = text.split("SURVEY:", 1)[1].strip()
@@ -165,7 +165,14 @@ async def whatsapp_webhook(
                 meta = MetaWhatsAppClient(settings)
 
                 rows = db.execute(
-                    sql_text("SELECT client_number FROM clients WHERE is_paused = false")
+                    sql_text(
+                        """
+                        SELECT client_number
+                        FROM clients
+                        WHERE is_paused = false
+                          AND last_interaction_at >= now() - interval '24 hours'
+                        """
+                    )
                 ).fetchall()
 
                 for (client_number,) in rows:
