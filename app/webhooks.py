@@ -22,6 +22,8 @@ from app.db import get_db
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
+from app.outbound.meta import MetaWhatsAppClient
+from app.outbound.settings import MetaWhatsAppSettings
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -61,13 +63,11 @@ async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    # Entry log (keep)
     logger.info("WhatsApp webhook received")
 
     try:
         payload = await request.json()
     except Exception:
-        # Keep parse failures visible
         logger.warning("Webhook received invalid JSON payload")
         return Response(status_code=200)
 
@@ -75,7 +75,6 @@ async def whatsapp_webhook(
     sender = _normalise_msisdn(sender_raw)
 
     if not msg or not sender:
-        # Silent ignore (expected for non-message events)
         return Response(status_code=200)
 
     # ==================================================
@@ -90,12 +89,27 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # ==================================================
-    # TEXT MESSAGE ROUTING
+    # 2. TEXT MESSAGE ROUTING
     # ==================================================
     if msg.get("type") == "text":
         text = msg["text"]["body"]
 
-        # Admin commands (may or may not act)
+        # TEMP: Auto-send survey when client replies YES
+        if text.strip().upper() == "YES":
+            meta = MetaWhatsAppClient(MetaWhatsAppSettings())
+
+            meta.send_interactive_button_message(
+                to_msisdn=sender,
+                body_text="Is the fruit fresh today?",
+                buttons=[
+                    {"id": "YES", "title": "Yes"},
+                    {"id": "NO", "title": "No"},
+                    {"id": "NOT_SURE", "title": "Not sure"},
+                ],
+            )
+            return Response(status_code=200)
+
+        # Admin commands
         handle_admin_command(
             db=db,
             sender_number=sender,
@@ -103,7 +117,7 @@ async def whatsapp_webhook(
             admin_allowlist=ADMIN_ALLOWLIST,
         )
 
-        # Client / guest handling (always responds)
+        # Client / guest handling
         handle_client_command(
             db=db,
             sender_number=sender,
@@ -111,5 +125,5 @@ async def whatsapp_webhook(
             msg=msg,
         )
 
-    # Exit silently
     return Response(status_code=200)
+  
