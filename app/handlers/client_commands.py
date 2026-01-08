@@ -173,7 +173,7 @@ def handle_client_command(
             f"Message:\n{message_text}"
         )
 
-        for admin in ADMIN_ALLOWLIST:
+        for admin in ADMIN_ALLOWLIST:  
             _send_text(admin, admin_message)
 
         return True
