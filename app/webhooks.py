@@ -9,7 +9,7 @@ import re
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import text, bindparam
+from sqlalchemy import text as sql_text
 
 from app.db import get_db
 from app.handlers.admin_commands import handle_admin_command
@@ -51,7 +51,7 @@ def _extract_message(payload: dict):
 
 def _upsert_client(db: Session, client_number: str) -> None:
     db.execute(
-        text(
+        sql_text(
             """
             INSERT INTO clients (client_number, last_interaction_at)
             VALUES (:client_number, now())
@@ -84,25 +84,14 @@ async def whatsapp_webhook(
     if not msg or not sender:
         return Response(status_code=200)
 
-    # --------------------------------------------------
-    # ALWAYS upsert client
-    # --------------------------------------------------
     _upsert_client(db, sender)
 
-    # --------------------------------------------------
-    # MEDIA
-    # --------------------------------------------------
-    if handle_media_message(
-        db=db,
-        sender=sender,
-        msg=msg,
-        admin_allowlist=ADMIN_ALLOWLIST,
-    ):
+    if handle_media_message(db=db, sender=sender, msg=msg, admin_allowlist=ADMIN_ALLOWLIST):
         return Response(status_code=200)
 
-    # --------------------------------------------------
-    # INTERACTIVE SURVEY RESPONSE
-    # --------------------------------------------------
+    # -------------------------------
+    # Interactive survey replies
+    # -------------------------------
     if msg.get("type") == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
         if reply:
@@ -124,73 +113,77 @@ async def whatsapp_webhook(
                 db.commit()
         return Response(status_code=200)
 
-    # --------------------------------------------------
+    # -------------------------------
     # TEXT
-    # --------------------------------------------------
+    # -------------------------------
     if msg.get("type") == "text":
-        text_msg = msg["text"]["body"].strip()
-        upper = text_msg.upper()
+        text = msg["text"]["body"].strip()
+        upper = text.upper()
 
-        # ==================================================
-        # ADMIN → SURVEY (BUTTON BROADCAST)
-        # ==================================================
+        # ===============================
+        # ADMIN SURVEY
+        # ===============================
         if sender in ADMIN_ALLOWLIST and upper.startswith("SURVEY:"):
-            question = text_msg.split(":", 1)[1].strip()
-            if question:
-                meta = MetaWhatsAppClient(
-                    MetaWhatsAppSettings(
-                        api_version=os.getenv("META_WA_API_VERSION"),
-                        access_token=os.getenv("META_WA_ACCESS_TOKEN"),
-                        phone_number_id=os.getenv("META_WA_PHONE_NUMBER_ID"),
-                    )
+            question = text.split(":", 1)[1].strip()
+            if not question:
+                return Response(status_code=200)
+
+            meta = MetaWhatsAppClient(
+                MetaWhatsAppSettings(
+                    api_version=os.getenv("META_WA_API_VERSION"),
+                    access_token=os.getenv("META_WA_ACCESS_TOKEN"),
+                    phone_number_id=os.getenv("META_WA_PHONE_NUMBER_ID"),
                 )
+            )
 
-                rows = db.execute(
-                    text(
-                        """
-                        SELECT client_number
-                        FROM clients
-                        WHERE is_paused = false
-                          AND last_interaction_at >= now() - interval '24 hours'
-                          AND client_number NOT IN :admin_numbers
-                        """
-                    ).bindparams(
-                        bindparam("admin_numbers", expanding=True)
-                    ),
-                    {"admin_numbers": list(ADMIN_ALLOWLIST)},
-                ).fetchall()
+            rows = db.execute(
+                sql_text(
+                    """
+                    SELECT client_number
+                    FROM clients
+                    WHERE is_paused = false
+                      AND last_interaction_at >= now() - interval '24 hours'
+                      AND client_number NOT IN ('27627597357')
+                    """
+                )
+            ).fetchall()
 
-                for (client_number,) in rows:
-                    meta.send_interactive_button_message(
-                        to_msisdn=client_number,
-                        body_text=question,
-                        buttons=[
-                            {"id": "YES", "title": "Yes"},
-                            {"id": "NO", "title": "No"},
-                            {"id": "NOT_SURE", "title": "Not sure"},
-                        ],
-                    )
+            sent = 0
+            for (client_number,) in rows:
+                meta.send_interactive_button_message(
+                    to_msisdn=client_number,
+                    body_text=question,
+                    buttons=[
+                        {"id": "YES", "title": "Yes"},
+                        {"id": "NO", "title": "No"},
+                        {"id": "NOT_SURE", "title": "Not sure"},
+                    ],
+                )
+                sent += 1
+
+            # ✅ ADMIN CONFIRMATION (THIS WAS MISSING)
+            meta.send_generic_business_update_template(
+                to_msisdn=sender,
+                blob_text=f"Survey sent to {sent} active clients.",
+            )
 
             return Response(status_code=200)
 
-        # --------------------------------------------------
-        # ADMIN COMMANDS
-        # --------------------------------------------------
+        # -------------------------------
+        # Admin commands
+        # -------------------------------
         if handle_admin_command(
             db=db,
             sender_number=sender,
-            message_text=text_msg,
+            message_text=text,
             admin_allowlist=ADMIN_ALLOWLIST,
         ):
             return Response(status_code=200)
 
-        # --------------------------------------------------
-        # CLIENT COMMANDS
-        # --------------------------------------------------
         handle_client_command(
             db=db,
             sender_number=sender,
-            message_text=text_msg,
+            message_text=text,
             msg=msg,
         )
 
