@@ -1,4 +1,3 @@
-
 """
 File: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
@@ -7,6 +6,7 @@ Project: KLResolute WhatsApp SaaS MVP
 import logging
 import os
 import re
+from datetime import timedelta
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
@@ -29,6 +29,8 @@ ADMIN_ALLOWLIST = {
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
     if n.strip()
 }
+
+SURVEY_AUTO_CLOSE_HOURS = int(os.getenv("SURVEY_AUTO_CLOSE_HOURS", "24"))
 
 
 def _normalise_msisdn(raw: str | None) -> str | None:
@@ -67,12 +69,35 @@ def _upsert_client(db: Session, client_number: str) -> None:
     db.commit()
 
 
+def _auto_close_expired_surveys(db: Session) -> None:
+    """
+    Opportunistically close expired surveys.
+    Safe to call on every webhook.
+    """
+    db.execute(
+        sql_text(
+            """
+            UPDATE surveys
+            SET status = 'closed',
+                ended_at = now()
+            WHERE status = 'active'
+              AND started_at < now() - (:hours || ' hours')::interval
+            """
+        ),
+        {"hours": SURVEY_AUTO_CLOSE_HOURS},
+    )
+    db.commit()
+
+
 @router.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
     logger.info("WhatsApp webhook received")
+
+    # ✅ auto-close first (cheap + safe)
+    _auto_close_expired_surveys(db)
 
     try:
         payload = await request.json()
@@ -91,7 +116,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -----------------------------------
-    # Interactive button replies (clients)
+    # Interactive button replies
     # -----------------------------------
     if msg.get("type") == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
@@ -122,7 +147,7 @@ async def whatsapp_webhook(
         upper = text.upper()
 
         # =====================================
-        # ADMIN: SEND SURVEY (SOURCE OF TRUTH)
+        # ADMIN: SEND SURVEY
         # =====================================
         if sender in ADMIN_ALLOWLIST and upper.startswith("SURVEY:"):
             question = text.split(":", 1)[1].strip()
@@ -142,7 +167,6 @@ async def whatsapp_webhook(
                 {"admin_numbers": tuple(ADMIN_ALLOWLIST)},
             ).fetchall()
 
-            # ---- create survey RUN (single row)
             survey = Survey(
                 question=question,
                 status="active",
@@ -172,7 +196,6 @@ async def whatsapp_webhook(
 
             return Response(status_code=200)
 
-        # admin commands
         if handle_admin_command(
             db=db,
             sender_number=sender,
