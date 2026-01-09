@@ -34,29 +34,33 @@ from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
-    "Clients\n"
+    "📊 Surveys\n"
+    "SURVEY: <question> – Send survey (auto-closes in 24h)\n"
+    "END – Close active survey early\n\n"
+    "👥 Clients\n"
     "ADD CLIENT: <number>\n"
     "REMOVE CLIENT: <number>\n"
-    "COUNT\n\n"
-    "Messaging\n"
+    "COUNT – Active clients\n\n"
+    "✉️ Messaging\n"
     "SEND: <number> <message>\n"
     "BROADCAST: <message>\n\n"
-    "System\n"
-    "PAUSE – stop all outbound messages\n"
-    "RESUME – resume outbound messages\n\n"
-    "📸 Send an image to broadcast it."
+    "⚙️ System\n"
+    "PAUSE – Stop outbound messages\n"
+    "RESUME – Resume outbound messages\n\n"
+    "📸 Tip: Send an image to broadcast it instantly."
 )
 
 CLIENT_MENU_TEXT = (
-    "👋 Hi! Welcome.\n\n"
-    "You can reply with one of the options below:\n\n"
+    "👋 Welcome!\n\n"
+    "📊 From time to time, you may receive a short survey.\n"
+    "Please tap the buttons to respond — it only takes a second.\n\n"
+    "Options\n"
     "ABOUT – Store details\n"
-    "FEEDBACK: your comments here – Feedback, join, or removal requests\n"
-    "JOIN – Receive updates from us\n"
-    "STOP – Opt out at any time\n"
-    "MENU – See this menu again\n\n"
-    "If your question is about stock or availability,\n"
-    "a staff member will reply shortly."
+    "JOIN – Receive updates\n"
+    "STOP – Opt out\n"
+    "MENU – Show this menu again\n\n"
+    "For stock or availability questions,\n"
+    "a staff member will assist you shortly."
 )
 
 FEEDBACK_ACK_TEXT = (
