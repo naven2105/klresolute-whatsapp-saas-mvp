@@ -52,7 +52,9 @@ def _extract_message(payload: dict):
         return None, None
 
 
+
 def _upsert_client(db: Session, client_number: str) -> None:
+    # 1. Upsert client + update last_interaction_at
     db.execute(
         sql_text(
             """
@@ -66,7 +68,21 @@ def _upsert_client(db: Session, client_number: str) -> None:
         ),
         {"client_number": client_number},
     )
-    db.commit()
+
+    # 2. Auto-close expired surveys (safe, idempotent)
+    db.execute(
+        sql_text(
+            """
+            UPDATE surveys
+            SET status = 'closed',
+                closed_at = now()
+            WHERE status = 'active'
+              AND ends_at <= now();
+            """
+        )
+    )
+
+    db.commit()    
 
 
 def _auto_close_expired_surveys(db: Session) -> None:
