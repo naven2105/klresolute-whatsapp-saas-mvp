@@ -80,7 +80,7 @@ def handle_admin_command(
     # ----------------------------------
     # SAFE PAUSE FLAG
     # ----------------------------------
-    paused = getattr(client, "is_paused", False)
+    #paused = getattr(client, "is_paused", False)
 
     # ==================================================
     # SURVEYS (Tier 1)
