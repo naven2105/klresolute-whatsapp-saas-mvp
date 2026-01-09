@@ -1,3 +1,4 @@
+
 """
 File: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
@@ -89,9 +90,9 @@ async def whatsapp_webhook(
     if handle_media_message(db=db, sender=sender, msg=msg, admin_allowlist=ADMIN_ALLOWLIST):
         return Response(status_code=200)
 
-    # -------------------------------
-    # Interactive survey replies
-    # -------------------------------
+    # -----------------------------------
+    # Interactive button replies (clients)
+    # -----------------------------------
     if msg.get("type") == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
         if reply:
@@ -113,20 +114,42 @@ async def whatsapp_webhook(
                 db.commit()
         return Response(status_code=200)
 
-    # -------------------------------
+    # -----------------------------------
     # TEXT
-    # -------------------------------
+    # -----------------------------------
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
         upper = text.upper()
 
-        # ===============================
-        # ADMIN SURVEY
-        # ===============================
+        # =====================================
+        # ADMIN: SEND SURVEY (SOURCE OF TRUTH)
+        # =====================================
         if sender in ADMIN_ALLOWLIST and upper.startswith("SURVEY:"):
             question = text.split(":", 1)[1].strip()
             if not question:
                 return Response(status_code=200)
+
+            rows = db.execute(
+                sql_text(
+                    """
+                    SELECT client_number
+                    FROM clients
+                    WHERE is_paused = false
+                      AND last_interaction_at >= now() - interval '24 hours'
+                      AND client_number NOT IN :admin_numbers
+                    """
+                ),
+                {"admin_numbers": tuple(ADMIN_ALLOWLIST)},
+            ).fetchall()
+
+            # ---- create survey RUN (single row)
+            survey = Survey(
+                question=question,
+                status="active",
+                sent_to_count=len(rows),
+            )
+            db.add(survey)
+            db.commit()
 
             meta = MetaWhatsAppClient(
                 MetaWhatsAppSettings(
@@ -136,19 +159,6 @@ async def whatsapp_webhook(
                 )
             )
 
-            rows = db.execute(
-                sql_text(
-                    """
-                    SELECT client_number
-                    FROM clients
-                    WHERE is_paused = false
-                      AND last_interaction_at >= now() - interval '24 hours'
-                      AND client_number NOT IN ('27627597357')
-                    """
-                )
-            ).fetchall()
-
-            sent = 0
             for (client_number,) in rows:
                 meta.send_interactive_button_message(
                     to_msisdn=client_number,
@@ -159,19 +169,10 @@ async def whatsapp_webhook(
                         {"id": "NOT_SURE", "title": "Not sure"},
                     ],
                 )
-                sent += 1
-
-            # ✅ ADMIN CONFIRMATION (THIS WAS MISSING)
-            meta.send_generic_business_update_template(
-                to_msisdn=sender,
-                blob_text=f"Survey sent to {sent} active clients.",
-            )
 
             return Response(status_code=200)
 
-        # -------------------------------
-        # Admin commands
-        # -------------------------------
+        # admin commands
         if handle_admin_command(
             db=db,
             sender_number=sender,
