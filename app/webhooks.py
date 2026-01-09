@@ -6,7 +6,6 @@ Project: KLResolute WhatsApp SaaS MVP
 import logging
 import os
 import re
-from datetime import timedelta
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
@@ -30,8 +29,6 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
-SURVEY_AUTO_CLOSE_HOURS = int(os.getenv("SURVEY_AUTO_CLOSE_HOURS", "24"))
-
 
 def _normalise_msisdn(raw: str | None) -> str | None:
     if not raw:
@@ -52,9 +49,13 @@ def _extract_message(payload: dict):
         return None, None
 
 
-
 def _upsert_client(db: Session, client_number: str) -> None:
-    # 1. Upsert client + update last_interaction_at
+    """
+    Upsert client + opportunistically auto-close expired surveys.
+    Safe to call on every webhook.
+    """
+
+    # Upsert client
     db.execute(
         sql_text(
             """
@@ -69,7 +70,7 @@ def _upsert_client(db: Session, client_number: str) -> None:
         {"client_number": client_number},
     )
 
-    # 2. Auto-close expired surveys (safe, idempotent)
+    # Auto-close expired surveys (CORRECT columns)
     db.execute(
         sql_text(
             """
@@ -82,26 +83,6 @@ def _upsert_client(db: Session, client_number: str) -> None:
         )
     )
 
-    db.commit()    
-
-
-def _auto_close_expired_surveys(db: Session) -> None:
-    """
-    Opportunistically close expired surveys.
-    Safe to call on every webhook.
-    """
-    db.execute(
-        sql_text(
-            """
-            UPDATE surveys
-            SET status = 'closed',
-                ended_at = now()
-            WHERE status = 'active'
-              AND started_at < now() - (:hours || ' hours')::interval
-            """
-        ),
-        {"hours": SURVEY_AUTO_CLOSE_HOURS},
-    )
     db.commit()
 
 
@@ -111,9 +92,6 @@ async def whatsapp_webhook(
     db: Session = Depends(get_db),
 ):
     logger.info("WhatsApp webhook received")
-
-    # ✅ auto-close first (cheap + safe)
-    _auto_close_expired_surveys(db)
 
     try:
         payload = await request.json()
@@ -131,9 +109,9 @@ async def whatsapp_webhook(
     if handle_media_message(db=db, sender=sender, msg=msg, admin_allowlist=ADMIN_ALLOWLIST):
         return Response(status_code=200)
 
-    # -----------------------------------
-    # Interactive button replies
-    # -----------------------------------
+    # -------------------------------
+    # Interactive survey replies
+    # -------------------------------
     if msg.get("type") == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
         if reply:
@@ -155,16 +133,14 @@ async def whatsapp_webhook(
                 db.commit()
         return Response(status_code=200)
 
-    # -----------------------------------
+    # -------------------------------
     # TEXT
-    # -----------------------------------
+    # -------------------------------
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
         upper = text.upper()
 
-        # =====================================
         # ADMIN: SEND SURVEY
-        # =====================================
         if sender in ADMIN_ALLOWLIST and upper.startswith("SURVEY:"):
             question = text.split(":", 1)[1].strip()
             if not question:
@@ -186,7 +162,7 @@ async def whatsapp_webhook(
             survey = Survey(
                 question=question,
                 status="active",
-                sent_to_count=len(rows),
+                ends_at=db.execute(sql_text("SELECT now() + interval '24 hours'")).scalar(),
             )
             db.add(survey)
             db.commit()
@@ -209,6 +185,11 @@ async def whatsapp_webhook(
                         {"id": "NOT_SURE", "title": "Not sure"},
                     ],
                 )
+
+            meta.send_generic_business_update_template(
+                to_msisdn=sender,
+                blob_text=f"Survey sent to {len(rows)} active clients.",
+            )
 
             return Response(status_code=200)
 
