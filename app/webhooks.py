@@ -18,6 +18,7 @@ from app.handlers.media_handler import handle_media_message
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import MetaWhatsAppSettings
 from app.survey.survey_models import Survey, SurveyResponse
+from app.survey.auto_close import auto_close_expired_surveys
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
@@ -50,12 +51,6 @@ def _extract_message(payload: dict):
 
 
 def _upsert_client(db: Session, client_number: str) -> None:
-    """
-    Upsert client + opportunistically auto-close expired surveys.
-    Safe to call on every webhook.
-    """
-
-    # Upsert client
     db.execute(
         sql_text(
             """
@@ -69,20 +64,6 @@ def _upsert_client(db: Session, client_number: str) -> None:
         ),
         {"client_number": client_number},
     )
-
-    # Auto-close expired surveys (CORRECT columns)
-    db.execute(
-        sql_text(
-            """
-            UPDATE surveys
-            SET status = 'closed',
-                closed_at = now()
-            WHERE status = 'active'
-              AND ends_at <= now();
-            """
-        )
-    )
-
     db.commit()
 
 
@@ -92,6 +73,9 @@ async def whatsapp_webhook(
     db: Session = Depends(get_db),
 ):
     logger.info("WhatsApp webhook received")
+
+    # ✅ Always close expired surveys first
+    auto_close_expired_surveys(db)
 
     try:
         payload = await request.json()
@@ -106,11 +90,14 @@ async def whatsapp_webhook(
 
     _upsert_client(db, sender)
 
+    # -------------------------------
+    # MEDIA
+    # -------------------------------
     if handle_media_message(db=db, sender=sender, msg=msg, admin_allowlist=ADMIN_ALLOWLIST):
         return Response(status_code=200)
 
     # -------------------------------
-    # Interactive survey replies
+    # INTERACTIVE (survey answers)
     # -------------------------------
     if msg.get("type") == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
@@ -140,7 +127,9 @@ async def whatsapp_webhook(
         text = msg["text"]["body"].strip()
         upper = text.upper()
 
-        # ADMIN: SEND SURVEY
+        # ===============================
+        # ADMIN → SEND SURVEY
+        # ===============================
         if sender in ADMIN_ALLOWLIST and upper.startswith("SURVEY:"):
             question = text.split(":", 1)[1].strip()
             if not question:
@@ -153,16 +142,20 @@ async def whatsapp_webhook(
                     FROM clients
                     WHERE is_paused = false
                       AND last_interaction_at >= now() - interval '24 hours'
-                      AND client_number NOT IN :admin_numbers
+                      AND client_number NOT IN :admins
                     """
                 ),
-                {"admin_numbers": tuple(ADMIN_ALLOWLIST)},
+                {"admins": tuple(ADMIN_ALLOWLIST)},
             ).fetchall()
 
             survey = Survey(
+                business_number=sender,
                 question=question,
+                button_set="YES_NO_NOT_SURE",
                 status="active",
-                ends_at=db.execute(sql_text("SELECT now() + interval '24 hours'")).scalar(),
+                ends_at=db.execute(
+                    sql_text("SELECT now() + interval '24 hours'")
+                ).scalar(),
             )
             db.add(survey)
             db.commit()
@@ -186,6 +179,7 @@ async def whatsapp_webhook(
                     ],
                 )
 
+            # ✅ SINGLE admin confirmation
             meta.send_generic_business_update_template(
                 to_msisdn=sender,
                 blob_text=f"Survey sent to {len(rows)} active clients.",
@@ -193,6 +187,9 @@ async def whatsapp_webhook(
 
             return Response(status_code=200)
 
+        # -------------------------------
+        # ADMIN COMMANDS (menu, count)
+        # -------------------------------
         if handle_admin_command(
             db=db,
             sender_number=sender,
