@@ -188,12 +188,15 @@ async def whatsapp_webhook(
 
             return Response(status_code=200)
 
-        handle_admin_command(
+        handled = handle_admin_command(
             db=db,
             sender_number=sender,
             message_text=text,
             admin_allowlist=ADMIN_ALLOWLIST,
         )
+
+        if handled:
+            return Response(status_code=200)
 
         handle_client_command(
             db=db,
