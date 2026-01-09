@@ -143,9 +143,13 @@ async def whatsapp_webhook(
                         SELECT client_number
                         FROM clients
                         WHERE is_paused = false
-                          AND last_interaction_at >= now() - interval '24 hours'
+                        AND last_interaction_at >= now() - interval '24 hours'
+                        AND client_number NOT IN (:admin_numbers)
                         """
-                    )
+                    ).bindparams(
+                        sql_text(":admin_numbers").bindparam(expanding=True)
+                    ),
+                    {"admin_numbers": list(ADMIN_ALLOWLIST)},
                 ).fetchall()
 
                 for (client_number,) in rows:
