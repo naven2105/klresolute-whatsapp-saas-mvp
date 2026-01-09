@@ -11,6 +11,10 @@ Inbound WhatsApp webhook entrypoint.
 - Upsert WhatsApp end-users into clients
 - Update last_interaction_at on every inbound message
 - Store survey responses (admin-triggered surveys)
+
+IMPORTANT:
+- Admin SURVEY commands are handled ONLY in admin_commands.py
+- webhooks.py must NEVER send surveys
 """
 
 import logging
@@ -103,7 +107,7 @@ async def whatsapp_webhook(
     _upsert_client(db, sender)
 
     # --------------------------------------------------
-    # MEDIA HANDLER
+    # MEDIA HANDLER (ADMIN IMAGE FLOW)
     # --------------------------------------------------
     if handle_media_message(
         db=db,
@@ -147,6 +151,7 @@ async def whatsapp_webhook(
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
 
+        # ADMIN COMMANDS (SURVEYS LIVE HERE)
         handled = handle_admin_command(
             db=db,
             sender_number=sender,
@@ -157,6 +162,7 @@ async def whatsapp_webhook(
         if handled:
             return Response(status_code=200)
 
+        # CLIENT COMMANDS
         handle_client_command(
             db=db,
             sender_number=sender,
