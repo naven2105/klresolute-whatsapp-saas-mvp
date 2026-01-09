@@ -86,7 +86,12 @@ async def whatsapp_webhook(
 
     _upsert_client(db, sender)
 
-    if handle_media_message(db=db, sender=sender, msg=msg, admin_allowlist=ADMIN_ALLOWLIST):
+    if handle_media_message(
+        db=db,
+        sender=sender,
+        msg=msg,
+        admin_allowlist=ADMIN_ALLOWLIST,
+    ):
         return Response(status_code=200)
 
     # -------------------------------
@@ -153,6 +158,12 @@ async def whatsapp_webhook(
                             {"id": "NOT_SURE", "title": "Not sure"},
                         ],
                     )
+
+                # ✅ ADMIN CONFIRMATION (THIS WAS MISSING)
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender,
+                    blob_text=f"Survey sent to {len(rows)} active clients.",
+                )
 
             return Response(status_code=200)
 
