@@ -61,10 +61,6 @@ def handle_admin_command(
     meta = get_meta_client()
     upper = message_text.strip().upper()
 
-    client = db.query(Client).first()
-    if not client:
-        return True
-
     # ----------------------------------
     # Resolve business identity ONCE
     # ----------------------------------
