@@ -14,7 +14,7 @@ Admin UX polish:
 import re
 from sqlalchemy.orm import Session
 
-from app.models import Client, Contact
+from app.models import Contact
 from app.outbound.factory import get_meta_client
 from app.services.contacts_service import add_contact, remove_contact
 
