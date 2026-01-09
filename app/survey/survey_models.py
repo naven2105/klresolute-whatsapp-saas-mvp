@@ -1,5 +1,5 @@
 """
-app/survey/survey_models.py
+File: app/survey/survey_models.py
 
 Survey database models for KLResolute MVP
 -----------------------------------------
@@ -7,6 +7,7 @@ Tier: 1
 Purpose:
 - Survey definition
 - Survey responses
+- Enforce single response per client per survey
 """
 
 from datetime import datetime
@@ -17,10 +18,10 @@ from sqlalchemy import (
     String,
     DateTime,
     ForeignKey,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
-# ✅ FIXED IMPORT
 from app.db import Base
 
 
@@ -48,12 +49,14 @@ class SurveyResponse(Base):
     __tablename__ = "survey_responses"
 
     id = Column(Integer, primary_key=True)
+
     survey_id = Column(
         Integer,
         ForeignKey("surveys.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+
     client_number = Column(String, nullable=False)
     button_id = Column(String, nullable=False)
     tag = Column(String, nullable=False)
@@ -63,4 +66,12 @@ class SurveyResponse(Base):
     survey = relationship(
         "Survey",
         back_populates="responses",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "survey_id",
+            "client_number",
+            name="uq_survey_response_once_per_client",
+        ),
     )
