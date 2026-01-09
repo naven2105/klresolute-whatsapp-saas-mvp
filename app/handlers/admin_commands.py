@@ -64,7 +64,7 @@ def handle_admin_command(
     # ----------------------------------
     # Resolve business identity ONCE
     # ----------------------------------
-    business_number = getattr(client, "business_number", sender_number)
+    business_number = sender_number
 
     # ----------------------------------
     # AUTO-CLOSE SURVEY (SAFE)
