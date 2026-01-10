@@ -76,6 +76,8 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
+BUSINESS_NUMBER = os.getenv("META_WA_PHONE_NUMBER_ID")
+
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
@@ -100,9 +102,9 @@ def handle_client_command(
     is_admin = sender_number in ADMIN_ALLOWLIST
 
     # ==================================================
-    # AUTO-CLOSE SURVEY
+    # AUTO-CLOSE SURVEY (FIXED)
     # ==================================================
-    closed = auto_close_expired_surveys(db, sender_number)
+    closed = auto_close_expired_surveys(db, BUSINESS_NUMBER)
     if closed:
         summary = build_survey_summary_text(db, closed)
         for admin in ADMIN_ALLOWLIST:
@@ -139,7 +141,6 @@ def handle_client_command(
                         event_type="survey_response",
                         event_detail=f"survey_{active.id}",
                     )
-
                 return True
 
     # ==================================================
@@ -149,12 +150,10 @@ def handle_client_command(
     text = (message_text or "").strip()
     upper = text.upper()
 
-    # MENU
     if upper == "MENU" or not upper:
         _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
         return True
 
-    # JOIN
     if upper == "JOIN" and not is_admin:
         added = add_contact(db, msisdn=sender_number)
         _send_text(
@@ -165,7 +164,6 @@ def handle_client_command(
         )
         return True
 
-    # STOP
     if upper == "STOP" and not is_admin:
         removed = remove_contact(db, msisdn=sender_number)
         _send_text(
@@ -176,7 +174,6 @@ def handle_client_command(
         )
         return True
 
-    # ABOUT
     if upper == "ABOUT" and not is_admin:
         _send_text(sender_number, ABOUT_TEXT)
         return True
@@ -227,7 +224,7 @@ def handle_client_command(
         return True
 
     # =========================
-    # FEEDBACK (FREE TEXT)
+    # FEEDBACK
     # =========================
     if upper.startswith("FEEDBACK") and not is_admin:
         _send_text(sender_number, FEEDBACK_ACK_TEXT)
