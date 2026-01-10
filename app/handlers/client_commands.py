@@ -15,6 +15,7 @@ from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
+from app.services.event_logger import log_event
 
 # =========================
 # Survey imports
@@ -59,8 +60,8 @@ CLIENT_MENU_TEXT = (
     "JOIN – Receive updates\n"
     "STOP – Opt out\n"
     "MENU – Show this menu again\n\n"
-    "For stock or availability questions,\n"
-    "a staff member will assist you shortly."
+    "For store hours or specials,\n"
+    "just reply HOURS or SPECIALS."
 )
 
 FEEDBACK_ACK_TEXT = (
@@ -99,7 +100,7 @@ def handle_client_command(
     is_admin = sender_number in ADMIN_ALLOWLIST
 
     # ==================================================
-    # AUTO-CLOSE SURVEY (NEW – SAFE)
+    # AUTO-CLOSE SURVEY
     # ==================================================
     closed = auto_close_expired_surveys(db, sender_number)
     if closed:
@@ -131,19 +132,29 @@ def handle_client_command(
                         sender_number,
                         CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
                     )
+
+                    log_event(
+                        db=db,
+                        sender_number=sender_number,
+                        event_type="survey_response",
+                        event_detail=f"survey_{active.id}",
+                    )
+
                 return True
 
     # ==================================================
-    # EXISTING LOGIC (UNCHANGED)
+    # NORMAL COMMAND HANDLING
     # ==================================================
 
     text = (message_text or "").strip()
     upper = text.upper()
 
+    # MENU
     if upper == "MENU" or not upper:
         _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
         return True
 
+    # JOIN
     if upper == "JOIN" and not is_admin:
         added = add_contact(db, msisdn=sender_number)
         _send_text(
@@ -154,6 +165,7 @@ def handle_client_command(
         )
         return True
 
+    # STOP
     if upper == "STOP" and not is_admin:
         removed = remove_contact(db, msisdn=sender_number)
         _send_text(
@@ -164,12 +176,68 @@ def handle_client_command(
         )
         return True
 
+    # ABOUT
     if upper == "ABOUT" and not is_admin:
         _send_text(sender_number, ABOUT_TEXT)
         return True
 
+    # =========================
+    # KEYWORD: HOURS
+    # =========================
+    if upper == "HOURS" and not is_admin:
+        log_event(
+            db=db,
+            sender_number=sender_number,
+            event_type="inbound_keyword",
+            event_detail="keyword_hours",
+        )
+
+        _send_text(sender_number, ABOUT_TEXT)
+
+        log_event(
+            db=db,
+            sender_number=sender_number,
+            event_type="hours_reply_sent",
+            event_detail="keyword_hours",
+        )
+        return True
+
+    # =========================
+    # KEYWORD: SPECIALS
+    # =========================
+    if upper in ("SPECIAL", "SPECIALS", "PROMOTIONS") and not is_admin:
+        log_event(
+            db=db,
+            sender_number=sender_number,
+            event_type="inbound_keyword",
+            event_detail="keyword_specials",
+        )
+
+        _send_text(
+            sender_number,
+            "🛒 Today’s specials are available.\nReply MENU for more options."
+        )
+
+        log_event(
+            db=db,
+            sender_number=sender_number,
+            event_type="specials_reply_sent",
+            event_detail="keyword_specials",
+        )
+        return True
+
+    # =========================
+    # FEEDBACK (FREE TEXT)
+    # =========================
     if upper.startswith("FEEDBACK") and not is_admin:
         _send_text(sender_number, FEEDBACK_ACK_TEXT)
+
+        log_event(
+            db=db,
+            sender_number=sender_number,
+            event_type="inbound_message",
+            event_detail="free_text",
+        )
 
         admin_message = (
             "📩 Client message received\n\n"
@@ -177,7 +245,7 @@ def handle_client_command(
             f"Message:\n{message_text}"
         )
 
-        for admin in ADMIN_ALLOWLIST:  
+        for admin in ADMIN_ALLOWLIST:
             _send_text(admin, admin_message)
 
         return True
