@@ -11,7 +11,7 @@ Notes:
 - Admin-only messaging
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.db import SessionLocal
 from app.models import EventLog
@@ -30,7 +30,7 @@ def send_weekly_whatsapp_report() -> None:
 
     db = SessionLocal()
     try:
-        end = datetime.utcnow()
+        end = datetime.now(timezone.utc)
         start = end - timedelta(days=7)
 
         # 1) Hours queries (call replacement)
