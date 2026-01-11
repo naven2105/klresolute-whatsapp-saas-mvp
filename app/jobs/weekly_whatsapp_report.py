@@ -7,17 +7,22 @@ Triggered by Render Cron (Friday 18h00).
 
 Notes:
 - Uses existing SQLAlchemy SessionLocal from app/db.py
-- No FastAPI dependency injection
-- Admin-only messaging
+- Does NOT import request handlers
+- Reads admin numbers directly from env
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 
 from app.db import SessionLocal
 from app.models import EventLog
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
-from app.handlers.client_commands import ADMIN_ALLOWLIST
+
+
+def _get_admin_allowlist() -> list[str]:
+    raw = os.getenv("OUTBOUND_TEST_ALLOWLIST", "")
+    return [n.strip() for n in raw.split(",") if n.strip()]
 
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
@@ -28,12 +33,15 @@ def send_weekly_whatsapp_report() -> None:
     Build and send the weekly engagement report to admin numbers.
     """
 
+    admin_numbers = _get_admin_allowlist()
+    if not admin_numbers:
+        return  # nothing to do
+
     db = SessionLocal()
     try:
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=7)
 
-        # 1) Hours queries (call replacement)
         hours_count = (
             db.query(EventLog)
             .filter(
@@ -44,7 +52,6 @@ def send_weekly_whatsapp_report() -> None:
             .count()
         )
 
-        # 2) Specials interest (sales signal)
         specials_count = (
             db.query(EventLog)
             .filter(
@@ -55,7 +62,6 @@ def send_weekly_whatsapp_report() -> None:
             .count()
         )
 
-        # 3) Total engagement
         total_engagement = (
             db.query(EventLog)
             .filter(
@@ -73,7 +79,7 @@ def send_weekly_whatsapp_report() -> None:
             "This reduced phone interruptions and highlighted customer demand."
         )
 
-        for admin_number in ADMIN_ALLOWLIST:
+        for admin_number in admin_numbers:
             _meta_client.send_session_message(
                 to_msisdn=admin_number,
                 text=report_text,
