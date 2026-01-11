@@ -5,10 +5,8 @@ Purpose:
 Send weekly WhatsApp engagement summary to admin.
 Triggered by Render Cron (Friday 18h00).
 
-Notes:
-- Uses existing SQLAlchemy SessionLocal from app/db.py
-- Does NOT import request handlers
-- Meta client is initialised lazily (no env dependency at import time)
+Local behaviour:
+- If META envs are missing, report is BUILT but NOT SENT
 """
 
 import os
@@ -25,22 +23,15 @@ def _get_admin_allowlist() -> list[str]:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-def _get_meta_client() -> MetaWhatsAppClient:
-    """
-    Lazily create Meta client.
-    This avoids META_WA_* env dependency during local runs.
-    """
-    return MetaWhatsAppClient(settings=load_meta_settings())
+def _meta_envs_present() -> bool:
+    return bool(os.getenv("META_WA_ACCESS_TOKEN"))
 
 
 def send_weekly_whatsapp_report() -> None:
-    """
-    Build and send the weekly engagement report to admin numbers.
-    """
-
     admin_numbers = _get_admin_allowlist()
     if not admin_numbers:
-        return  # nothing to do
+        print("No admin numbers configured – skipping report")
+        return
 
     db = SessionLocal()
     try:
@@ -84,7 +75,14 @@ def send_weekly_whatsapp_report() -> None:
             "This reduced phone interruptions and highlighted customer demand."
         )
 
-        meta = _get_meta_client()
+        # ---- LOCAL GUARD ----
+        if not _meta_envs_present():
+            print("META envs not present – report generated but not sent")
+            print(report_text)
+            return
+
+        # ---- SEND (Render only) ----
+        meta = MetaWhatsAppClient(settings=load_meta_settings())
 
         for admin_number in admin_numbers:
             meta.send_session_message(
