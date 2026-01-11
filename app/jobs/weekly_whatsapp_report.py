@@ -8,7 +8,7 @@ Triggered by Render Cron (Friday 18h00).
 Notes:
 - Uses existing SQLAlchemy SessionLocal from app/db.py
 - Does NOT import request handlers
-- Reads admin numbers directly from env
+- Meta client is initialised lazily (no env dependency at import time)
 """
 
 import os
@@ -25,7 +25,12 @@ def _get_admin_allowlist() -> list[str]:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
+def _get_meta_client() -> MetaWhatsAppClient:
+    """
+    Lazily create Meta client.
+    This avoids META_WA_* env dependency during local runs.
+    """
+    return MetaWhatsAppClient(settings=load_meta_settings())
 
 
 def send_weekly_whatsapp_report() -> None:
@@ -79,8 +84,10 @@ def send_weekly_whatsapp_report() -> None:
             "This reduced phone interruptions and highlighted customer demand."
         )
 
+        meta = _get_meta_client()
+
         for admin_number in admin_numbers:
-            _meta_client.send_session_message(
+            meta.send_session_message(
                 to_msisdn=admin_number,
                 text=report_text,
             )
