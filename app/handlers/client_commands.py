@@ -17,7 +17,7 @@ from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
 from app.services.event_logger import log_event
-from app.models import Client, WhatsAppNumber
+from app.models import WhatsAppNumber
 
 # =========================
 # Survey imports
@@ -71,7 +71,6 @@ FEEDBACK_ACK_TEXT = (
     "We’ve shared it with the manager."
 )
 
-
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
@@ -82,6 +81,7 @@ BUSINESS_NUMBER = os.getenv("META_WA_BUSINESS_MSISDN")
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
+
 def _send_text(to_number: str, text: str) -> None:
     _meta_client.send_session_message(
         to_msisdn=to_number,
@@ -89,17 +89,21 @@ def _send_text(to_number: str, text: str) -> None:
     )
 
 
-
-def _resolve_client_id(db: Session) -> str:
+def _resolve_client_id(db: Session):
     """
     Resolve client_id via WhatsApp business number.
+    Safe: returns None if not found.
     """
+    if not BUSINESS_NUMBER:
+        return None
+
     wa = (
         db.query(WhatsAppNumber)
         .filter(WhatsAppNumber.destination_number == BUSINESS_NUMBER)
-        .one()
+        .first()
     )
-    return wa.client_id
+
+    return wa.client_id if wa else None
 
 
 def handle_client_command(
@@ -109,9 +113,6 @@ def handle_client_command(
     message_text: str,
     msg: dict | None = None,
 ) -> bool:
-    """
-    Handle client-facing commands and survey responses.
-    """
 
     is_admin = sender_number in ADMIN_ALLOWLIST
     client_id = _resolve_client_id(db)
@@ -119,11 +120,12 @@ def handle_client_command(
     # ==================================================
     # AUTO-CLOSE SURVEY
     # ==================================================
-    closed = auto_close_expired_surveys(db, BUSINESS_NUMBER)
-    if closed:
-        summary = build_survey_summary_text(db, closed)
-        for admin in ADMIN_ALLOWLIST:
-            _send_text(admin, summary)
+    if BUSINESS_NUMBER:
+        closed = auto_close_expired_surveys(db, BUSINESS_NUMBER)
+        if closed:
+            summary = build_survey_summary_text(db, closed)
+            for admin in ADMIN_ALLOWLIST:
+                _send_text(admin, summary)
 
     # ==================================================
     # SURVEY BUTTON RESPONSE
@@ -145,22 +147,16 @@ def handle_client_command(
                     button_id=button_reply,
                 )
                 if recorded:
-                    _send_text(
-                        sender_number,
-                        CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
-                    )
+                    _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
 
-                    log_event(
-                        db=db,
-                        client_id=client_id,
-                        event_type="survey_response",
-                        event_detail=f"survey_{active.id}",
-                    )
+                    if client_id:
+                        log_event(
+                            db=db,
+                            client_id=client_id,
+                            event_type="survey_response",
+                            event_detail=f"survey_{active.id}",
+                        )
                 return True
-
-    # ==================================================
-    # NORMAL COMMAND HANDLING
-    # ==================================================
 
     text = (message_text or "").strip()
     upper = text.upper()
@@ -197,45 +193,49 @@ def handle_client_command(
     # KEYWORD: HOURS
     # =========================
     if upper == "HOURS" and not is_admin:
-        log_event(
-            db=db,
-            client_id=client_id,
-            event_type="inbound_keyword",
-            event_detail="keyword_hours",
-        )
+        if client_id:
+            log_event(
+                db=db,
+                client_id=client_id,
+                event_type="inbound_keyword",
+                event_detail="keyword_hours",
+            )
 
         _send_text(sender_number, ABOUT_TEXT)
 
-        log_event(
-            db=db,
-            client_id=client_id,
-            event_type="hours_reply_sent",
-            event_detail="keyword_hours",
-        )
+        if client_id:
+            log_event(
+                db=db,
+                client_id=client_id,
+                event_type="hours_reply_sent",
+                event_detail="keyword_hours",
+            )
         return True
 
     # =========================
     # KEYWORD: SPECIALS
     # =========================
     if upper in ("SPECIAL", "SPECIALS", "PROMOTIONS") and not is_admin:
-        log_event(
-            db=db,
-            client_id=client_id,
-            event_type="inbound_keyword",
-            event_detail="keyword_specials",
-        )
+        if client_id:
+            log_event(
+                db=db,
+                client_id=client_id,
+                event_type="inbound_keyword",
+                event_detail="keyword_specials",
+            )
 
         _send_text(
             sender_number,
             "🛒 Today’s specials are available.\nReply MENU for more options."
         )
 
-        log_event(
-            db=db,
-            client_id=client_id,
-            event_type="specials_reply_sent",
-            event_detail="keyword_specials",
-        )
+        if client_id:
+            log_event(
+                db=db,
+                client_id=client_id,
+                event_type="specials_reply_sent",
+                event_detail="keyword_specials",
+            )
         return True
 
     _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
