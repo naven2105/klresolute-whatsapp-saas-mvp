@@ -1,4 +1,5 @@
 """
+app/survey/__init__.py
 Survey module public interface
 -------------------------------
 Exposes survey lifecycle services and constants.

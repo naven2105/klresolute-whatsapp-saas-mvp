@@ -78,7 +78,9 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
-BUSINESS_NUMBER = os.getenv("META_WA_PHONE_NUMBER_ID")
+BUSINESS_NUMBER = os.getenv("META_WA_BUSINESS_MSISDN")
+
+
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 

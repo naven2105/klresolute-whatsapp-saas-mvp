@@ -4,63 +4,41 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Centralised event logging.
-Guarantees event_logs.client_id is always populated.
+
+Design:
+- Caller MUST supply client_id
+- No inference from phone numbers
+- No DB lookups or side effects
 """
 
 from __future__ import annotations
 
 import uuid
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 
-from app.models import Client, EventLog
-
-
-def _get_or_create_client(db: Session, msisdn: str) -> Client:
-    """
-    Resolve client by phone number.
-    Creates client row if it does not exist.
-    """
-
-    client = (
-        db.execute(
-            select(Client).where(Client.client_number == msisdn)
-        )
-        .scalars()
-        .one_or_none()
-    )
-
-    if client:
-        return client
-
-    client = Client(
-        client_id=uuid.uuid4(),
-        client_number=msisdn,
-    )
-    db.add(client)
-    db.commit()
-    db.refresh(client)
-    return client
+from app.models import EventLog
 
 
 def log_event(
     *,
     db: Session,
-    sender_number: str,
+    client_id: uuid.UUID,
     event_type: str,
     event_detail: str | None = None,
     conversation_id: uuid.UUID | None = None,
     message_id: uuid.UUID | None = None,
 ) -> None:
     """
-    Persist an event log with guaranteed client_id.
-    """
+    Persist an event log.
 
-    client = _get_or_create_client(db, sender_number)
+    Contract:
+    - client_id is mandatory
+    - caller is responsible for resolving it correctly
+    """
 
     event = EventLog(
         event_id=uuid.uuid4(),
-        client_id=client.client_id,
+        client_id=client_id,
         conversation_id=conversation_id,
         message_id=message_id,
         event_type=event_type,
