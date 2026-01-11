@@ -10,12 +10,14 @@ Admin UX polish:
 """
 
 import os
+from sqlalchemy.orm import Session
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
 from app.services.event_logger import log_event
+from app.models import Client, WhatsAppNumber
 
 # =========================
 # Survey imports
@@ -76,9 +78,7 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
-# ✅ THIS IS THE REQUIRED BUSINESS NUMBER
 BUSINESS_NUMBER = os.getenv("META_WA_PHONE_NUMBER_ID")
-
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
@@ -88,6 +88,18 @@ def _send_text(to_number: str, text: str) -> None:
         to_msisdn=to_number,
         text=text,
     )
+
+
+def _resolve_client_id(db: Session) -> str:
+    """
+    Resolve client_id via WhatsApp business number.
+    """
+    wa = (
+        db.query(WhatsAppNumber)
+        .filter(WhatsAppNumber.destination_number == BUSINESS_NUMBER)
+        .one()
+    )
+    return wa.client_id
 
 
 def handle_client_command(
@@ -102,9 +114,10 @@ def handle_client_command(
     """
 
     is_admin = sender_number in ADMIN_ALLOWLIST
+    client_id = _resolve_client_id(db)
 
     # ==================================================
-    # AUTO-CLOSE SURVEY (CORRECT CALL)
+    # AUTO-CLOSE SURVEY
     # ==================================================
     closed = auto_close_expired_surveys(db, BUSINESS_NUMBER)
     if closed:
@@ -118,8 +131,8 @@ def handle_client_command(
     if msg and msg.get("type") == "interactive":
         button_reply = (
             msg.get("interactive", {})
-               .get("button_reply", {})
-               .get("id")
+            .get("button_reply", {})
+            .get("id")
         )
 
         if button_reply:
@@ -139,7 +152,7 @@ def handle_client_command(
 
                     log_event(
                         db=db,
-                        sender_number=sender_number,
+                        client_id=client_id,
                         event_type="survey_response",
                         event_detail=f"survey_{active.id}",
                     )
@@ -186,7 +199,7 @@ def handle_client_command(
     if upper == "HOURS" and not is_admin:
         log_event(
             db=db,
-            sender_number=sender_number,
+            client_id=client_id,
             event_type="inbound_keyword",
             event_detail="keyword_hours",
         )
@@ -195,7 +208,7 @@ def handle_client_command(
 
         log_event(
             db=db,
-            sender_number=sender_number,
+            client_id=client_id,
             event_type="hours_reply_sent",
             event_detail="keyword_hours",
         )
@@ -207,7 +220,7 @@ def handle_client_command(
     if upper in ("SPECIAL", "SPECIALS", "PROMOTIONS") and not is_admin:
         log_event(
             db=db,
-            sender_number=sender_number,
+            client_id=client_id,
             event_type="inbound_keyword",
             event_detail="keyword_specials",
         )
@@ -219,7 +232,7 @@ def handle_client_command(
 
         log_event(
             db=db,
-            sender_number=sender_number,
+            client_id=client_id,
             event_type="specials_reply_sent",
             event_detail="keyword_specials",
         )
