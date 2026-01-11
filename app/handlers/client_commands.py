@@ -76,7 +76,9 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
+# ✅ THIS IS THE REQUIRED BUSINESS NUMBER
 BUSINESS_NUMBER = os.getenv("META_WA_PHONE_NUMBER_ID")
+
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
@@ -102,7 +104,7 @@ def handle_client_command(
     is_admin = sender_number in ADMIN_ALLOWLIST
 
     # ==================================================
-    # AUTO-CLOSE SURVEY (FIXED)
+    # AUTO-CLOSE SURVEY (CORRECT CALL)
     # ==================================================
     closed = auto_close_expired_surveys(db, BUSINESS_NUMBER)
     if closed:
@@ -221,30 +223,6 @@ def handle_client_command(
             event_type="specials_reply_sent",
             event_detail="keyword_specials",
         )
-        return True
-
-    # =========================
-    # FEEDBACK
-    # =========================
-    if upper.startswith("FEEDBACK") and not is_admin:
-        _send_text(sender_number, FEEDBACK_ACK_TEXT)
-
-        log_event(
-            db=db,
-            sender_number=sender_number,
-            event_type="inbound_message",
-            event_detail="free_text",
-        )
-
-        admin_message = (
-            "📩 Client message received\n\n"
-            f"From: {sender_number}\n"
-            f"Message:\n{message_text}"
-        )
-
-        for admin in ADMIN_ALLOWLIST:
-            _send_text(admin, admin_message)
-
         return True
 
     _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
