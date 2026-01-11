@@ -5,37 +5,31 @@ Purpose:
 Send weekly WhatsApp engagement summary to admin.
 Triggered by Render Cron (Friday 18h00).
 
-Local behaviour:
-- If META envs are missing, report is BUILT but NOT SENT
+Notes:
+- Uses SQLAlchemy SessionLocal
+- Safe to run without META envs (prints report instead)
 """
 
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.db import SessionLocal
 from app.models import EventLog
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
+from app.handlers.client_commands import ADMIN_ALLOWLIST
 
 
-def _get_admin_allowlist() -> list[str]:
-    raw = os.getenv("OUTBOUND_TEST_ALLOWLIST", "")
-    return [n.strip() for n in raw.split(",") if n.strip()]
-
-
-def _meta_envs_present() -> bool:
-    return bool(os.getenv("META_WA_ACCESS_TOKEN"))
+def _get_meta_client():
+    try:
+        return MetaWhatsAppClient(settings=load_meta_settings())
+    except RuntimeError:
+        return None
 
 
 def send_weekly_whatsapp_report() -> None:
-    admin_numbers = _get_admin_allowlist()
-    if not admin_numbers:
-        print("No admin numbers configured – skipping report")
-        return
-
     db = SessionLocal()
     try:
-        end = datetime.now(timezone.utc)
+        end = datetime.utcnow()
         start = end - timedelta(days=7)
 
         hours_count = (
@@ -61,7 +55,9 @@ def send_weekly_whatsapp_report() -> None:
         total_engagement = (
             db.query(EventLog)
             .filter(
-                EventLog.event_type.in_(["inbound_keyword", "inbound_message"]),
+                EventLog.event_type.in_(
+                    ["inbound_keyword", "hours_reply_sent", "specials_reply_sent"]
+                ),
                 EventLog.event_timestamp >= start,
             )
             .count()
@@ -70,21 +66,111 @@ def send_weekly_whatsapp_report() -> None:
         report_text = (
             "📊 Weekly WhatsApp Engagement Summary\n\n"
             f"• {hours_count} customers checked store hours\n"
-            f"• {specials_count} customers requested specials\n"
-            f"• {total_engagement} total customer interactions\n\n"
-            "This reduced phone interruptions and highlighted customer demand."
+            f"• {specials_count} customers viewed specials/promotions\n"
+            f"• {total_engagement} total automated interactions\n\n"
+            "This shows reduced call interruptions and clear buying interest."
         )
 
-        # ---- LOCAL GUARD ----
-        if not _meta_envs_present():
+        meta = _get_meta_client()
+
+        if not meta:
             print("META envs not present – report generated but not sent")
             print(report_text)
             return
 
-        # ---- SEND (Render only) ----
-        meta = MetaWhatsAppClient(settings=load_meta_settings())
+        for admin_number in ADMIN_ALLOWLIST:
+            meta.send_session_message(
+                to_msisdn=admin_number,
+                text=report_text,
+            )
 
-        for admin_number in admin_numbers:
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    send_weekly_whatsapp_report()
+"""
+File: app/jobs/weekly_whatsapp_report.py
+
+Purpose:
+Send weekly WhatsApp engagement summary to admin.
+Triggered by Render Cron (Friday 18h00).
+
+Notes:
+- Uses SQLAlchemy SessionLocal
+- Safe to run without META envs (prints report instead)
+"""
+
+from datetime import datetime, timedelta
+
+from app.db import SessionLocal
+from app.models import EventLog
+from app.outbound.meta import MetaWhatsAppClient
+from app.outbound.settings import load_meta_settings
+from app.handlers.client_commands import ADMIN_ALLOWLIST
+
+
+def _get_meta_client():
+    try:
+        return MetaWhatsAppClient(settings=load_meta_settings())
+    except RuntimeError:
+        return None
+
+
+def send_weekly_whatsapp_report() -> None:
+    db = SessionLocal()
+    try:
+        end = datetime.utcnow()
+        start = end - timedelta(days=7)
+
+        hours_count = (
+            db.query(EventLog)
+            .filter(
+                EventLog.event_type == "inbound_keyword",
+                EventLog.event_detail == "keyword_hours",
+                EventLog.event_timestamp >= start,
+            )
+            .count()
+        )
+
+        specials_count = (
+            db.query(EventLog)
+            .filter(
+                EventLog.event_type == "inbound_keyword",
+                EventLog.event_detail == "keyword_specials",
+                EventLog.event_timestamp >= start,
+            )
+            .count()
+        )
+
+        total_engagement = (
+            db.query(EventLog)
+            .filter(
+                EventLog.event_type.in_(
+                    ["inbound_keyword", "hours_reply_sent", "specials_reply_sent"]
+                ),
+                EventLog.event_timestamp >= start,
+            )
+            .count()
+        )
+
+        report_text = (
+            "📊 Weekly WhatsApp Engagement Summary\n\n"
+            f"• {hours_count} customers checked store hours\n"
+            f"• {specials_count} customers viewed specials/promotions\n"
+            f"• {total_engagement} total automated interactions\n\n"
+            "This shows reduced call interruptions and clear buying interest."
+        )
+
+        meta = _get_meta_client()
+
+        if not meta:
+            print("META envs not present – report generated but not sent")
+            print(report_text)
+            return
+
+        for admin_number in ADMIN_ALLOWLIST:
             meta.send_session_message(
                 to_msisdn=admin_number,
                 text=report_text,
