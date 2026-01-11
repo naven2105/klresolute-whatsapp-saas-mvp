@@ -77,8 +77,6 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
-BUSINESS_NUMBER = os.getenv("META_WA_BUSINESS_MSISDN")
-
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
@@ -89,21 +87,22 @@ def _send_text(to_number: str, text: str) -> None:
     )
 
 
-def _resolve_client_id(db: Session):
+def _resolve_store_context(db: Session):
     """
-    Resolve client_id via WhatsApp business number.
-    Safe: returns None if not found.
-    """
-    if not BUSINESS_NUMBER:
-        return None
+    Single-store MVP: resolve context from DB, not env.
 
+    Returns:
+      (client_id, business_number_msisdn) or (None, None)
+    """
     wa = (
         db.query(WhatsAppNumber)
-        .filter(WhatsAppNumber.destination_number == BUSINESS_NUMBER)
+        .filter(WhatsAppNumber.status == "active")
         .first()
     )
+    if not wa:
+        return None, None
 
-    return wa.client_id if wa else None
+    return wa.client_id, wa.destination_number
 
 
 def handle_client_command(
@@ -115,13 +114,13 @@ def handle_client_command(
 ) -> bool:
 
     is_admin = sender_number in ADMIN_ALLOWLIST
-    client_id = _resolve_client_id(db)
+    client_id, business_number = _resolve_store_context(db)
 
     # ==================================================
     # AUTO-CLOSE SURVEY
     # ==================================================
-    if BUSINESS_NUMBER:
-        closed = auto_close_expired_surveys(db, BUSINESS_NUMBER)
+    if business_number:
+        closed = auto_close_expired_surveys(db, business_number)
         if closed:
             summary = build_survey_summary_text(db, closed)
             for admin in ADMIN_ALLOWLIST:
@@ -158,6 +157,9 @@ def handle_client_command(
                         )
                 return True
 
+    # ==================================================
+    # NORMAL COMMAND HANDLING
+    # ==================================================
     text = (message_text or "").strip()
     upper = text.upper()
 
