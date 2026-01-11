@@ -80,16 +80,14 @@ ADMIN_ALLOWLIST = {
 
 BUSINESS_NUMBER = os.getenv("META_WA_BUSINESS_MSISDN")
 
-
-
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
-
 
 def _send_text(to_number: str, text: str) -> None:
     _meta_client.send_session_message(
         to_msisdn=to_number,
         text=text,
     )
+
 
 
 def _resolve_client_id(db: Session) -> str:
