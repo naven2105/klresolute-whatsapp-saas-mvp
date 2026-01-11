@@ -50,6 +50,17 @@ def _extract_message(payload: dict):
         return None, None
 
 
+def _extract_business_number(payload: dict) -> str | None:
+    """
+    Returns the WhatsApp Business phone_number_id from webhook metadata.
+    This is required for survey auto-close logic.
+    """
+    try:
+        return payload["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"]
+    except Exception:
+        return None
+
+
 def _upsert_client(db: Session, client_number: str) -> None:
     db.execute(
         sql_text(
@@ -74,13 +85,15 @@ async def whatsapp_webhook(
 ):
     logger.info("WhatsApp webhook received")
 
-    # ✅ Always close expired surveys first
-    auto_close_expired_surveys(db)
-
     try:
         payload = await request.json()
     except Exception:
         return Response(status_code=200)
+
+    # ✅ FIX: determine business_number from payload and use correct signature
+    business_number = _extract_business_number(payload) or os.getenv("META_WA_PHONE_NUMBER_ID")
+    if business_number:
+        auto_close_expired_surveys(db, business_number)
 
     msg, sender_raw = _extract_message(payload)
     sender = _normalise_msisdn(sender_raw)
