@@ -55,11 +55,36 @@ def handle_admin_command(
     admin_allowlist: set[str],
 ) -> bool:
 
+    # ----------------------------------
+    # Admin gate (SECURITY)
+    # ----------------------------------
     if sender_number not in admin_allowlist:
         return False
 
     meta = get_meta_client()
-    upper = message_text.strip().upper()
+    text_clean = message_text.strip()
+    upper = text_clean.upper()
+
+    # =========================
+    # Guard: invalid survey usage
+    # =========================
+    if text_clean.lower().startswith("survey") and not text_clean.lower().startswith("survey["):
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=(
+                "ℹ️ Survey command format\n\n"
+                "To start a survey, choose a type and include your question:\n\n"
+                "survey[sentiment]: <your question>\n"
+                "Buttons: 👍 Yes | 😐 Okay | 👎 No\n\n"
+                "survey[frequency]: <your question>\n"
+                "Buttons: Weekly | Occasionally | First time\n\n"
+                "survey[helpfulness]: <your question>\n"
+                "Buttons: Very helpful | Somewhat helpful | Not helpful\n\n"
+                "Example:\n"
+                "survey[sentiment]: How were the apples today?"
+            ),
+        )
+        return True
 
     # ----------------------------------
     # Resolve business identity ONCE
@@ -80,7 +105,7 @@ def handle_admin_command(
     # ----------------------------------
     # SAFE PAUSE FLAG
     # ----------------------------------
-    #paused = getattr(client, "is_paused", False)
+    paused = getattr(meta, "is_paused", False)
 
     # ==================================================
     # SURVEYS (Tier 1)
@@ -168,8 +193,8 @@ def handle_admin_command(
     # ==================================================
 
     if upper == "PAUSE":
-        if hasattr(client, "is_paused"):
-            client.is_paused = True
+        if hasattr(meta, "is_paused"):
+            meta.is_paused = True
             db.commit()
             paused = True
         meta.send_generic_business_update_template(
@@ -179,8 +204,8 @@ def handle_admin_command(
         return True
 
     if upper == "RESUME":
-        if hasattr(client, "is_paused"):
-            client.is_paused = False
+        if hasattr(meta, "is_paused"):
+            meta.is_paused = False
             db.commit()
             paused = False
         meta.send_generic_business_update_template(
