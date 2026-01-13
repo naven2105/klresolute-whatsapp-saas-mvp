@@ -46,6 +46,19 @@ SURVEY_BUTTON_SETS = {
             {"id": "NOT_HELPFUL", "text": "Not helpful", "tag": "NEGATIVE"},
         ],
     },
+
+    # =========================
+    # Added to support legacy / existing surveys
+    # =========================
+
+    "YES_NO_NOT_SURE": {
+        "label": "Yes / No / Not Sure",
+        "buttons": [
+            {"id": "YES", "text": "Yes", "tag": "YES"},
+            {"id": "NO", "text": "No", "tag": "NO"},
+            {"id": "NOT_SURE", "text": "Not sure", "tag": "NOT_SURE"},
+        ],
+    },
 }
 
 
