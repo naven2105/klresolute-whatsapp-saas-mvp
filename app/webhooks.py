@@ -138,67 +138,7 @@ async def whatsapp_webhook(
     # -------------------------------
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
-        upper = text.upper()
-
-        # ===============================
-        # ADMIN → SEND SURVEY
-        # ===============================
-        if sender in ADMIN_ALLOWLIST and upper.startswith("SURVEY:"):
-            question = text.split(":", 1)[1].strip()
-            if not question:
-                return Response(status_code=200)
-
-            rows = db.execute(
-                sql_text(
-                    """
-                    SELECT client_number
-                    FROM clients
-                    WHERE is_paused = false
-                      AND last_interaction_at >= now() - interval '24 hours'
-                      AND client_number NOT IN :admins
-                    """
-                ),
-                {"admins": tuple(ADMIN_ALLOWLIST)},
-            ).fetchall()
-
-            survey = Survey(
-                business_number=sender,
-                question=question,
-                button_set="YES_NO_NOT_SURE",
-                status="active",
-                ends_at=db.execute(
-                    sql_text("SELECT now() + interval '24 hours'")
-                ).scalar(),
-            )
-            db.add(survey)
-            db.commit()
-
-            meta = MetaWhatsAppClient(
-                MetaWhatsAppSettings(
-                    api_version=os.getenv("META_WA_API_VERSION"),
-                    access_token=os.getenv("META_WA_ACCESS_TOKEN"),
-                    phone_number_id=os.getenv("META_WA_PHONE_NUMBER_ID"),
-                )
-            )
-
-            for (client_number,) in rows:
-                meta.send_interactive_button_message(
-                    to_msisdn=client_number,
-                    body_text=question,
-                    buttons=[
-                        {"id": "YES", "title": "Yes"},
-                        {"id": "NO", "title": "No"},
-                        {"id": "NOT_SURE", "title": "Not sure"},
-                    ],
-                )
-
-            # ✅ SINGLE admin confirmation
-            meta.send_generic_business_update_template(
-                to_msisdn=sender,
-                blob_text=f"Survey sent to {len(rows)} active clients.",
-            )
-
-            return Response(status_code=200)
+        upper = text.upper()     
 
         # -------------------------------
         # ADMIN COMMANDS (menu, count)
