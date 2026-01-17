@@ -30,6 +30,11 @@ from app.survey import (
 )
 from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 
+# =========================
+# Galito’s menu (NEW)
+# =========================
+from app.client.galitos_menu import handle_galitos_menu
+
 
 # =========================
 # Menus
@@ -163,6 +168,22 @@ def handle_client_command(
     text = (message_text or "").strip()
     upper = text.upper()
 
+    # ==================================================
+    # GALITO’S MENU (customer only)
+    # ==================================================
+    if not is_admin and client_id:
+        handled = handle_galitos_menu(
+            db=db,
+            sender_number=sender_number,
+            message_text=text,
+            client_id=client_id,
+        )
+        if handled:
+            return True
+
+    # ==================================================
+    # DEFAULT MENU
+    # ==================================================
     if upper == "MENU" or not upper:
         _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
         return True

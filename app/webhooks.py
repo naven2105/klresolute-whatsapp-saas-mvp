@@ -1,161 +1,131 @@
 """
-File: app/webhooks.py
+File: app/handlers/order_handler.py
 Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+Handle client single-item orders (Phase 1) using DB-backed conversation state.
+
+RULES (LOCKED):
+- Client-facing only
+- Single item per order
+- Conversation state is stored in DB
+- State is MARKED INACTIVE (not deleted) on completion
+- Orders are confirmed only on explicit YES
 """
 
-import logging
-import os
-import re
+from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response, Depends
+from datetime import datetime
+from typing import Dict, Any
+
 from sqlalchemy.orm import Session
-from sqlalchemy import text as sql_text
+from sqlalchemy import text
 
-from app.db import get_db
-from app.handlers.admin_commands import handle_admin_command
-from app.handlers.client_commands import handle_client_command
-from app.handlers.media_handler import handle_media_message
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import MetaWhatsAppSettings
-from app.survey.survey_models import Survey, SurveyResponse
-from app.survey.auto_close import auto_close_expired_surveys
-
-router = APIRouter(prefix="/webhooks", tags=["webhooks"])
-logger = logging.getLogger("webhooks")
-logging.basicConfig(level=logging.INFO)
-
-ADMIN_ALLOWLIST = {
-    n.strip()
-    for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
-    if n.strip()
-}
+from app.services.order_service import create_order, OrderCreate
+from app.messaging.client_messenger import send_message
 
 
-def _normalise_msisdn(raw: str | None) -> str | None:
-    if not raw:
-        return None
-    digits = re.sub(r"\D", "", raw)
-    if digits.startswith("0"):
-        digits = "27" + digits[1:]
-    if digits.startswith("27") and len(digits) >= 11:
-        return digits
-    return None
-
-
-def _extract_message(payload: dict):
-    try:
-        msg = payload["entry"][0]["changes"][0]["value"]["messages"][0]
-        return msg, msg.get("from")
-    except Exception:
-        return None, None
-
-
-def _extract_business_number(payload: dict) -> str | None:
-    """
-    Returns the WhatsApp Business phone_number_id from webhook metadata.
-    This is required for survey auto-close logic.
-    """
-    try:
-        return payload["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"]
-    except Exception:
-        return None
-
-
-def _upsert_client(db: Session, client_number: str) -> None:
-    db.execute(
-        sql_text(
+def _get_active_order_state(db: Session, sender_msisdn: str) -> dict | None:
+    row = db.execute(
+        text(
             """
-            INSERT INTO clients (client_number, last_interaction_at)
-            VALUES (:client_number, now())
-            ON CONFLICT (client_number)
-            DO UPDATE SET
-                last_interaction_at = now(),
-                updated_at = now();
+            SELECT *
+            FROM conversation_state
+            WHERE sender_msisdn = :sender
+              AND active = true
+              AND state_type = 'ORDER'
+            ORDER BY started_at DESC
+            LIMIT 1
             """
         ),
-        {"client_number": client_number},
+        {"sender": sender_msisdn},
+    ).mappings().first()
+
+    return dict(row) if row else None
+
+
+def _close_order_state(db: Session, state_id: str) -> None:
+    db.execute(
+        text(
+            """
+            UPDATE conversation_state
+            SET active = false,
+                completed_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": state_id},
     )
     db.commit()
 
 
-@router.post("/whatsapp")
-async def whatsapp_webhook(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    logger.info("WhatsApp webhook received")
+def handle_order_message(
+    *,
+    db: Session,
+    from_number: str,
+    text: str,
+    context: Dict[str, Any],  # kept for compatibility, NOT USED
+) -> bool:
+    """
+    Entry point for order handling.
 
-    try:
-        payload = await request.json()
-    except Exception:
-        return Response(status_code=200)
+    Returns:
+        True  -> message was handled here
+        False -> not an order message
+    """
 
-    # ✅ FIX: determine business_number from payload and use correct signature
-    business_number = _extract_business_number(payload) or os.getenv("META_WA_PHONE_NUMBER_ID")
-    if business_number:
-        auto_close_expired_surveys(db, business_number)
+    normalized = text.strip().upper()
 
-    msg, sender_raw = _extract_message(payload)
-    sender = _normalise_msisdn(sender_raw)
+    state = _get_active_order_state(db, from_number)
+    if not state:
+        return False
 
-    if not msg or not sender:
-        return Response(status_code=200)
+    # =========================
+    # CONFIRM ORDER
+    # =========================
+    if normalized == "YES":
+        order = OrderCreate(
+            client_id=state["client_id"],
+            customer_msisdn=from_number,
 
-    _upsert_client(db, sender)
+            item_sku=state["item_sku"],
+            item_name=state["item_name"],
+            flavour=state["flavour"],
 
-    # -------------------------------
-    # MEDIA
-    # -------------------------------
-    if handle_media_message(db=db, sender=sender, msg=msg, admin_allowlist=ADMIN_ALLOWLIST):
-        return Response(status_code=200)
+            base_price=state["base_price"],
+            drink_addon=state["drink_addon"],
+            addon_price=state["addon_price"],
 
-    # -------------------------------
-    # INTERACTIVE (survey answers)
-    # -------------------------------
-    if msg.get("type") == "interactive":
-        reply = msg.get("interactive", {}).get("button_reply")
-        if reply:
-            survey = (
-                db.query(Survey)
-                .filter(Survey.status == "active")
-                .order_by(Survey.started_at.desc())
-                .first()
-            )
-            if survey:
-                db.add(
-                    SurveyResponse(
-                        survey_id=survey.id,
-                        client_number=sender,
-                        button_id=reply.get("id"),
-                        tag=reply.get("title"),
-                    )
-                )
-                db.commit()
-        return Response(status_code=200)
-
-    # -------------------------------
-    # TEXT
-    # -------------------------------
-    if msg.get("type") == "text":
-        text = msg["text"]["body"].strip()
-        upper = text.upper()     
-
-        # -------------------------------
-        # ADMIN COMMANDS (menu, count)
-        # -------------------------------
-        if handle_admin_command(
-            db=db,
-            sender_number=sender,
-            message_text=text,
-            admin_allowlist=ADMIN_ALLOWLIST,
-        ):
-            return Response(status_code=200)
-
-        handle_client_command(
-            db=db,
-            sender_number=sender,
-            message_text=text,
-            msg=msg,
+            total_amount=state["total_amount"],
+            confirmed_at=datetime.utcnow(),
         )
 
-    return Response(status_code=200)
+        create_order(db, order)
+        _close_order_state(db, state["id"])
+
+        send_message(
+            from_number,
+            "✅ Thank you! Your order has been received.\n\n"
+            "• Single-item orders only via bot\n"
+            "• For multiple items, please call the store\n\n"
+            "Type MENU to order again."
+        )
+
+        return True
+
+    # =========================
+    # CANCEL ORDER
+    # =========================
+    if normalized == "NO":
+        _close_order_state(db, state["id"])
+
+        send_message(
+            from_number,
+            "❌ Order cancelled.\n\n"
+            "Type MENU to start again."
+        )
+
+        return True
+
+    # Message not relevant to order
+    return False
