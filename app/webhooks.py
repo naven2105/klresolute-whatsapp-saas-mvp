@@ -5,10 +5,10 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 WhatsApp webhook receiver and dispatcher.
 
-Routing rule (LOCKED):
-- Resolve the receiving WhatsApp Business number via payload metadata.phone_number_id
-- Map that phone_number_id to an active WhatsAppNumber record
-- If no active mapping exists, DO NOT RESPOND (prevents cross-bot leakage)
+ROUTING RULE (LOCKED):
+- Route strictly by receiving WhatsApp business MSISDN
+- Match against whatsapp_numbers.destination_number
+- If no active match exists → DO NOT RESPOND
 """
 
 import logging
@@ -20,11 +20,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text as sql_text
 
 from app.db import get_db
+from app.models import WhatsAppNumber
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
 from app.handlers.order_handler import handle_order_message
-from app.models import WhatsAppNumber  # ✅ used for routing
 from app.survey.survey_models import Survey, SurveyResponse
 from app.survey.auto_close import auto_close_expired_surveys
 
@@ -38,6 +38,10 @@ ADMIN_ALLOWLIST = {
     if n.strip()
 }
 
+
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
 
 def _normalise_msisdn(raw: str | None) -> str | None:
     if not raw:
@@ -58,14 +62,14 @@ def _extract_message(payload: dict):
         return None, None
 
 
-def _extract_business_phone_number_id(payload: dict) -> str | None:
+def _extract_business_msisdn(payload: dict) -> str | None:
     """
-    Returns the WhatsApp Business 'phone_number_id' from webhook metadata.
-
-    This is the PRIMARY routing key for multi-bot setups.
+    Extracts the receiving WhatsApp business number.
+    Source: metadata.display_phone_number
     """
     try:
-        return payload["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"]
+        raw = payload["entry"][0]["changes"][0]["value"]["metadata"]["display_phone_number"]
+        return _normalise_msisdn(raw)
     except Exception:
         return None
 
@@ -87,32 +91,29 @@ def _upsert_client(db: Session, client_number: str) -> None:
     db.commit()
 
 
-def _resolve_active_business_context(
-    db: Session, business_phone_number_id: str | None
-) -> tuple[str | None, str | None, str | None]:
+def _resolve_business_context(db: Session, business_msisdn: str | None):
     """
-    Map WhatsApp Business phone_number_id -> (client_id, destination_number, phone_number_id)
-
-    Returns:
-      (client_id, business_destination_msisdn, phone_number_id)
+    Resolve active WhatsApp business context by destination_number.
     """
-    if not business_phone_number_id:
-        return None, None, None
+    if not business_msisdn:
+        return None, None
 
-    # NOTE:
-    # We assume WhatsAppNumber has a phone_number_id column.
-    # If yours is named differently, tell me the exact column name and I’ll adjust.
     wa = (
         db.query(WhatsAppNumber)
+        .filter(WhatsAppNumber.destination_number == business_msisdn)
         .filter(WhatsAppNumber.status == "active")
-        .filter(WhatsAppNumber.phone_number_id == business_phone_number_id)
         .first()
     )
+
     if not wa:
-        return None, None, business_phone_number_id
+        return None, None
 
-    return wa.client_id, wa.destination_number, business_phone_number_id
+    return wa.client_id, wa.destination_number
 
+
+# -------------------------------------------------
+# Webhook
+# -------------------------------------------------
 
 @router.post("/whatsapp")
 async def whatsapp_webhook(
@@ -127,33 +128,23 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------
-    # ROUTING KEY (receiving business number)
+    # Resolve receiving business
     # -------------------------------
-    business_phone_number_id = _extract_business_phone_number_id(payload) or os.getenv(
-        "META_WA_PHONE_NUMBER_ID"
-    )
+    business_msisdn = _extract_business_msisdn(payload)
+    client_id, resolved_business_msisdn = _resolve_business_context(db, business_msisdn)
 
-    # -------------------------------
-    # AUTO-CLOSE SURVEYS (business-scoped)
-    # -------------------------------
-    if business_phone_number_id:
-        auto_close_expired_surveys(db, business_phone_number_id)
-
-    # -------------------------------
-    # Resolve active business context
-    # -------------------------------
-    client_id, business_msisdn, resolved_phone_number_id = _resolve_active_business_context(
-        db, business_phone_number_id
-    )
-
-    # If we cannot map this business number to an active client, DO NOT RESPOND.
-    # This prevents cross-bot leakage (PilatesHQ getting KLResolute responses etc).
-    if not client_id or not business_msisdn:
+    # ❌ Unknown business number → ignore
+    if not client_id:
         logger.warning(
-            "Ignoring message: no active WhatsAppNumber mapping for phone_number_id=%s",
-            resolved_phone_number_id,
+            "Ignoring message for unknown business number: %s",
+            business_msisdn,
         )
         return Response(status_code=200)
+
+    # -------------------------------
+    # Auto-close surveys (scoped)
+    # -------------------------------
+    auto_close_expired_surveys(db, resolved_business_msisdn)
 
     msg, sender_raw = _extract_message(payload)
     sender = _normalise_msisdn(sender_raw)
@@ -164,7 +155,7 @@ async def whatsapp_webhook(
     _upsert_client(db, sender)
 
     # -------------------------------
-    # MEDIA (ADMIN IMAGES)
+    # Media (admin images)
     # -------------------------------
     if handle_media_message(
         db=db,
@@ -175,7 +166,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------
-    # INTERACTIVE (SURVEY ANSWERS)
+    # Interactive (survey answers)
     # -------------------------------
     if msg.get("type") == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
@@ -199,14 +190,12 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------
-    # TEXT
+    # Text messages
     # -------------------------------
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
 
-        # -------------------------------
-        # ADMIN COMMANDS
-        # -------------------------------
+        # Admin commands
         if handle_admin_command(
             db=db,
             sender_number=sender,
@@ -215,29 +204,23 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # -------------------------------
-        # ORDERS (Phase 1)
-        # -------------------------------
-        handled = handle_order_message(
+        # Orders (Phase 1)
+        if handle_order_message(
             db=db,
             from_number=sender,
             text=text,
-            context={"client_id": client_id, "business_msisdn": business_msisdn},
-        )
-        if handled:
+            context={"client_id": client_id},
+        ):
             return Response(status_code=200)
 
-        # -------------------------------
-        # CLIENT COMMANDS (scoped to this business)
-        # -------------------------------
+        # Client commands
         handle_client_command(
             db=db,
             sender_number=sender,
             message_text=text,
             msg=msg,
             resolved_client_id=client_id,
-            resolved_business_number=business_msisdn,
-            resolved_phone_number_id=resolved_phone_number_id,
+            resolved_business_number=resolved_business_msisdn,
         )
 
     return Response(status_code=200)
