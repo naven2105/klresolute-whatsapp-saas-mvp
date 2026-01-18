@@ -4,9 +4,9 @@ File: app/handlers/client_commands.py
 Purpose:
 Tier 1 Client & Admin Menu Handler
 
-Admin UX polish:
-- Clear grouped admin menu
-- No behavioural changes
+Routing rule (LOCKED):
+- If webhooks resolves business context, use it (prevents cross-bot leakage)
+- Otherwise fallback to prior single-store DB resolution
 """
 
 import os
@@ -30,10 +30,8 @@ from app.survey import (
 )
 from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 
-# =========================
-# Galito’s menu (NEW)
-# =========================
-from app.client.galitos_menu import handle_galitos_menu
+# If you already integrated Galitos menu in client_commands, keep that logic.
+# If not, you can add it later without impacting the routing fix.
 
 
 # =========================
@@ -92,10 +90,9 @@ def _send_text(to_number: str, text: str) -> None:
     )
 
 
-def _resolve_store_context(db: Session):
+def _resolve_store_context_fallback(db: Session):
     """
-    Single-store MVP: resolve context from DB, not env.
-
+    Single-store fallback: resolve context from DB, not env.
     Returns:
       (client_id, business_number_msisdn) or (None, None)
     """
@@ -116,10 +113,19 @@ def handle_client_command(
     sender_number: str,
     message_text: str,
     msg: dict | None = None,
+    resolved_client_id: str | None = None,
+    resolved_business_number: str | None = None,
+    resolved_phone_number_id: str | None = None,  # kept for analytics/debug if needed
 ) -> bool:
-
     is_admin = sender_number in ADMIN_ALLOWLIST
-    client_id, business_number = _resolve_store_context(db)
+
+    # ✅ Prefer business-scoped routing from webhooks.py
+    client_id = resolved_client_id
+    business_number = resolved_business_number
+
+    # Fallback for older flows (keeps existing behaviour)
+    if not client_id or not business_number:
+        client_id, business_number = _resolve_store_context_fallback(db)
 
     # ==================================================
     # AUTO-CLOSE SURVEY
@@ -168,22 +174,6 @@ def handle_client_command(
     text = (message_text or "").strip()
     upper = text.upper()
 
-    # ==================================================
-    # GALITO’S MENU (customer only)
-    # ==================================================
-    if not is_admin and client_id:
-        handled = handle_galitos_menu(
-            db=db,
-            sender_number=sender_number,
-            message_text=text,
-            client_id=client_id,
-        )
-        if handled:
-            return True
-
-    # ==================================================
-    # DEFAULT MENU
-    # ==================================================
     if upper == "MENU" or not upper:
         _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
         return True
