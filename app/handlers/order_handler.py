@@ -11,7 +11,8 @@ RULES (LOCKED):
 - Conversation state is stored in DB
 - State is MARKED INACTIVE (not deleted) on completion
 - Orders are confirmed only on explicit YES
-- Flavour MUST be selected by client
+- MENU always resets the conversation
+- Unknown input = guidance, not cancellation
 """
 
 from __future__ import annotations
@@ -94,27 +95,41 @@ def handle_order_message(
 ) -> bool:
 
     normalized = text.strip().upper()
-
     state = _get_active_order_state(db, from_number)
+
     if not state:
         return False
+
+    # =========================
+    # MENU = HARD RESET
+    # =========================
+    if normalized == "MENU":
+        _close_order_state(db, state["id"])
+        _send_text(
+            from_number,
+            "Order reset.\n\n"
+            "Please choose an option from the menu."
+        )
+        return True
 
     # =========================
     # AWAIT FLAVOUR
     # =========================
     if state.get("flavour") is None:
-        if normalized in ("1", "2", "3"):
-            flavour_map = {
-                "1": "L",  # Lemon & Herb
-                "2": "M",  # Mild
-                "3": "H",  # Hot
-            }
-            _set_flavour(db, state["id"], flavour_map[normalized])
+        flavour_map = {
+            "1": ("L", "Lemon & Herb"),
+            "2": ("M", "Mild"),
+            "3": ("H", "Hot"),
+        }
+
+        if normalized in flavour_map:
+            flavour_code, flavour_label = flavour_map[normalized]
+            _set_flavour(db, state["id"], flavour_code)
 
             _send_text(
                 from_number,
                 f"✅ {state['item_name']}\n"
-                f"Flavour selected.\n"
+                f"Flavour: {flavour_label}\n"
                 f"Price: R{state['total_amount']}\n\n"
                 "Reply YES to confirm\n"
                 "Reply NO to cancel"
@@ -123,10 +138,11 @@ def handle_order_message(
 
         _send_text(
             from_number,
-            "Choose flavour:\n"
+            "Please choose a flavour:\n"
             "1. Lemon & Herb\n"
             "2. Mild\n"
-            "3. Hot"
+            "3. Hot\n\n"
+            "Reply MENU to start again."
         )
         return True
 
@@ -159,9 +175,6 @@ def handle_order_message(
         )
         return True
 
-    # =========================
-    # CANCEL ORDER
-    # =========================
     if normalized == "NO":
         _close_order_state(db, state["id"])
         _send_text(
@@ -171,4 +184,12 @@ def handle_order_message(
         )
         return True
 
+    # =========================
+    # UNKNOWN INPUT (GUIDANCE)
+    # =========================
+    _send_text(
+        from_number,
+        "Please reply YES to confirm or NO to cancel.\n"
+        "Reply MENU to start again."
+    )
     return True
