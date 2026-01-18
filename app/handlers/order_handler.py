@@ -11,6 +11,7 @@ RULES (LOCKED):
 - Conversation state is stored in DB
 - State is MARKED INACTIVE (not deleted) on completion
 - Orders are confirmed only on explicit YES
+- Flavour MUST be selected by client
 """
 
 from __future__ import annotations
@@ -70,6 +71,20 @@ def _close_order_state(db: Session, state_id: str) -> None:
     db.commit()
 
 
+def _set_flavour(db: Session, state_id: str, flavour: str) -> None:
+    db.execute(
+        text(
+            """
+            UPDATE conversation_state
+            SET flavour = :flavour
+            WHERE id = :id
+            """
+        ),
+        {"id": state_id, "flavour": flavour},
+    )
+    db.commit()
+
+
 def handle_order_message(
     *,
     db: Session,
@@ -83,6 +98,37 @@ def handle_order_message(
     state = _get_active_order_state(db, from_number)
     if not state:
         return False
+
+    # =========================
+    # AWAIT FLAVOUR
+    # =========================
+    if state.get("flavour") is None:
+        if normalized in ("1", "2", "3"):
+            flavour_map = {
+                "1": "L",  # Lemon & Herb
+                "2": "M",  # Mild
+                "3": "H",  # Hot
+            }
+            _set_flavour(db, state["id"], flavour_map[normalized])
+
+            _send_text(
+                from_number,
+                f"✅ {state['item_name']}\n"
+                f"Flavour selected.\n"
+                f"Price: R{state['total_amount']}\n\n"
+                "Reply YES to confirm\n"
+                "Reply NO to cancel"
+            )
+            return True
+
+        _send_text(
+            from_number,
+            "Choose flavour:\n"
+            "1. Lemon & Herb\n"
+            "2. Mild\n"
+            "3. Hot"
+        )
+        return True
 
     # =========================
     # CONFIRM ORDER
@@ -111,7 +157,6 @@ def handle_order_message(
             "• For multiple items, please call the store\n\n"
             "Type MENU to order again."
         )
-
         return True
 
     # =========================
@@ -119,13 +164,11 @@ def handle_order_message(
     # =========================
     if normalized == "NO":
         _close_order_state(db, state["id"])
-
         _send_text(
             from_number,
             "❌ Order cancelled.\n\n"
             "Type MENU to start again."
         )
-
         return True
 
-    return False
+    return True
