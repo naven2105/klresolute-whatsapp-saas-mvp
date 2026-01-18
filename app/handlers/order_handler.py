@@ -13,6 +13,7 @@ RULES (LOCKED):
 - Orders are confirmed only on explicit YES
 - MENU always resets the conversation
 - Unknown input = guidance, not cancellation
+- If ORDER state is active, this handler ALWAYS consumes input
 """
 
 from __future__ import annotations
@@ -93,12 +94,20 @@ def handle_order_message(
     text: str,
     context: Dict[str, Any],  # kept for compatibility
 ) -> bool:
+    """
+    Entry point for order handling.
 
-    normalized = text.strip().upper()
+    Returns:
+        True  -> message was consumed here
+        False -> no active order, allow other handlers
+    """
+
     state = _get_active_order_state(db, from_number)
-
     if not state:
-        return False
+        return False  # no order → allow other handlers
+
+    # ORDER STATE EXISTS → ALWAYS CONSUME
+    normalized = (text or "").strip().upper()
 
     # =========================
     # MENU = HARD RESET
@@ -107,8 +116,8 @@ def handle_order_message(
         _close_order_state(db, state["id"])
         _send_text(
             from_number,
-            "Order reset.\n\n"
-            "Please choose an option from the menu."
+            "Order cancelled.\n\n"
+            "Please reply MENU to start again."
         )
         return True
 
