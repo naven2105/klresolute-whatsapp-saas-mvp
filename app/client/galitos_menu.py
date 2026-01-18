@@ -12,6 +12,7 @@ RULES (LOCKED):
 - Writes ONLY to conversation_state
 - Does NOT create orders
 - Does NOT handle YES / NO
+- Does NOT ask for confirmation
 """
 
 from __future__ import annotations
@@ -107,7 +108,7 @@ def handle_galitos_menu(
             {"sender": sender_number},
         )
 
-        # Create new conversation state
+        # Create new conversation state (NO flavour yet)
         db.execute(
             text(
                 """
@@ -122,6 +123,7 @@ def handle_galitos_menu(
                     drink_addon,
                     addon_price,
                     total_amount,
+                    flavour,
                     active
                 )
                 VALUES (
@@ -135,6 +137,7 @@ def handle_galitos_menu(
                     'NONE',
                     0,
                     :total_amount,
+                    NULL,
                     true
                 )
                 """
@@ -151,13 +154,15 @@ def handle_galitos_menu(
 
         db.commit()
 
+        # Hand over to flavour selection
         send_message(
             sender_number,
             f"✅ *{item['name']}* selected\n"
             f"Price: R{item['price']}\n\n"
-            "Reply *YES* to confirm\n"
-            "Reply *NO* to cancel\n\n"
-            "_Bot supports single-item orders only_"
+            "Choose flavour:\n"
+            "1. Lemon & Herb\n"
+            "2. Mild\n"
+            "3. Hot"
         )
 
         return True
