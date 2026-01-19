@@ -21,13 +21,14 @@ from sqlalchemy import text as sql_text
 
 from app.db import get_db
 from app.models import WhatsAppNumber
-
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
 from app.handlers.order_handler import handle_order_message
-from app.handlers.complaint_handler import handle_complaint_message  # ✅ NEW
-
+from app.handlers.complaint_handler import (
+    handle_complaint_message,
+    record_complaint_detail,
+)
 from app.survey.survey_models import Survey, SurveyResponse
 from app.survey.auto_close import auto_close_expired_surveys
 
@@ -66,10 +67,6 @@ def _extract_message(payload: dict):
 
 
 def _extract_business_msisdn(payload: dict) -> str | None:
-    """
-    Extracts the receiving WhatsApp business number.
-    Source: metadata.display_phone_number
-    """
     try:
         raw = payload["entry"][0]["changes"][0]["value"]["metadata"]["display_phone_number"]
         return _normalise_msisdn(raw)
@@ -77,27 +74,7 @@ def _extract_business_msisdn(payload: dict) -> str | None:
         return None
 
 
-def _upsert_client(db: Session, client_number: str) -> None:
-    db.execute(
-        sql_text(
-            """
-            INSERT INTO clients (client_number, last_interaction_at)
-            VALUES (:client_number, now())
-            ON CONFLICT (client_number)
-            DO UPDATE SET
-                last_interaction_at = now(),
-                updated_at = now();
-            """
-        ),
-        {"client_number": client_number},
-    )
-    db.commit()
-
-
 def _resolve_business_context(db: Session, business_msisdn: str | None):
-    """
-    Resolve active WhatsApp business context by destination_number.
-    """
     if not business_msisdn:
         return None, None
 
@@ -130,23 +107,13 @@ async def whatsapp_webhook(
     except Exception:
         return Response(status_code=200)
 
-    # -------------------------------
-    # Resolve receiving business
-    # -------------------------------
+    # Resolve business context
     business_msisdn = _extract_business_msisdn(payload)
     client_id, resolved_business_msisdn = _resolve_business_context(db, business_msisdn)
 
-    # ❌ Unknown business number → ignore
     if not client_id:
-        logger.warning(
-            "Ignoring message for unknown business number: %s",
-            business_msisdn,
-        )
         return Response(status_code=200)
 
-    # -------------------------------
-    # Auto-close surveys (scoped)
-    # -------------------------------
     auto_close_expired_surveys(db, resolved_business_msisdn)
 
     msg, sender_raw = _extract_message(payload)
@@ -155,52 +122,29 @@ async def whatsapp_webhook(
     if not msg or not sender:
         return Response(status_code=200)
 
-    _upsert_client(db, sender)
+    # -------------------------------
+    # MEDIA (image complaints)
+    # -------------------------------
+    media_id = None
+    if msg.get("type") == "image":
+        media_id = msg["image"].get("id")
+
+        if record_complaint_detail(
+            db=db,
+            sender_number=sender,
+            message_text=None,
+            media_id=media_id,
+            admin_numbers=ADMIN_ALLOWLIST,
+        ):
+            return Response(status_code=200)
 
     # -------------------------------
-    # Media (admin images)
-    # -------------------------------
-    if handle_media_message(
-        db=db,
-        sender=sender,
-        msg=msg,
-        admin_allowlist=ADMIN_ALLOWLIST,
-    ):
-        return Response(status_code=200)
-
-    # -------------------------------
-    # Interactive (survey answers)
-    # -------------------------------
-    if msg.get("type") == "interactive":
-        reply = msg.get("interactive", {}).get("button_reply")
-        if reply:
-            survey = (
-                db.query(Survey)
-                .filter(Survey.status == "active")
-                .order_by(Survey.started_at.desc())
-                .first()
-            )
-            if survey:
-                db.add(
-                    SurveyResponse(
-                        survey_id=survey.id,
-                        client_number=sender,
-                        button_id=reply.get("id"),
-                        tag=reply.get("title"),
-                    )
-                )
-                db.commit()
-        return Response(status_code=200)
-
-    # -------------------------------
-    # Text messages
+    # TEXT
     # -------------------------------
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
 
-        # -------------------------------
         # Admin commands
-        # -------------------------------
         if handle_admin_command(
             db=db,
             sender_number=sender,
@@ -209,22 +153,28 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # -------------------------------
-        # Complaints (NEW – before orders)
-        # -------------------------------
+        # Complaint start
         if handle_complaint_message(
             db=db,
             sender_number=sender,
             message_text=text,
-            msg=msg,
+            media_id=None,
             client_id=client_id,
-            admin_msisdn=resolved_business_msisdn,
+            admin_numbers=ADMIN_ALLOWLIST,
         ):
             return Response(status_code=200)
 
-        # -------------------------------
-        # Orders (Phase 1)
-        # -------------------------------
+        # Complaint follow-up text
+        if record_complaint_detail(
+            db=db,
+            sender_number=sender,
+            message_text=text,
+            media_id=None,
+            admin_numbers=ADMIN_ALLOWLIST,
+        ):
+            return Response(status_code=200)
+
+        # Orders
         if handle_order_message(
             db=db,
             from_number=sender,
@@ -233,9 +183,7 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # -------------------------------
-        # Client commands
-        # -------------------------------
+        # Client menu / misc
         handle_client_command(
             db=db,
             sender_number=sender,
