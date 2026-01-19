@@ -21,10 +21,13 @@ from sqlalchemy import text as sql_text
 
 from app.db import get_db
 from app.models import WhatsAppNumber
+
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
 from app.handlers.order_handler import handle_order_message
+from app.handlers.complaint_handler import handle_complaint_message  # ✅ NEW
+
 from app.survey.survey_models import Survey, SurveyResponse
 from app.survey.auto_close import auto_close_expired_surveys
 
@@ -195,7 +198,9 @@ async def whatsapp_webhook(
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
 
+        # -------------------------------
         # Admin commands
+        # -------------------------------
         if handle_admin_command(
             db=db,
             sender_number=sender,
@@ -204,7 +209,22 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
+        # -------------------------------
+        # Complaints (NEW – before orders)
+        # -------------------------------
+        if handle_complaint_message(
+            db=db,
+            sender_number=sender,
+            message_text=text,
+            msg=msg,
+            client_id=client_id,
+            admin_msisdn=resolved_business_msisdn,
+        ):
+            return Response(status_code=200)
+
+        # -------------------------------
         # Orders (Phase 1)
+        # -------------------------------
         if handle_order_message(
             db=db,
             from_number=sender,
@@ -213,7 +233,9 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
+        # -------------------------------
         # Client commands
+        # -------------------------------
         handle_client_command(
             db=db,
             sender_number=sender,
