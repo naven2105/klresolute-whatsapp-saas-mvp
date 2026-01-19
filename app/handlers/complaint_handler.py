@@ -3,13 +3,14 @@ File: app/handlers/complaint_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle customer complaints.
+Handle customer complaints (single-step).
 
-RULES (LOCKED):
-- Customer-facing
-- One complaint per conversation
-- Complaint is saved immediately
-- Admin is notified on creation
+LOCKED RULES:
+- Trigger: message starts with "complaint:"
+- Single message only (no follow-up, no state)
+- Complaint saved immediately
+- Admin notified immediately
+- Admin liaises directly with customer
 """
 
 from __future__ import annotations
@@ -41,20 +42,26 @@ def handle_complaint_message(
     admin_numbers: set[str],
 ) -> bool:
     """
-    Entry point for complaint handling.
-
     Returns:
         True  -> complaint handled
-        False -> not a complaint message
+        False -> not a complaint
     """
 
-    text_norm = (message_text or "").strip()
+    if not message_text:
+        return False
+
+    raw = message_text.strip()
 
     # -------------------------------
-    # TRIGGER
+    # TRIGGER (LOCKED)
     # -------------------------------
-    if text_norm.upper() not in {"COMPLAINT", "COMPLAINTS"}:
+    if not raw.lower().startswith("complaint:"):
         return False
+
+    complaint_text = raw.split(":", 1)[1].strip()
+
+    if not complaint_text:
+        return True  # complaint prefix sent, but empty content
 
     # -------------------------------
     # SAVE COMPLAINT
@@ -83,21 +90,12 @@ def handle_complaint_message(
         {
             "client_id": client_id,
             "customer_msisdn": sender_number,
-            "message_text": message_text or "Complaint opened",
+            "message_text": complaint_text,
             "media_id": media_id,
             "media_type": media_type,
         },
     )
     db.commit()
-
-    # -------------------------------
-    # ACK CUSTOMER
-    # -------------------------------
-    _send_text(
-        sender_number,
-        "🙏 Thank you. Your complaint has been logged.\n"
-        "A manager will review it shortly."
-    )
 
     # -------------------------------
     # NOTIFY ADMINS
@@ -107,7 +105,8 @@ def handle_complaint_message(
             admin,
             f"⚠️ *New Complaint*\n\n"
             f"From: {sender_number}\n"
-            f"Client ID: {client_id}"
+            f"Client ID: {client_id}\n\n"
+            f"Complaint:\n{complaint_text}"
         )
 
     return True
