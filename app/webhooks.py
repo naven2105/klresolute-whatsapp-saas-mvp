@@ -25,11 +25,7 @@ from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
 from app.handlers.order_handler import handle_order_message
-from app.handlers.complaint_handler import (
-    handle_complaint_message,
-    record_complaint_detail,
-)
-from app.survey.survey_models import Survey, SurveyResponse
+from app.handlers.complaint_handler import handle_complaint_message
 from app.survey.auto_close import auto_close_expired_surveys
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -74,6 +70,23 @@ def _extract_business_msisdn(payload: dict) -> str | None:
         return None
 
 
+def _upsert_client(db: Session, client_number: str) -> None:
+    db.execute(
+        sql_text(
+            """
+            INSERT INTO clients (client_number, last_interaction_at)
+            VALUES (:client_number, now())
+            ON CONFLICT (client_number)
+            DO UPDATE SET
+                last_interaction_at = now(),
+                updated_at = now();
+            """
+        ),
+        {"client_number": client_number},
+    )
+    db.commit()
+
+
 def _resolve_business_context(db: Session, business_msisdn: str | None):
     if not business_msisdn:
         return None, None
@@ -107,7 +120,6 @@ async def whatsapp_webhook(
     except Exception:
         return Response(status_code=200)
 
-    # Resolve business context
     business_msisdn = _extract_business_msisdn(payload)
     client_id, resolved_business_msisdn = _resolve_business_context(db, business_msisdn)
 
@@ -122,24 +134,21 @@ async def whatsapp_webhook(
     if not msg or not sender:
         return Response(status_code=200)
 
-    # -------------------------------
-    # MEDIA (image complaints)
-    # -------------------------------
-    media_id = None
-    if msg.get("type") == "image":
-        media_id = msg["image"].get("id")
-
-        if record_complaint_detail(
-            db=db,
-            sender_number=sender,
-            message_text=None,
-            media_id=media_id,
-            admin_numbers=ADMIN_ALLOWLIST,
-        ):
-            return Response(status_code=200)
+    _upsert_client(db, sender)
 
     # -------------------------------
-    # TEXT
+    # Media (admin images)
+    # -------------------------------
+    if handle_media_message(
+        db=db,
+        sender=sender,
+        msg=msg,
+        admin_allowlist=ADMIN_ALLOWLIST,
+    ):
+        return Response(status_code=200)
+
+    # -------------------------------
+    # Text
     # -------------------------------
     if msg.get("type") == "text":
         text = msg["text"]["body"].strip()
@@ -153,23 +162,14 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # Complaint start
+        # Complaints (append-only)
         if handle_complaint_message(
             db=db,
             sender_number=sender,
             message_text=text,
             media_id=None,
+            media_type=None,
             client_id=client_id,
-            admin_numbers=ADMIN_ALLOWLIST,
-        ):
-            return Response(status_code=200)
-
-        # Complaint follow-up text
-        if record_complaint_detail(
-            db=db,
-            sender_number=sender,
-            message_text=text,
-            media_id=None,
             admin_numbers=ADMIN_ALLOWLIST,
         ):
             return Response(status_code=200)
@@ -183,7 +183,7 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # Client menu / misc
+        # Client menu / other commands
         handle_client_command(
             db=db,
             sender_number=sender,
