@@ -23,6 +23,14 @@ _meta = MetaWhatsAppClient(settings=load_meta_settings())
 TRIGGERS = {"COMPLAINT", "ISSUE", "PROBLEM"}
 
 
+def _send_text(to_number: str, body: str) -> None:
+    # IMPORTANT: keyword-only call (matches your Meta client)
+    _meta.send_session_message(
+        to_msisdn=to_number,
+        text=body,
+    )
+
+
 def handle_complaint_message(
     *,
     db: Session,
@@ -39,15 +47,15 @@ def handle_complaint_message(
 
     text_norm = (message_text or "").strip().upper()
 
-    # 1️⃣ Trigger only — show prompt, DO NOT store row
+    # 1) Trigger only — show prompt, DO NOT store row
     if text_norm in TRIGGERS:
-        _meta.send_session_message(
+        _send_text(
             sender_number,
             "📩 Please describe your issue.\nYou may also send a photo.",
         )
         return True
 
-    # 2️⃣ Store actual complaint content
+    # 2) Store actual complaint content (text or media)
     if message_text or media_id:
         db.execute(
             text(
@@ -80,8 +88,9 @@ def handle_complaint_message(
         )
         db.commit()
 
+        # Notify admin(s)
         for admin in admin_numbers:
-            _meta.send_session_message(
+            _send_text(
                 admin,
                 f"⚠️ Complaint from {sender_number}",
             )
