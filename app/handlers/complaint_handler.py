@@ -36,6 +36,7 @@ def handle_complaint_message(
     sender_number: str,
     message_text: str | None,
     media_id: str | None = None,
+    media_type: str | None = None,
     client_id: str,
     admin_numbers: set[str],
 ) -> bool:
@@ -66,6 +67,7 @@ def handle_complaint_message(
                 customer_msisdn,
                 message_text,
                 media_id,
+                media_type,
                 created_at
             )
             VALUES (
@@ -73,6 +75,7 @@ def handle_complaint_message(
                 :customer_msisdn,
                 :message_text,
                 :media_id,
+                :media_type,
                 now()
             )
             """
@@ -82,6 +85,7 @@ def handle_complaint_message(
             "customer_msisdn": sender_number,
             "message_text": message_text or "Complaint opened",
             "media_id": media_id,
+            "media_type": media_type,
         },
     )
     db.commit()
@@ -103,12 +107,7 @@ def handle_complaint_message(
             admin,
             f"⚠️ *New Complaint*\n\n"
             f"From: {sender_number}\n"
-            f"Client ID: {client_id}"      
+            f"Client ID: {client_id}"
         )
 
     return True
-
-
-
-
-
