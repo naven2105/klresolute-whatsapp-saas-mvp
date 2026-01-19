@@ -3,93 +3,106 @@ File: app/handlers/complaint_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle customer complaints.
+Handle customer complaints (Phase 1).
 
 RULES (LOCKED):
 - Customer-facing only
-- NO use of conversation_state
-- One-pass submission (text or image)
-- Complaint is immediately stored
-- Admin is notified
+- One active complaint per client per day
+- Text and images are appended
+- No conversation_state
+- No schema changes
 """
 
-from __future__ import annotations
-
+from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 
+_meta = MetaWhatsAppClient(settings=load_meta_settings())
 
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
+
+def _notify_admin(admin_numbers, text):
+    for admin in admin_numbers:
+        _meta.send_session_message(admin, text)
 
 
-def _send_text(to_number: str, text: str) -> None:
-    _meta_client.send_session_message(
-        to_msisdn=to_number,
-        text=text,
-    )
+def _get_today_complaint(db: Session, client_id):
+    return db.execute(
+        text(
+            """
+            SELECT id
+            FROM complaints
+            WHERE client_id = :client_id
+              AND created_at::date = :today
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ),
+        {
+            "client_id": client_id,
+            "today": date.today(),
+        },
+    ).first()
 
 
 def handle_complaint_message(
     *,
     db: Session,
     sender_number: str,
-    message_text: str | None,
+    message_text: str,
     media_id: str | None,
-    client_id: str,
-    admin_numbers: set[str],
+    client_id,
+    admin_numbers,
 ) -> bool:
     """
-    Handle a customer complaint message.
-
-    Returns:
-        True  -> complaint handled here
-        False -> not a complaint message
+    Starts a complaint ONLY if none exists today.
     """
 
-    text_norm = (message_text or "").strip().upper()
-
-    # ----------------------------------
-    # ENTRY TRIGGER
-    # ----------------------------------
-    if text_norm not in {"COMPLAINT", "COMPLAIN", "ISSUE", "PROBLEM"}:
+    keyword = (message_text or "").strip().upper()
+    if keyword not in ("COMPLAINT", "ISSUE", "PROBLEM"):
         return False
 
-    # Ask customer to describe issue
-    _send_text(
-        sender_number,
-        "📝 Please describe your issue.\n"
-        "You may also send a photo."
-    )
+    existing = _get_today_complaint(db, client_id)
+    if existing:
+        # Complaint already active → do nothing
+        return True
 
-    # Insert placeholder complaint record
     db.execute(
         text(
             """
             INSERT INTO complaints (
                 client_id,
-                sender_msisdn,
                 description,
                 media_id,
                 created_at
             )
             VALUES (
                 :client_id,
-                :sender,
-                NULL,
-                NULL,
+                :description,
+                :media_id,
                 now()
             )
             """
         ),
         {
             "client_id": client_id,
-            "sender": sender_number,
+            "description": f"Complaint opened by {sender_number}",
+            "media_id": media_id,
         },
     )
     db.commit()
+
+    _meta.send_session_message(
+        sender_number,
+        "📩 Please describe your issue.\nYou may also send a photo.",
+    )
+
+    _notify_admin(
+        admin_numbers,
+        f"⚠️ New complaint started\nFrom: {sender_number}",
+    )
 
     return True
 
@@ -100,63 +113,44 @@ def record_complaint_detail(
     sender_number: str,
     message_text: str | None,
     media_id: str | None,
-    admin_numbers: set[str],
+    admin_numbers,
+    client_id,
 ) -> bool:
     """
-    Records the actual complaint content (text or image).
-    Called AFTER the prompt.
+    Appends detail to today’s complaint.
     """
 
-    # Get latest unresolved complaint
-    complaint = db.execute(
-        text(
-            """
-            SELECT id
-            FROM complaints
-            WHERE sender_msisdn = :sender
-              AND resolved = false
-            ORDER BY created_at DESC
-            LIMIT 1
-            """
-        ),
-        {"sender": sender_number},
-    ).mappings().first()
-
-    if not complaint:
+    row = _get_today_complaint(db, client_id)
+    if not row:
         return False
 
-    # Update complaint
+    updates = []
+    if message_text:
+        updates.append(f"\nTEXT: {message_text}")
+    if media_id:
+        updates.append(f"\nIMAGE_ID: {media_id}")
+
+    if not updates:
+        return False
+
     db.execute(
         text(
             """
             UPDATE complaints
-            SET description = COALESCE(:desc, description),
-                media_id = COALESCE(:media, media_id)
+            SET description = description || :append_text
             WHERE id = :id
             """
         ),
         {
-            "id": complaint["id"],
-            "desc": message_text,
-            "media": media_id,
+            "append_text": "".join(updates),
+            "id": row[0],
         },
     )
     db.commit()
 
-    # Notify admin(s)
-    admin_msg = (
-        "🚨 *New Customer Complaint*\n\n"
-        f"From: {sender_number}\n"
-        f"Message: {message_text or '[Photo attached]'}"
-    )
-
-    for admin in admin_numbers:
-        _send_text(admin, admin_msg)
-
-    # Confirm to customer
-    _send_text(
-        sender_number,
-        "✅ Thank you. Your complaint has been sent to management."
+    _notify_admin(
+        admin_numbers,
+        f"📨 Complaint update from {sender_number}",
     )
 
     return True
