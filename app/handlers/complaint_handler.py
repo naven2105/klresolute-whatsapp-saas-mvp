@@ -34,7 +34,8 @@ def handle_complaint_message(
     *,
     db: Session,
     sender_number: str,
-    message_text: str,
+    message_text: str | None,
+    media_id: str | None = None,
     client_id: str,
     admin_numbers: set[str],
 ) -> bool:
@@ -64,12 +65,14 @@ def handle_complaint_message(
                 client_id,
                 customer_msisdn,
                 message_text,
+                media_id,
                 created_at
             )
             VALUES (
                 :client_id,
                 :customer_msisdn,
                 :message_text,
+                :media_id,
                 now()
             )
             """
@@ -77,7 +80,8 @@ def handle_complaint_message(
         {
             "client_id": client_id,
             "customer_msisdn": sender_number,
-            "message_text": "Complaint opened",
+            "message_text": message_text or "Complaint opened",
+            "media_id": media_id,
         },
     )
     db.commit()
