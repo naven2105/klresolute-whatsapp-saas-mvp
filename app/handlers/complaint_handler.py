@@ -3,14 +3,13 @@ File: app/handlers/complaint_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle customer complaints (Phase 1).
+Handle customer complaints.
 
 RULES (LOCKED):
-- Customer-facing only
-- One complaint row per message (simple + safe)
-- Uses existing complaints table AS-IS
+- Append-only (1 row per message)
+- Prompt shown ONLY on keyword
+- Uses complaints table AS-IS
 - No conversation_state
-- No schema changes
 """
 
 from sqlalchemy.orm import Session
@@ -35,20 +34,20 @@ def handle_complaint_message(
     admin_numbers,
 ) -> bool:
     """
-    Creates a complaint record.
+    Handle complaint-related messages.
     """
 
-    keyword = (message_text or "").strip().upper()
+    text_norm = (message_text or "").strip().upper()
 
-    # Start complaint
-    if keyword in TRIGGERS:
+    # 1️⃣ Trigger only — show prompt, DO NOT store row
+    if text_norm in TRIGGERS:
         _meta.send_session_message(
             sender_number,
             "📩 Please describe your issue.\nYou may also send a photo.",
         )
         return True
 
-    # Record complaint detail (text or media)
+    # 2️⃣ Store actual complaint content
     if message_text or media_id:
         db.execute(
             text(
@@ -84,7 +83,7 @@ def handle_complaint_message(
         for admin in admin_numbers:
             _meta.send_session_message(
                 admin,
-                f"⚠️ New complaint received from {sender_number}",
+                f"⚠️ Complaint from {sender_number}",
             )
 
         return True
