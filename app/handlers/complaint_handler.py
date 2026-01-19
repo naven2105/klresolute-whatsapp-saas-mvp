@@ -7,10 +7,10 @@ Handle customer complaints (single-step).
 
 LOCKED RULES:
 - Trigger: message starts with "complaint:"
-- Single message only (no follow-up, no state)
+- Single message only (no state, no follow-up)
 - Complaint saved immediately
 - Admin notified immediately
-- Admin liaises directly with customer
+- Customer receives a polite acknowledgement
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def handle_complaint_message(
     complaint_text = raw.split(":", 1)[1].strip()
 
     if not complaint_text:
-        return True  # complaint prefix sent, but empty content
+        return True  # prefix sent, no content
 
     # -------------------------------
     # SAVE COMPLAINT
@@ -96,6 +96,14 @@ def handle_complaint_message(
         },
     )
     db.commit()
+
+    # -------------------------------
+    # ACK CUSTOMER (POLITE, SHORT)
+    # -------------------------------
+    _send_text(
+        sender_number,
+        "Sorry about your issue. The manager will contact you soon."
+    )
 
     # -------------------------------
     # NOTIFY ADMINS
