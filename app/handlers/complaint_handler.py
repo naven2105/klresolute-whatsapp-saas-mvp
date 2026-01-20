@@ -7,16 +7,13 @@ Handle customer complaints.
 
 RULES (LOCKED):
 - Customer-facing only
-- Stores complaint immediately
-- Supports text and optional image
+- Append-only (no updates)
+- Supports text complaints (Phase 1)
+- Stores into complaints table (existing schema)
 - ALWAYS notifies admin allowlist
-- No assumptions about schema beyond complaints table
 """
 
 from __future__ import annotations
-
-import os
-from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -30,12 +27,6 @@ from app.outbound.settings import load_meta_settings
 # -------------------------------------------------
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
-
-ADMIN_ALLOWLIST = {
-    n.strip()
-    for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
-    if n.strip()
-}
 
 
 def _send_text(to_number: str, text_msg: str) -> None:
@@ -53,39 +44,26 @@ def handle_complaint_message(
     *,
     db: Session,
     sender_number: str,
+    message_text: str | None,
+    media_id: str | None,
+    media_type: str | None,
     client_id,
-    msg: dict,
+    admin_numbers: set[str],
 ) -> bool:
     """
-    Handles complaint capture and admin notification.
+    Stores complaint and notifies admin.
 
     Returns:
         True  -> complaint handled
-        False -> not a complaint message
+        False -> ignore
     """
 
-    msg_type = msg.get("type")
+    # Ignore empty complaints
+    if not message_text and not media_id:
+        return False
 
     # -------------------------------
-    # Extract complaint content
-    # -------------------------------
-    message_text: Optional[str] = None
-    media_id: Optional[str] = None
-    media_type: Optional[str] = None
-
-    if msg_type == "text":
-        message_text = msg["text"]["body"].strip()
-
-    elif msg_type == "image":
-        media_id = msg["image"]["id"]
-        media_type = "image"
-        message_text = msg["image"].get("caption")
-
-    else:
-        return False  # not supported → ignore
-
-    # -------------------------------
-    # Store complaint
+    # Store complaint (schema-aligned)
     # -------------------------------
     db.execute(
         text(
@@ -123,20 +101,19 @@ def handle_complaint_message(
     # -------------------------------
     _send_text(
         sender_number,
-        "🙏 Thank you for letting us know.\n"
-        "Your complaint has been sent to the manager.",
+        "🙏 Thank you. Your complaint has been sent to the manager.",
     )
 
     # -------------------------------
-    # Notify admin(s)
+    # Notify admins
     # -------------------------------
-    admin_alert = (
-        "⚠️ *New Complaint Received*\n\n"
+    admin_msg = (
+        "⚠️ *New Customer Complaint*\n\n"
         f"From: {sender_number}\n"
-        f"Text: {message_text or '[Photo sent]'}"
+        f"Message: {message_text or '[Media received]'}"
     )
 
-    for admin in ADMIN_ALLOWLIST:
-        _send_text(admin, admin_alert)
+    for admin in admin_numbers:
+        _send_text(admin, admin_msg)
 
     return True
