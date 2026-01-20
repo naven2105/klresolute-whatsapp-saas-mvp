@@ -41,20 +41,23 @@ from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
-    "📊 Surveys\n"
-    "SURVEY: <question> – Send survey (auto-closes in 24h)\n"
-    "END – Close active survey early\n\n"
+    "📊 Surveys (button-based)\n"
+    "SURVEY: <question> – Sentiment (👍 Yes / 😐 Okay / 👎 No)\n"
+    "SURVEY[FREQUENCY]: <question> – Frequency (Weekly / Occasionally / First time)\n"
+    "SURVEY[HELPFULNESS]: <question> – Helpfulness (Very / Somewhat / Not helpful)\n"
+    "END SURVEY – Close active survey early\n\n"
     "👥 Clients\n"
     "ADD CLIENT: <number>\n"
     "REMOVE CLIENT: <number>\n"
     "COUNT – Active clients\n\n"
     "✉️ Messaging\n"
     "SEND: <number> <message>\n"
-    "BROADCAST: <message>\n\n"
+    "BROADCAST: <message>  (text only)\n\n"
+    "🖼️ Specials\n"
+    "Send image + caption – Updates specials (push + replay)\n\n"
     "⚙️ System\n"
     "PAUSE – Stop outbound messages\n"
-    "RESUME – Resume outbound messages\n\n"
-    "📸 Tip: Send an image to update specials."
+    "RESUME – Resume outbound messages"
 )
 
 CLIENT_MENU_TEXT = (
@@ -155,7 +158,6 @@ def handle_client_command(
     if not client_id or not business_number:
         client_id, business_number = _resolve_store_context_fallback(db)
 
-    # Auto-close surveys
     if business_number:
         closed = auto_close_expired_surveys(db, business_number)
         if closed:
@@ -163,24 +165,21 @@ def handle_client_command(
             for admin in ADMIN_ALLOWLIST:
                 _send_text(admin, summary)
 
-    # Survey button responses
     if msg and msg.get("type") == "interactive":
         button_reply = (
             msg.get("interactive", {})
             .get("button_reply", {})
             .get("id")
         )
-
         if button_reply:
             active = get_active_survey(db, sender_number)
-            if active:
-                if record_response(
-                    db=db,
-                    survey=active,
-                    client_number=sender_number,
-                    button_id=button_reply,
-                ):
-                    _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
+            if active and record_response(
+                db=db,
+                survey=active,
+                client_number=sender_number,
+                button_id=button_reply,
+            ):
+                _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
             return True
 
     text = (message_text or "").strip()
@@ -218,12 +217,10 @@ def handle_client_command(
         _send_text(sender_number, ABOUT_TEXT)
         return True
 
-    # =========================
-    # KEYWORD: SPECIALS
-    # =========================
     if upper in ("SPECIAL", "SPECIALS") and not is_admin:
         _send_latest_special(db, sender_number, client_id)
         return True
 
     _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
     return True
+    
