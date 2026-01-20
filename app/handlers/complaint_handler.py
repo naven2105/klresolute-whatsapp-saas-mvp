@@ -8,9 +8,8 @@ Handle customer complaints.
 RULES (LOCKED):
 - Customer-facing only
 - Append-only (no updates)
-- Supports text complaints (Phase 1)
 - Stores into complaints table (existing schema)
-- ALWAYS notifies admin allowlist
+- ALL admin notifications use Meta template klr_admin_alert_v1
 """
 
 from __future__ import annotations
@@ -28,11 +27,29 @@ from app.outbound.settings import load_meta_settings
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
+ADMIN_TEMPLATE_NAME = "klr_admin_alert_v1"
+
 
 def _send_text(to_number: str, text_msg: str) -> None:
     _meta_client.send_session_message(
         to_msisdn=to_number,
         text=text_msg,
+    )
+
+
+def _send_admin_template(to_number: str, alert_text: str) -> None:
+    _meta_client.send_template_message(
+        to_msisdn=to_number,
+        template_name=ADMIN_TEMPLATE_NAME,
+        language="en_US",
+        components=[
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": alert_text}
+                ],
+            }
+        ],
     )
 
 
@@ -51,14 +68,13 @@ def handle_complaint_message(
     admin_numbers: set[str],
 ) -> bool:
     """
-    Stores complaint and notifies admin.
+    Stores complaint and notifies admin via template.
 
     Returns:
         True  -> complaint handled
         False -> ignore
     """
 
-    # Ignore empty complaints
     if not message_text and not media_id:
         return False
 
@@ -97,7 +113,7 @@ def handle_complaint_message(
     db.commit()
 
     # -------------------------------
-    # Acknowledge customer
+    # Acknowledge customer (session)
     # -------------------------------
     _send_text(
         sender_number,
@@ -105,15 +121,15 @@ def handle_complaint_message(
     )
 
     # -------------------------------
-    # Notify admins
+    # Notify admins (TEMPLATE ONLY)
     # -------------------------------
-    admin_msg = (
-        "⚠️ *New Customer Complaint*\n\n"
+    alert_text = (
+        f"New complaint received\n"
         f"From: {sender_number}\n"
         f"Message: {message_text or '[Media received]'}"
     )
 
     for admin in admin_numbers:
-        _send_text(admin, admin_msg)
+        _send_admin_template(admin, alert_text)
 
     return True
