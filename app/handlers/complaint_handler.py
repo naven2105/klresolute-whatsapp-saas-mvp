@@ -162,8 +162,8 @@ def handle_complaint_message(
     # Notify admins (TEMPLATE ONLY)
     # -------------------------------
     alert_text = (
-        f"New complaint received\n"
-        f"From: {sender_number}\n"
+        f"New complaint received | "
+        f"From: {sender_number} | "
         f"Message: {message_text or 'Media received'}"
     )
 
