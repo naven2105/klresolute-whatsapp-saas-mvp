@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 File: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
@@ -25,7 +27,7 @@ from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
 from app.handlers.order_handler import handle_order_message
-from app.handlers.complaint_handler import handle_complaint_message
+from app.handlers.feedback_handler import handle_feedback_message
 from app.survey.auto_close import auto_close_expired_surveys
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -151,9 +153,13 @@ async def whatsapp_webhook(
     # Text
     # -------------------------------
     if msg.get("type") == "text":
-        text = msg["text"]["body"].strip()
+        raw_text = msg["text"]["body"] or ""
+        text = raw_text.strip()
+        upper = text.upper()
 
+        # -------------------------------
         # Admin commands
+        # -------------------------------
         if handle_admin_command(
             db=db,
             sender_number=sender,
@@ -162,19 +168,26 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # Complaints (append-only)
-        if handle_complaint_message(
-            db=db,
-            sender_number=sender,
-            message_text=text,
-            media_id=None,
-            media_type=None,
-            client_id=client_id,
-            admin_numbers=ADMIN_ALLOWLIST,
-        ):
+        # -------------------------------
+        # FEEDBACK intent (EXPLICIT ONLY)
+        # -------------------------------
+        if upper.startswith("FEEDBACK:"):
+            feedback_text = text[len("FEEDBACK:"):].strip()
+
+            handle_feedback_message(
+                db=db,
+                sender_number=sender,
+                message_text=feedback_text,
+                media_id=None,
+                media_type=None,
+                client_id=client_id,
+                admin_numbers=ADMIN_ALLOWLIST,
+            )
             return Response(status_code=200)
 
+        # -------------------------------
         # Orders
+        # -------------------------------
         if handle_order_message(
             db=db,
             from_number=sender,
@@ -183,7 +196,9 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # Client menu / other commands
+        # -------------------------------
+        # Unknown → Client menu
+        # -------------------------------
         handle_client_command(
             db=db,
             sender_number=sender,

@@ -64,7 +64,7 @@ CLIENT_MENU_TEXT = (
     "ABOUT – Store details\n"
     "JOIN – Receive updates\n"
     "STOP – Opt out\n"
-    "COMPLAINT – Log a complaint (type: Complaint: your message)\n"
+    "FEEDBACK – Log feedback (type: FEEDBACK: your message)\n"
     "MENU – Show this menu again\n\n"
     "For store hours or specials,\n"
     "just reply HOURS or SPECIALS."

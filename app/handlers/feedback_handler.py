@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 """
-File: app/handlers/complaint_handler.py
+File: app/handlers/feedback_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle customer complaints.
+Handle customer feedbacks.
 
 RULES (LOCKED):
 - Customer-facing only
 - Append-only (no updates)
-- Stores into complaints table (existing schema)
+- Stores into feedbacks table (existing schema)
 - ALL admin notifications use Meta template klr_admin_alert_v1
 """
 
@@ -27,7 +27,7 @@ from app.outbound.settings import load_meta_settings
 # Logging
 # -------------------------------------------------
 
-logger = logging.getLogger("complaint_handler")
+logger = logging.getLogger("feedback_handler")
 logger.setLevel(logging.INFO)
 
 
@@ -44,7 +44,7 @@ def _send_customer_ack(to_number: str) -> None:
     try:
         _meta_client.send_session_message(
             to_msisdn=to_number,
-            text="🙏 Thank you. Your complaint has been sent to the manager.",
+            text="🙏 Thank you. Your feedback has been sent to the manager.",
         )
         logger.info("Customer ACK sent to %s", to_number)
     except Exception as exc:
@@ -90,7 +90,7 @@ def _send_admin_alert(to_number: str, alert_text: str) -> None:
 # Handler
 # -------------------------------------------------
 
-def handle_complaint_message(
+def handle_feedback_message(
     *,
     db: Session,
     sender_number: str,
@@ -101,25 +101,25 @@ def handle_complaint_message(
     admin_numbers: set[str],
 ) -> bool:
     """
-    Stores complaint and notifies admin via template.
+    Stores feedback and notifies admin via template.
 
     Returns:
-        True  -> complaint handled
+        True  -> feedback handled
         False -> ignore
     """
 
     # Nothing to store
     if not message_text and not media_id:
-        logger.info("Complaint ignored (no text / no media)")
+        logger.info("feedback ignored (no text / no media)")
         return False
 
     # -------------------------------
-    # Store complaint (schema-aligned)
+    # Store feedback (schema-aligned)
     # -------------------------------
     db.execute(
         text(
             """
-            INSERT INTO complaints (
+            INSERT INTO feedbacks (
                 client_id,
                 customer_msisdn,
                 message_text,
@@ -148,7 +148,7 @@ def handle_complaint_message(
     db.commit()
 
     logger.info(
-        "Complaint stored | client_id=%s | from=%s",
+        "feedback stored | client_id=%s | from=%s",
         client_id,
         sender_number,
     )
@@ -162,13 +162,13 @@ def handle_complaint_message(
     # Notify admins (TEMPLATE ONLY)
     # -------------------------------
     alert_text = (
-        f"New complaint received | "
+        f"New feedback received | "
         f"From: {sender_number} | "
         f"Message: {message_text or 'Media received'}"
     )
 
     if not admin_numbers:
-        logger.warning("No admin numbers configured for complaint alert")
+        logger.warning("No admin numbers configured for feedback alert")
     else:
         logger.info("Admin alert target count = %s", len(admin_numbers))
 
