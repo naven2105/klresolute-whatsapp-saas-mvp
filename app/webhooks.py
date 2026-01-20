@@ -139,13 +139,14 @@ async def whatsapp_webhook(
     _upsert_client(db, sender)
 
     # -------------------------------
-    # Media (admin images)
+    # Media (admin images → SPECIALS)
     # -------------------------------
     if handle_media_message(
         db=db,
         sender=sender,
         msg=msg,
         admin_allowlist=ADMIN_ALLOWLIST,
+        client_id=client_id,   # ✅ REQUIRED
     ):
         return Response(status_code=200)
 
@@ -157,9 +158,7 @@ async def whatsapp_webhook(
         text = raw_text.strip()
         upper = text.upper()
 
-        # -------------------------------
         # Admin commands
-        # -------------------------------
         if handle_admin_command(
             db=db,
             sender_number=sender,
@@ -168,9 +167,7 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # -------------------------------
-        # FEEDBACK intent (EXPLICIT ONLY)
-        # -------------------------------
+        # FEEDBACK intent (explicit only)
         if upper.startswith("FEEDBACK:"):
             feedback_text = text[len("FEEDBACK:"):].strip()
 
@@ -185,9 +182,7 @@ async def whatsapp_webhook(
             )
             return Response(status_code=200)
 
-        # -------------------------------
         # Orders
-        # -------------------------------
         if handle_order_message(
             db=db,
             from_number=sender,
@@ -196,9 +191,7 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # -------------------------------
         # Unknown → Client menu
-        # -------------------------------
         handle_client_command(
             db=db,
             sender_number=sender,

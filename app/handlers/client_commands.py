@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 """
 File: app/handlers/client_commands.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Tier 1 Client & Admin Menu Handler
@@ -11,6 +14,7 @@ Routing rule (LOCKED):
 
 import os
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
@@ -29,9 +33,6 @@ from app.survey import (
     build_survey_summary_text,
 )
 from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
-
-# If you already integrated Galitos menu in client_commands, keep that logic.
-# If not, you can add it later without impacting the routing fix.
 
 
 # =========================
@@ -53,7 +54,7 @@ ADMIN_MENU_TEXT = (
     "⚙️ System\n"
     "PAUSE – Stop outbound messages\n"
     "RESUME – Resume outbound messages\n\n"
-    "📸 Tip: Send an image to broadcast it instantly."
+    "📸 Tip: Send an image to update specials."
 )
 
 CLIENT_MENU_TEXT = (
@@ -71,11 +72,6 @@ CLIENT_MENU_TEXT = (
     "Please tap the buttons to respond — it only takes a second."
 )
 
-FEEDBACK_ACK_TEXT = (
-    "🙏 Thank you for your message.\n"
-    "We’ve shared it with the manager."
-)
-
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
@@ -85,6 +81,10 @@ ADMIN_ALLOWLIST = {
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
+# =========================
+# Helpers
+# =========================
+
 def _send_text(to_number: str, text: str) -> None:
     _meta_client.send_session_message(
         to_msisdn=to_number,
@@ -92,12 +92,36 @@ def _send_text(to_number: str, text: str) -> None:
     )
 
 
+def _send_latest_special(db: Session, to_number: str, client_id) -> None:
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT media_id, caption
+                FROM specials
+                WHERE client_id = :client_id
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"client_id": client_id},
+        )
+        .mappings()
+        .first()
+    )
+
+    if not row:
+        _send_text(to_number, "No specials are available right now.")
+        return
+
+    _meta_client.send_image_message(
+        to_msisdn=to_number,
+        media_id=row["media_id"],
+        caption=row["caption"],
+    )
+
+
 def _resolve_store_context_fallback(db: Session):
-    """
-    Single-store fallback: resolve context from DB, not env.
-    Returns:
-      (client_id, business_number_msisdn) or (None, None)
-    """
     wa = (
         db.query(WhatsAppNumber)
         .filter(WhatsAppNumber.status == "active")
@@ -109,6 +133,10 @@ def _resolve_store_context_fallback(db: Session):
     return wa.client_id, wa.destination_number
 
 
+# =========================
+# Main handler
+# =========================
+
 def handle_client_command(
     *,
     db,
@@ -117,21 +145,17 @@ def handle_client_command(
     msg: dict | None = None,
     resolved_client_id: str | None = None,
     resolved_business_number: str | None = None,
-    resolved_phone_number_id: str | None = None,  # kept for analytics/debug if needed
+    resolved_phone_number_id: str | None = None,
 ) -> bool:
     is_admin = sender_number in ADMIN_ALLOWLIST
 
-    # ✅ Prefer business-scoped routing from webhooks.py
     client_id = resolved_client_id
     business_number = resolved_business_number
 
-    # Fallback for older flows (keeps existing behaviour)
     if not client_id or not business_number:
         client_id, business_number = _resolve_store_context_fallback(db)
 
-    # ==================================================
-    # AUTO-CLOSE SURVEY
-    # ==================================================
+    # Auto-close surveys
     if business_number:
         closed = auto_close_expired_surveys(db, business_number)
         if closed:
@@ -139,9 +163,7 @@ def handle_client_command(
             for admin in ADMIN_ALLOWLIST:
                 _send_text(admin, summary)
 
-    # ==================================================
-    # SURVEY BUTTON RESPONSE
-    # ==================================================
+    # Survey button responses
     if msg and msg.get("type") == "interactive":
         button_reply = (
             msg.get("interactive", {})
@@ -152,27 +174,15 @@ def handle_client_command(
         if button_reply:
             active = get_active_survey(db, sender_number)
             if active:
-                recorded = record_response(
+                if record_response(
                     db=db,
                     survey=active,
                     client_number=sender_number,
                     button_id=button_reply,
-                )
-                if recorded:
+                ):
                     _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
+            return True
 
-                    if client_id:
-                        log_event(
-                            db=db,
-                            client_id=client_id,
-                            event_type="survey_response",
-                            event_detail=f"survey_{active.id}",
-                        )
-                return True
-
-    # ==================================================
-    # NORMAL COMMAND HANDLING
-    # ==================================================
     text = (message_text or "").strip()
     upper = text.upper()
 
@@ -204,53 +214,15 @@ def handle_client_command(
         _send_text(sender_number, ABOUT_TEXT)
         return True
 
-    # =========================
-    # KEYWORD: HOURS
-    # =========================
     if upper == "HOURS" and not is_admin:
-        if client_id:
-            log_event(
-                db=db,
-                client_id=client_id,
-                event_type="inbound_keyword",
-                event_detail="keyword_hours",
-            )
-
         _send_text(sender_number, ABOUT_TEXT)
-
-        if client_id:
-            log_event(
-                db=db,
-                client_id=client_id,
-                event_type="hours_reply_sent",
-                event_detail="keyword_hours",
-            )
         return True
 
     # =========================
     # KEYWORD: SPECIALS
     # =========================
-    if upper in ("SPECIAL", "SPECIALS", "PROMOTIONS") and not is_admin:
-        if client_id:
-            log_event(
-                db=db,
-                client_id=client_id,
-                event_type="inbound_keyword",
-                event_detail="keyword_specials",
-            )
-
-        _send_text(
-            sender_number,
-            "🛒 Today’s specials are available.\nReply MENU for more options."
-        )
-
-        if client_id:
-            log_event(
-                db=db,
-                client_id=client_id,
-                event_type="specials_reply_sent",
-                event_detail="keyword_specials",
-            )
+    if upper in ("SPECIAL", "SPECIALS") and not is_admin:
+        _send_latest_special(db, sender_number, client_id)
         return True
 
     _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)

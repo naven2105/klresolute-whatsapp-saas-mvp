@@ -1,24 +1,23 @@
+from __future__ import annotations
+
 """
 File: app/handlers/media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle admin image messages.
+Handle admin image messages for SPECIALS.
 
 RULE (LOCKED):
-- Admin sends an image → image is broadcast IMMEDIATELY
-- Optional caption from admin
-- If no caption → default caption is used
-- No pending state
-- No second command
+- Admin sends image + caption → treated as SPECIAL
+- Stored in specials table
+- Replaces previous special (latest wins)
+- NOT broadcast to clients
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app.models import Contact, Client
 from app.outbound.factory import get_meta_client
-
-DEFAULT_CAPTION = "📸 Today’s update"
 
 
 def handle_media_message(
@@ -27,52 +26,55 @@ def handle_media_message(
     sender: str,
     msg: dict,
     admin_allowlist: set[str],
+    client_id,
 ) -> bool:
     """
-    Returns True if message was handled (image).
+    Returns True if message was handled.
     Returns False if message is NOT an image.
     """
 
-    # Only handle images
     if msg.get("type") != "image":
         return False
 
-    # Ignore images from non-admins (silent)
     if sender not in admin_allowlist:
-        return True
+        return True  # silently ignore non-admin images
 
-    meta = get_meta_client()
-
-    # Extract image + caption
     media_id = msg["image"]["id"]
-    caption = msg["image"].get("caption") or DEFAULT_CAPTION
+    caption = msg["image"].get("caption") or "Today’s specials"
 
-    # Fetch recipients (exclude admins)
-    contacts = (
-        db.query(Contact)
-        .filter(~Contact.contact_number.in_(admin_allowlist))
-        .all()  
-    )
-
-    sent = 0
-    failed = 0
-
-    for c in contacts:
-        try:
-            meta.send_image_message(
-                to_msisdn=c.contact_number,
-                media_id=media_id,
-                caption=caption,
+    # -------------------------------
+    # Store SPECIAL (latest wins)
+    # -------------------------------
+    db.execute(
+        text(
+            """
+            INSERT INTO specials (
+                client_id,
+                media_id,
+                caption,
+                created_at
             )
-            sent += 1
-        except Exception:
-            failed += 1
-            continue
+            VALUES (
+                :client_id,
+                :media_id,
+                :caption,
+                now()
+            )
+            """
+        ),
+        {
+            "client_id": client_id,
+            "media_id": media_id,
+            "caption": caption,
+        },
+    )
+    db.commit()
 
-    # One confirmation to admin
+    # Confirm to admin
+    meta = get_meta_client()
     meta.send_generic_business_update_template(
         to_msisdn=sender,
-        blob_text=f"Image broadcast sent. Delivered: {sent}. Failed: {failed}.",
+        blob_text="Special updated successfully.",
     )
 
     return True
