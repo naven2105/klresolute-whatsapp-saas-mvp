@@ -3,7 +3,7 @@ File: app/handlers/admin_commands.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-All Tier-1 admin commands including IMAGE BROADCAST.
+All Tier-1 admin commands including surveys and broadcasts.
 
 Admin UX polish:
 - Clear, factual confirmations
@@ -47,6 +47,22 @@ def _normalise_msisdn(raw: str | None) -> str | None:
     return None
 
 
+# Accept flexible admin survey syntax (case-insensitive):
+# - SURVEY: <question>                     -> SENTIMENT
+# - SURVEY[SENTIMENT]: <question>          -> SENTIMENT
+# - SURVEY [sentiment] : <question>        -> SENTIMENT (spaces allowed)
+# - SURVEY[FREQUENCY]: <question>          -> FREQUENCY
+# - SURVEY[HELPFULNESS]: <question>        -> HELPFULNESS
+_SURVEY_TYPED_RE = re.compile(
+    r"^\s*survey\s*\[\s*(sentiment|frequency|helpfulness)\s*\]\s*:\s*(.+)\s*$",
+    re.IGNORECASE,
+)
+_SURVEY_DEFAULT_RE = re.compile(
+    r"^\s*survey\s*:\s*(.+)\s*$",
+    re.IGNORECASE,
+)
+
+
 def handle_admin_command(
     *,
     db: Session,
@@ -62,29 +78,8 @@ def handle_admin_command(
         return False
 
     meta = get_meta_client()
-    text_clean = message_text.strip()
+    text_clean = (message_text or "").strip()
     upper = text_clean.upper()
-
-    # =========================
-    # Guard: invalid survey usage
-    # =========================
-    if text_clean.lower().startswith("survey") and not text_clean.lower().startswith("survey["):
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=(
-                "ℹ️ Survey command format\n\n"
-                "To start a survey, choose a type and include your question:\n\n"
-                "survey[sentiment]: <your question>\n"
-                "Buttons: 👍 Yes | 😐 Okay | 👎 No\n\n"
-                "survey[frequency]: <your question>\n"
-                "Buttons: Weekly | Occasionally | First time\n\n"
-                "survey[helpfulness]: <your question>\n"
-                "Buttons: Very helpful | Somewhat helpful | Not helpful\n\n"
-                "Example:\n"
-                "survey[sentiment]: How were the apples today?"
-            ),
-        )
-        return True
 
     # ----------------------------------
     # Resolve business identity ONCE
@@ -108,7 +103,7 @@ def handle_admin_command(
     paused = getattr(meta, "is_paused", False)
 
     # ==================================================
-    # SURVEYS (Tier 1)
+    # SURVEYS (Tier 1) — robust parsing, no prefix leaks
     # ==================================================
 
     if upper == SURVEY_COMMAND_END:
@@ -127,66 +122,126 @@ def handle_admin_command(
         )
         return True
 
-    for command, button_set in SUPPORTED_SURVEY_COMMANDS.items():
-        if upper.startswith(command):
-            question = message_text.replace(command, "", 1).strip(": ").strip()
+    # 1) Typed formats: SURVEY[TYPE]: <question> (spaces/case tolerated)
+    m = _SURVEY_TYPED_RE.match(text_clean)
+    if m:
+        survey_type = m.group(1).upper()  # SENTIMENT/FREQUENCY/HELPFULNESS
+        question = (m.group(2) or "").strip()
 
-            if not question:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text="Survey question cannot be empty.",
-                )
-                return True
+        button_set = survey_type  # keys match SURVEY_BUTTON_SETS
+        if button_set not in SURVEY_BUTTON_SETS:
+            return False  # fall back to admin menu
 
-            started, survey = start_survey(
-                db=db,
-                business_number=business_number,
-                question=question,
-                button_set=button_set,
-            )
-
-            if not started:
-                remaining = max(
-                    0,
-                    int(
-                        (survey.ends_at - survey.started_at).total_seconds() / 3600
-                    ),
-                )
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
-                        question=survey.question,
-                        hours_remaining=remaining,
-                    ),
-                )
-                return True
-
-            buttons_def = SURVEY_BUTTON_SETS[button_set]["buttons"]
-
-            contacts = (
-                db.query(Contact)
-                .filter(~Contact.contact_number.in_(admin_allowlist))
-                .all()
-            )
-
-            for c in contacts:
-                meta.send_interactive_button_message(
-                    to_msisdn=c.contact_number,
-                    header_text="🗳️ Quick question",
-                    body_text=question,
-                    buttons=[
-                        {"id": b["id"], "title": b["text"]}
-                        for b in buttons_def
-                    ],
-                )
-
+        if not question:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
-                blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(
-                    question=question,
+                blob_text="Survey question cannot be empty.",
+            )
+            return True
+
+        started, survey = start_survey(
+            db=db,
+            business_number=business_number,
+            question=question,
+            button_set=button_set,
+        )
+
+        if not started:
+            remaining = max(
+                0,
+                int((survey.ends_at - survey.started_at).total_seconds() / 3600),
+            )
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                    question=survey.question,
+                    hours_remaining=remaining,
                 ),
             )
             return True
+
+        buttons_def = SURVEY_BUTTON_SETS[button_set]["buttons"]
+
+        contacts = (
+            db.query(Contact)
+            .filter(~Contact.contact_number.in_(admin_allowlist))
+            .all()
+        )
+
+        for c in contacts:
+            meta.send_interactive_button_message(
+                to_msisdn=c.contact_number,
+                header_text="🗳️ Quick question",
+                body_text=question,  # ✅ clean question only (no [Sentiment] leak)
+                buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
+            )
+
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
+        )
+        return True
+
+    # 2) Default format: SURVEY: <question>  -> SENTIMENT
+    m2 = _SURVEY_DEFAULT_RE.match(text_clean)
+    if m2:
+        question = (m2.group(1) or "").strip()
+        button_set = "SENTIMENT"
+
+        if not question:
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text="Survey question cannot be empty.",
+            )
+            return True
+
+        started, survey = start_survey(
+            db=db,
+            business_number=business_number,
+            question=question,
+            button_set=button_set,
+        )
+
+        if not started:
+            remaining = max(
+                0,
+                int((survey.ends_at - survey.started_at).total_seconds() / 3600),
+            )
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                    question=survey.question,
+                    hours_remaining=remaining,
+                ),
+            )
+            return True
+
+        buttons_def = SURVEY_BUTTON_SETS[button_set]["buttons"]
+
+        contacts = (
+            db.query(Contact)
+            .filter(~Contact.contact_number.in_(admin_allowlist))
+            .all()
+        )
+
+        for c in contacts:
+            meta.send_interactive_button_message(
+                to_msisdn=c.contact_number,
+                header_text="🗳️ Quick question",
+                body_text=question,  # ✅ clean question only
+                buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
+            )
+
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
+        )
+        return True
+
+    # If admin typed something starting with "survey" but not valid, fall back to admin menu
+    # (handled by client_commands fallback in webhooks)
+    if text_clean.lower().startswith("survey"):
+        return False
 
     # ==================================================
     # EXISTING COMMANDS
@@ -263,7 +318,7 @@ def handle_admin_command(
 
         try:
             _, body = message_text.split(":", 1)
-            raw, text = body.strip().split(maxsplit=1)
+            raw, text_msg = body.strip().split(maxsplit=1)
             msisdn = _normalise_msisdn(raw)
 
             contact = (
@@ -276,7 +331,7 @@ def handle_admin_command(
 
             meta.send_generic_business_update_template(
                 to_msisdn=msisdn,
-                blob_text=text.strip(),
+                blob_text=text_msg.strip(),
             )
 
             meta.send_generic_business_update_template(
@@ -299,9 +354,9 @@ def handle_admin_command(
             )
             return True
 
-        text = ""
+        text_msg = ""
         if ":" in message_text:
-            text = message_text.split(":", 1)[1].strip()
+            text_msg = message_text.split(":", 1)[1].strip()
 
         contacts = (
             db.query(Contact)
@@ -311,10 +366,10 @@ def handle_admin_command(
 
         sent = 0
         for c in contacts:
-            if text:
+            if text_msg:
                 meta.send_generic_business_update_template(
                     to_msisdn=c.contact_number,
-                    blob_text=text,
+                    blob_text=text_msg,
                 )
             sent += 1
 
