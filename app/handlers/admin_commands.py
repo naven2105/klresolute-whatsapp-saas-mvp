@@ -241,7 +241,18 @@ def handle_admin_command(
     # If admin typed something starting with "survey" but not valid, fall back to admin menu
     # (handled by client_commands fallback in webhooks)
     if text_clean.lower().startswith("survey"):
-        return False
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=(
+                "ℹ️ Survey command format\n\n"
+                "Use one of the following:\n\n"
+                "SURVEY: <question>\n"
+                "SURVEY[SENTIMENT]: <question>\n"
+                "SURVEY[FREQUENCY]: <question>\n"
+                "SURVEY[HELPFULNESS]: <question>"
+            ),
+        )
+        return True    
 
     # ==================================================
     # EXISTING COMMANDS
