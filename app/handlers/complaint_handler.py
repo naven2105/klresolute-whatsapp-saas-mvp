@@ -123,4 +123,4 @@ def handle_complaint_message(
     for admin in admin_numbers:
         _send_admin_alert(admin, alert_text)
 
-    return True
+    return True   
