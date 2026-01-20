@@ -36,13 +36,11 @@ def handle_media_message(
     Returns False if message is NOT an image.
     """
 
-    # Only handle images
     if msg.get("type") != "image":
         return False
 
-    # Ignore non-admin images silently
     if sender not in admin_allowlist:
-        return True
+        return True  # ignore non-admin images
 
     meta = get_meta_client()
 
@@ -82,7 +80,6 @@ def handle_media_message(
     # -------------------------------
     contacts = (
         db.query(Contact)
-        .filter(Contact.client_id == client_id)
         .filter(~Contact.contact_number.in_(admin_allowlist))
         .all()
     )
