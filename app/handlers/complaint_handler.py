@@ -3,17 +3,20 @@ File: app/handlers/complaint_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle customer complaints (single-step).
+Handle customer complaints.
 
-LOCKED RULES:
-- Trigger: message starts with "complaint:"
-- Single message only (no state, no follow-up)
-- Complaint saved immediately
-- Admin notified immediately
-- Customer receives a polite acknowledgement
+RULES (LOCKED):
+- Customer-facing only
+- Stores complaint immediately
+- Supports text and optional image
+- ALWAYS notifies admin allowlist
+- No assumptions about schema beyond complaints table
 """
 
 from __future__ import annotations
+
+import os
+from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -21,50 +24,68 @@ from sqlalchemy import text
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 
+
+# -------------------------------------------------
+# Setup
+# -------------------------------------------------
+
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
+ADMIN_ALLOWLIST = {
+    n.strip()
+    for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
+    if n.strip()
+}
 
-def _send_text(to_number: str, text: str) -> None:
+
+def _send_text(to_number: str, text_msg: str) -> None:
     _meta_client.send_session_message(
         to_msisdn=to_number,
-        text=text,
+        text=text_msg,
     )
 
+
+# -------------------------------------------------
+# Handler
+# -------------------------------------------------
 
 def handle_complaint_message(
     *,
     db: Session,
     sender_number: str,
-    message_text: str | None,
-    media_id: str | None = None,
-    media_type: str | None = None,
-    client_id: str,
-    admin_numbers: set[str],
+    client_id,
+    msg: dict,
 ) -> bool:
     """
+    Handles complaint capture and admin notification.
+
     Returns:
         True  -> complaint handled
-        False -> not a complaint
+        False -> not a complaint message
     """
 
-    if not message_text:
-        return False
-
-    raw = message_text.strip()
+    msg_type = msg.get("type")
 
     # -------------------------------
-    # TRIGGER (LOCKED)
+    # Extract complaint content
     # -------------------------------
-    if not raw.lower().startswith("complaint:"):
-        return False
+    message_text: Optional[str] = None
+    media_id: Optional[str] = None
+    media_type: Optional[str] = None
 
-    complaint_text = raw.split(":", 1)[1].strip()
+    if msg_type == "text":
+        message_text = msg["text"]["body"].strip()
 
-    if not complaint_text:
-        return True  # prefix sent, no content
+    elif msg_type == "image":
+        media_id = msg["image"]["id"]
+        media_type = "image"
+        message_text = msg["image"].get("caption")
+
+    else:
+        return False  # not supported → ignore
 
     # -------------------------------
-    # SAVE COMPLAINT
+    # Store complaint
     # -------------------------------
     db.execute(
         text(
@@ -90,7 +111,7 @@ def handle_complaint_message(
         {
             "client_id": client_id,
             "customer_msisdn": sender_number,
-            "message_text": complaint_text,
+            "message_text": message_text,
             "media_id": media_id,
             "media_type": media_type,
         },
@@ -98,25 +119,24 @@ def handle_complaint_message(
     db.commit()
 
     # -------------------------------
-    # ACK CUSTOMER (POLITE, SHORT)
+    # Acknowledge customer
     # -------------------------------
     _send_text(
         sender_number,
-        "Sorry about your issue. The manager will contact you soon."
+        "🙏 Thank you for letting us know.\n"
+        "Your complaint has been sent to the manager.",
     )
 
     # -------------------------------
-    # NOTIFY ADMINS
+    # Notify admin(s)
     # -------------------------------
-    for admin in admin_numbers:
-        _send_text(
-            admin,
-            f"⚠️ *New Complaint*\n\n"
-            f"From: {sender_number}\n"
-            f"Client ID: {client_id}\n\n"
-            f"Complaint:\n{complaint_text}"
-        )
+    admin_alert = (
+        "⚠️ *New Complaint Received*\n\n"
+        f"From: {sender_number}\n"
+        f"Text: {message_text or '[Photo sent]'}"
+    )
+
+    for admin in ADMIN_ALLOWLIST:
+        _send_text(admin, admin_alert)
 
     return True
-
-
