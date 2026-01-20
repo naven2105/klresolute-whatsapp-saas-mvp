@@ -57,17 +57,18 @@ ADMIN_MENU_TEXT = (
 )
 
 CLIENT_MENU_TEXT = (
+    "📋 MENU\n\n"
     "👋 Welcome!\n\n"
-    "📊 From time to time, you may receive a short survey.\n"
-    "Please tap the buttons to respond — it only takes a second.\n\n"
     "Options\n"
-    "ABOUT – Store details\n"
-    "JOIN – Receive updates\n"
-    "STOP – Opt out\n"
-    "FEEDBACK – Log feedback (type: FEEDBACK: your message)\n"
-    "MENU – Show this menu again\n\n"
-    "For store hours or specials,\n"
-    "just reply HOURS or SPECIALS."
+    "\"ABOUT\" – Store information\n"
+    "\"JOIN\" – Receive store updates\n"
+    "\"STOP\" – Opt out of updates\n"
+    "\"FEEDBACK\" – Type: FEEDBACK: your message\n"
+    "\"MENU\" – Show this menu again\n"
+    "\"HOURS\" – Store hours\n"
+    "\"SPECIALS\" – Today’s specials\n\n"
+    "📊 From time to time, you may receive a short survey.\n"
+    "Please tap the buttons to respond — it only takes a second."
 )
 
 FEEDBACK_ACK_TEXT = (
