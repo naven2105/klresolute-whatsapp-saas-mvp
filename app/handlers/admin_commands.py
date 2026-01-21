@@ -5,12 +5,15 @@ File: app/handlers/admin_commands.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin command router.
+Central admin command router.
 
-Routing order (LOCKED):
-1. admin_surveys
-2. admin_messaging
-3. admin_menu (fallback)
+RULES (LOCKED):
+- This file contains NO business logic
+- Delegates to specialised admin handlers
+- Order matters:
+  1. Surveys
+  2. Messaging
+  3. Menu (fallback)
 """
 
 import logging
@@ -23,8 +26,13 @@ from app.handlers.admin_menu import handle_admin_menu
 # -------------------------------------------------
 # Logging
 # -------------------------------------------------
+
 logger = logging.getLogger("admin_commands")
 
+
+# -------------------------------------------------
+# Router
+# -------------------------------------------------
 
 def handle_admin_command(
     *,
@@ -34,50 +42,78 @@ def handle_admin_command(
     admin_allowlist: set[str],
 ) -> bool:
     """
-    Routes admin commands to the correct handler.
+    Admin command router.
 
     Returns:
-        True  -> handled by admin layer
-        False -> not admin / let client flow handle
+        True  -> handled as admin
+        False -> not an admin command
     """
 
     logger.info(
-        "ADMIN_ROUTER_ENTER | sender=%s | text=%r",
+        "ADMIN_ROUTER_ENTER | sender=%s | raw=%r",
         sender_number,
         message_text,
     )
 
-    if sender_number not in admin_allowlist:
-        logger.info("ADMIN_ROUTER_SKIP | not admin | sender=%s", sender_number)
-        return False
+    # -------------------------------------------------
+    # 1. Surveys
+    # -------------------------------------------------
+    try:
+        if handle_admin_surveys(
+            db=db,
+            sender_number=sender_number,
+            message_text=message_text,
+            admin_allowlist=admin_allowlist,
+        ):
+            logger.info("ADMIN_ROUTER_HANDLED | handler=surveys")
+            return True
+    except Exception as exc:
+        logger.error(
+            "ADMIN_ROUTER_SURVEYS_FAIL | error=%s",
+            exc,
+            exc_info=True,
+        )
 
-    # 1️⃣ Surveys
-    if handle_admin_surveys(
-        db=db,
-        sender_number=sender_number,
-        message_text=message_text,
-        admin_allowlist=admin_allowlist,
-    ):
-        logger.info("ADMIN_ROUTER_HANDLED | handler=surveys")
-        return True
+    # -------------------------------------------------
+    # 2. Messaging
+    # -------------------------------------------------
+    try:
+        if handle_admin_messaging(
+            db=db,
+            sender_number=sender_number,
+            message_text=message_text,
+            admin_allowlist=admin_allowlist,
+        ):
+            logger.info("ADMIN_ROUTER_HANDLED | handler=messaging")
+            return True
+    except Exception as exc:
+        logger.error(
+            "ADMIN_ROUTER_MESSAGING_FAIL | error=%s",
+            exc,
+            exc_info=True,
+        )
 
-    # 2️⃣ Messaging
-    if handle_admin_messaging(
-        db=db,
-        sender_number=sender_number,
-        message_text=message_text,
-        admin_allowlist=admin_allowlist,
-    ):
-        logger.info("ADMIN_ROUTER_HANDLED | handler=messaging")
-        return True
+    # -------------------------------------------------
+    # 3. Menu (fallback)
+    # -------------------------------------------------
+    try:
+        if handle_admin_menu(
+            db=db,
+            sender_number=sender_number,
+            message_text=message_text,
+            admin_allowlist=admin_allowlist,
+        ):
+            logger.info("ADMIN_ROUTER_HANDLED | handler=menu")
+            return True
+    except Exception as exc:
+        logger.error(
+            "ADMIN_ROUTER_MENU_FAIL | error=%s",
+            exc,
+            exc_info=True,
+        )
 
-    # 3️⃣ Menu fallback (ALWAYS responds)
-    handled = handle_admin_menu(
-        db=db,
-        sender_number=sender_number,
-        message_text=message_text,
-        admin_allowlist=admin_allowlist,
+    logger.info(
+        "ADMIN_ROUTER_NO_MATCH | sender=%s",
+        sender_number,
     )
-
-    logger.info("ADMIN_ROUTER_HANDLED | handler=menu")
-    return handled
+    return False

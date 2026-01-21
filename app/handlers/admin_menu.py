@@ -5,47 +5,51 @@ File: app/handlers/admin_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin menu display + fallback handling.
+Admin menu handling only.
+
+Scope (LOCKED):
+- Show admin menu
+- Fallback for unknown admin commands
+- NO surveys
+- NO messaging logic
 
 Rules:
-- Admin-only
-- Any unknown admin command should result in admin menu
-- Menu text is the single source of truth
-- No business logic here (routing only)
+- Admin-facing only
+- Any unknown admin input MUST return the admin menu
 """
 
 import logging
-
 from sqlalchemy.orm import Session
+
 from app.outbound.factory import get_meta_client
 
 # -------------------------------------------------
 # Logging
 # -------------------------------------------------
+
 logger = logging.getLogger("admin_menu")
 
 
 # -------------------------------------------------
-# Admin Menu Text (AUTHORITATIVE)
+# Admin Menu Text (SINGLE SOURCE)
 # -------------------------------------------------
+
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
     "📊 Surveys (button-based)\n"
-    "SURVEY SENTIMENT: <question>\n"
-    "  Sentiment (👍 Yes / 😐 Okay / 👎 No)\n\n"
-    "SURVEY FREQUENCY: <question>\n"
-    "  Frequency (Weekly / Occasionally / First time)\n\n"
-    "SURVEY HELPFULNESS: <question>\n"
-    "  Helpfulness (Very / Somewhat / Not helpful)\n\n"
-    "END SURVEY\n"
-    "  Close active survey early\n\n"
+    "SURVEY SENTIMENT: <question> – Sentiment (👍 Yes / 😐 Okay / 👎 No)\n"
+    "SURVEY FREQUENCY: <question> – Frequency (Weekly / Occasionally / First time)\n"
+    "SURVEY HELPFULNESS: <question> – Helpfulness (Very / Somewhat / Not helpful)\n"
+    "END SURVEY – Close active survey early\n\n"
     "👥 Clients\n"
     "ADD CLIENT: <number>\n"
     "REMOVE CLIENT: <number>\n"
     "COUNT – Active clients\n\n"
     "✉️ Messaging\n"
     "SEND: <number> <message>\n"
-    "BROADCAST: <message>\n\n"
+    "BROADCAST: <message>  (text only)\n\n"
+    "🖼️ Specials\n"
+    "Send image + caption – Updates specials (push + replay)\n\n"
     "⚙️ System\n"
     "PAUSE – Stop outbound messages\n"
     "RESUME – Resume outbound messages"
@@ -53,8 +57,9 @@ ADMIN_MENU_TEXT = (
 
 
 # -------------------------------------------------
-# Handler
+# Entry point
 # -------------------------------------------------
+
 def handle_admin_menu(
     *,
     db: Session,
@@ -63,45 +68,41 @@ def handle_admin_menu(
     admin_allowlist: set[str],
 ) -> bool:
     """
-    Admin menu fallback.
+    Handles admin menu display and fallback.
 
-    Behaviour:
-    - If admin sends MENU → show menu
-    - If admin sends unknown command → show menu
-    - If not admin → return False
+    Returns:
+        True  -> menu shown
+        False -> not an admin
     """
 
     logger.info(
-        "ADMIN_MENU_ENTER | sender=%s | text=%r",
+        "ADMIN_MENU_ENTER | sender=%s | raw=%r",
         sender_number,
         message_text,
     )
 
     if sender_number not in admin_allowlist:
-        logger.info("ADMIN_MENU_SKIP | not admin | sender=%s", sender_number)
+        logger.info(
+            "ADMIN_MENU_REJECT | sender not admin | sender=%s",
+            sender_number,
+        )
         return False
 
     meta = get_meta_client()
-    upper = (message_text or "").strip().upper()
 
-    # Explicit MENU command
-    if upper in {"MENU", "HELP", "ADMIN"}:
-        logger.info("ADMIN_MENU_EXPLICIT_REQUEST")
-        meta.send_generic_business_update_template(
+    # Always show menu for admin fallback
+    try:
+        meta.send_session_message(
             to_msisdn=sender_number,
-            blob_text=ADMIN_MENU_TEXT,
+            text=ADMIN_MENU_TEXT,
         )
-        return True
-
-    # Fallback: unknown admin command
-    logger.warning(
-        "ADMIN_MENU_FALLBACK | unknown admin command | text=%r",
-        message_text,
-    )
-
-    meta.send_generic_business_update_template(
-        to_msisdn=sender_number,
-        blob_text=ADMIN_MENU_TEXT,
-    )
+        logger.info("ADMIN_MENU_SENT_OK | sender=%s", sender_number)
+    except Exception as exc:
+        logger.error(
+            "ADMIN_MENU_SEND_FAIL | sender=%s | error=%s",
+            sender_number,
+            exc,
+            exc_info=True,
+        )
 
     return True
