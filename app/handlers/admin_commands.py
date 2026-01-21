@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 File: app/handlers/admin_commands.py
 Project: KLResolute WhatsApp SaaS MVP
@@ -12,6 +14,7 @@ Admin UX polish:
 """
 
 import re
+import logging
 from sqlalchemy.orm import Session
 
 from app.models import Contact
@@ -36,6 +39,8 @@ from app.survey.survey_constants import (
     ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
     SURVEY_BUTTON_SETS,
 )
+
+logger = logging.getLogger("admin_commands")
 
 
 def _normalise_msisdn(raw: str | None) -> str | None:
@@ -71,15 +76,20 @@ def handle_admin_command(
     admin_allowlist: set[str],
 ) -> bool:
 
+    logger.info("ADMIN_CMD_ENTER | sender=%s | raw=%r", sender_number, message_text)
+
     # ----------------------------------
     # Admin gate (SECURITY)
     # ----------------------------------
     if sender_number not in admin_allowlist:
+        logger.info("ADMIN_CMD_REJECT | not_admin | sender=%s", sender_number)
         return False
 
     meta = get_meta_client()
     text_clean = (message_text or "").strip()
     upper = text_clean.upper()
+
+    logger.info("ADMIN_CMD_CLEAN | clean=%r | upper=%r", text_clean, upper)
 
     # ----------------------------------
     # Resolve business identity ONCE
@@ -91,6 +101,7 @@ def handle_admin_command(
     # ----------------------------------
     closed = auto_close_expired_surveys(db, business_number)
     if closed:
+        logger.info("ADMIN_CMD_SURVEY_AUTO_CLOSED | survey_id=%s", getattr(closed, "id", None))
         summary = build_survey_summary_text(db, closed)
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
@@ -107,6 +118,7 @@ def handle_admin_command(
     # ==================================================
 
     if upper == SURVEY_COMMAND_END:
+        logger.info("ADMIN_CMD_SURVEY_END")
         active = get_active_survey(db, business_number)
         if not active:
             meta.send_generic_business_update_template(
@@ -128,8 +140,11 @@ def handle_admin_command(
         survey_type = m.group(1).upper()  # SENTIMENT/FREQUENCY/HELPFULNESS
         question = (m.group(2) or "").strip()
 
+        logger.info("ADMIN_CMD_SURVEY_TYPED_MATCH | type=%s | question=%r", survey_type, question)
+
         button_set = survey_type  # keys match SURVEY_BUTTON_SETS
         if button_set not in SURVEY_BUTTON_SETS:
+            logger.warning("ADMIN_CMD_SURVEY_TYPED_UNKNOWN_TYPE | type=%s", button_set)
             return False  # fall back to admin menu
 
         if not question:
@@ -144,6 +159,12 @@ def handle_admin_command(
             business_number=business_number,
             question=question,
             button_set=button_set,
+        )
+
+        logger.info(
+            "ADMIN_CMD_SURVEY_START | started=%s | survey_id=%s",
+            started,
+            getattr(survey, "id", None),
         )
 
         if not started:
@@ -167,6 +188,8 @@ def handle_admin_command(
             .filter(~Contact.contact_number.in_(admin_allowlist))
             .all()
         )
+
+        logger.info("ADMIN_CMD_SURVEY_SEND | recipients=%d", len(contacts))
 
         for c in contacts:
             meta.send_interactive_button_message(
@@ -188,6 +211,8 @@ def handle_admin_command(
         question = (m2.group(1) or "").strip()
         button_set = "SENTIMENT"
 
+        logger.info("ADMIN_CMD_SURVEY_DEFAULT_MATCH | question=%r", question)
+
         if not question:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
@@ -200,6 +225,12 @@ def handle_admin_command(
             business_number=business_number,
             question=question,
             button_set=button_set,
+        )
+
+        logger.info(
+            "ADMIN_CMD_SURVEY_START | started=%s | survey_id=%s",
+            started,
+            getattr(survey, "id", None),
         )
 
         if not started:
@@ -224,6 +255,8 @@ def handle_admin_command(
             .all()
         )
 
+        logger.info("ADMIN_CMD_SURVEY_SEND | recipients=%d", len(contacts))
+
         for c in contacts:
             meta.send_interactive_button_message(
                 to_msisdn=c.contact_number,
@@ -241,6 +274,7 @@ def handle_admin_command(
     # If admin typed something starting with "survey" but not valid, fall back to admin menu
     # (handled by client_commands fallback in webhooks)
     if text_clean.lower().startswith("survey"):
+        logger.warning("ADMIN_CMD_SURVEY_INVALID | clean=%r", text_clean)
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
             blob_text=(
@@ -252,7 +286,7 @@ def handle_admin_command(
                 "SURVEY[HELPFULNESS]: <question>"
             ),
         )
-        return True    
+        return True
 
     # ==================================================
     # EXISTING COMMANDS
@@ -390,4 +424,5 @@ def handle_admin_command(
         )
         return True
 
+    logger.info("ADMIN_CMD_FALLTHROUGH | upper=%r | clean=%r", upper, text_clean)
     return False
