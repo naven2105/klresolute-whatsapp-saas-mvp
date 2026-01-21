@@ -11,8 +11,8 @@ Scope (LOCKED):
 - Start survey
 - Block if active
 - Close survey
-- Admin notifications
-- Customer survey delivery
+- Admin notifications (TEMPLATE ONLY)
+- Customer survey delivery (INTERACTIVE)
 """
 
 import logging
@@ -36,11 +36,15 @@ from app.survey.survey_constants import (
     SURVEY_BUTTON_SETS,
 )
 
+# -------------------------------------------------
+# Logging
+# -------------------------------------------------
+
 logger = logging.getLogger("admin_surveys")
 
-# -------------------------------
+# -------------------------------------------------
 # Regex
-# -------------------------------
+# -------------------------------------------------
 
 _SURVEY_TYPED_RE = re.compile(
     r"^\s*survey\s+(sentiment|frequency|helpfulness)\s*:\s*(.+)\s*$",
@@ -52,6 +56,28 @@ _SURVEY_DEFAULT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
+
+def _sanitize_template_text(text: str) -> str:
+    """
+    Meta template params MUST:
+    - not contain newlines
+    - not contain tabs
+    - not contain multiple spaces
+    """
+    if not text:
+        return ""
+
+    text = text.replace("\n", " ").replace("\t", " ")
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
+
+
+# -------------------------------------------------
+# Handler
+# -------------------------------------------------
 
 def handle_admin_surveys(
     *,
@@ -61,124 +87,120 @@ def handle_admin_surveys(
     admin_allowlist: set[str],
 ) -> bool:
     """
-    Returns True if survey command handled.
+    Returns True if a survey command was handled.
     """
 
-    logger.info(
-        "ADMIN_SURVEYS_ENTER | sender=%s | raw=%r",
-        sender_number,
-        message_text,
-    )
+    logger.info("SURVEY_ENTER | sender=%s | raw=%r", sender_number, message_text)
+
+    if sender_number not in admin_allowlist:
+        logger.info("SURVEY_REJECT | not admin")
+        return False
 
     meta = get_meta_client()
-    business_number = sender_number
-
-    # -------------------------------
-    # NORMALISE TEXT (FIX)
-    # -------------------------------
     text_clean = (message_text or "").strip()
     upper = text_clean.upper()
+    business_number = sender_number
 
-    logger.info(
-        "ADMIN_SURVEYS_TEXT | clean=%r | upper=%r",
-        text_clean,
-        upper,
-    )
+    logger.info("SURVEY_CLEAN | clean=%r | upper=%r", text_clean, upper)
 
-    # -------------------------------
-    # AUTO-CLOSE (silent, safe)
-    # -------------------------------
+    # -------------------------------------------------
+    # AUTO-CLOSE expired survey (silent, safe)
+    # -------------------------------------------------
     try:
         closed = auto_close_expired_surveys(db, business_number)
         if closed:
-            logger.info("ADMIN_SURVEYS_AUTO_CLOSED | survey_id=%s", closed.id)
+            logger.info("SURVEY_AUTO_CLOSED | survey_id=%s", closed.id)
             summary = build_survey_summary_text(db, closed)
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
-                blob_text=summary,
+                blob_text=_sanitize_template_text(summary),
             )
-            logger.info("ADMIN_SURVEYS_AUTO_CLOSED_NOTIFY_OK | survey_id=%s", closed.id)
     except Exception as exc:
-        logger.error("ADMIN_SURVEYS_AUTO_CLOSE_FAIL | error=%s", exc, exc_info=True)
+        logger.error("SURVEY_AUTO_CLOSE_FAIL | error=%s", exc, exc_info=True)
 
-    # -------------------------------
+    # -------------------------------------------------
     # CLOSE SURVEY
-    # -------------------------------
+    # -------------------------------------------------
     if upper == SURVEY_COMMAND_END:
-        logger.info("ADMIN_SURVEYS_CLOSE_REQUEST")
+        logger.info("SURVEY_CLOSE_REQUEST")
 
         active = get_active_survey(db, business_number)
         if not active:
-            logger.warning("ADMIN_SURVEYS_CLOSE_NO_ACTIVE")
+            logger.info("SURVEY_CLOSE_NO_ACTIVE")
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
-                blob_text=ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
+                blob_text=_sanitize_template_text(
+                    ADMIN_SURVEY_NO_ACTIVE_TEMPLATE
+                ),
             )
             return True
 
         close_survey(db, active, manual=True)
-        logger.info("ADMIN_SURVEYS_CLOSED | survey_id=%s", active.id)
+        logger.info("SURVEY_CLOSED | survey_id=%s", active.id)
 
         summary = build_survey_summary_text(db, active)
 
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text=summary,
+            blob_text=_sanitize_template_text(summary),
         )
+
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text="✅ Survey closed successfully.",
+            blob_text="Survey closed successfully.",
         )
 
-        logger.info("ADMIN_SURVEYS_CLOSE_NOTIFY_OK | survey_id=%s", active.id)
         return True
 
-    # -------------------------------
-    # START SURVEY (typed or default)
-    # -------------------------------
+    # -------------------------------------------------
+    # START SURVEY (typed / default)
+    # -------------------------------------------------
     m = _SURVEY_TYPED_RE.match(text_clean)
-    if not m:
-        m = _SURVEY_DEFAULT_RE.match(text_clean)
-        if not m:
-            logger.info("ADMIN_SURVEYS_NO_MATCH | ignored")
-            return False
-        survey_type = "SENTIMENT"
-        question = m.group(1).strip()
-    else:
+    if m:
         survey_type = m.group(1).upper()
         question = m.group(2).strip()
+    else:
+        m2 = _SURVEY_DEFAULT_RE.match(text_clean)
+        if not m2:
+            logger.info("SURVEY_NO_MATCH")
+            return False
+        survey_type = "SENTIMENT"
+        question = m2.group(1).strip()
 
     logger.info(
-        "ADMIN_SURVEYS_START_REQUEST | type=%s | question=%r",
+        "SURVEY_START_REQUEST | type=%s | question=%r",
         survey_type,
         question,
     )
 
-    # -------------------------------
-    # BLOCK if active
-    # -------------------------------
+    # -------------------------------------------------
+    # BLOCK if active survey exists
+    # -------------------------------------------------
     active_existing = get_active_survey(db, business_number)
     if active_existing:
         logger.warning(
-            "ADMIN_SURVEYS_BLOCKED_ACTIVE | active_survey_id=%s",
+            "SURVEY_BLOCKED_ACTIVE | active_survey_id=%s",
             active_existing.id,
         )
+
         meta.send_generic_business_update_template(
             to_msisdn=sender_number,
-            blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
-                question=active_existing.question,
-                hours_remaining=int(
-                    (active_existing.ends_at - active_existing.started_at)
-                    .total_seconds()
-                    / 3600
-                ),
+            blob_text=_sanitize_template_text(
+                ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                    question=active_existing.question,
+                    hours_remaining=int(
+                        (active_existing.ends_at - active_existing.started_at)
+                        .total_seconds()
+                        / 3600
+                    ),
+                )
             ),
         )
         return True
 
-    # -------------------------------
-    # START SURVEY
-    # -------------------------------
+    # -------------------------------------------------
+    # START survey
+    # -------------------------------------------------
     started, survey = start_survey(
         db=db,
         business_number=business_number,
@@ -186,11 +208,11 @@ def handle_admin_surveys(
         button_set=survey_type,
     )
 
-    logger.info(
-        "ADMIN_SURVEYS_STARTED | survey_id=%s | recipients_prepare",
-        survey.id,
-    )
+    logger.info("SURVEY_STARTED | survey_id=%s", survey.id)
 
+    # -------------------------------------------------
+    # Send to customers
+    # -------------------------------------------------
     buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
     contacts = (
         db.query(Contact)
@@ -198,7 +220,12 @@ def handle_admin_surveys(
         .all()
     )
 
-    sent = 0
+    logger.info(
+        "SURVEY_SEND_BEGIN | survey_id=%s | recipients=%s",
+        survey.id,
+        len(contacts),
+    )
+
     for c in contacts:
         meta.send_interactive_button_message(
             to_msisdn=c.contact_number,
@@ -206,22 +233,17 @@ def handle_admin_surveys(
             body_text=question,
             buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
         )
-        sent += 1
 
-    logger.info(
-        "ADMIN_SURVEYS_CLIENT_SEND_DONE | survey_id=%s | sent=%s",
-        survey.id,
-        sent,
-    )
-
+    # -------------------------------------------------
+    # Admin confirmation (TEMPLATE)
+    # -------------------------------------------------
     meta.send_generic_business_update_template(
         to_msisdn=sender_number,
-        blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
+        blob_text=_sanitize_template_text(
+            ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question)
+        ),
     )
 
-    logger.info(
-        "ADMIN_SURVEYS_ADMIN_CONFIRM_OK | survey_id=%s",
-        survey.id,
-    )
+    logger.info("SURVEY_ADMIN_CONFIRM_SENT | survey_id=%s", survey.id)
 
     return True
