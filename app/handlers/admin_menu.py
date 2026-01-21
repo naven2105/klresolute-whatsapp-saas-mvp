@@ -5,23 +5,29 @@ File: app/handlers/admin_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin menu handling.
+Admin menu display + fallback handling.
 
 Rules:
 - Admin-only
-- Any unknown admin command falls back here
-- Menu is informational only (no side effects)
-- Admin replies use TEMPLATE messages only
+- Any unknown admin command should result in admin menu
+- Menu text is the single source of truth
+- No business logic here (routing only)
 """
 
 import logging
-from sqlalchemy.orm import Session
 
+from sqlalchemy.orm import Session
 from app.outbound.factory import get_meta_client
 
+# -------------------------------------------------
+# Logging
+# -------------------------------------------------
 logger = logging.getLogger("admin_menu")
 
 
+# -------------------------------------------------
+# Admin Menu Text (AUTHORITATIVE)
+# -------------------------------------------------
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
     "📊 Surveys (button-based)\n"
@@ -31,7 +37,8 @@ ADMIN_MENU_TEXT = (
     "  Frequency (Weekly / Occasionally / First time)\n\n"
     "SURVEY HELPFULNESS: <question>\n"
     "  Helpfulness (Very / Somewhat / Not helpful)\n\n"
-    "END SURVEY – Close active survey early\n\n"
+    "END SURVEY\n"
+    "  Close active survey early\n\n"
     "👥 Clients\n"
     "ADD CLIENT: <number>\n"
     "REMOVE CLIENT: <number>\n"
@@ -45,30 +52,52 @@ ADMIN_MENU_TEXT = (
 )
 
 
+# -------------------------------------------------
+# Handler
+# -------------------------------------------------
 def handle_admin_menu(
     *,
     db: Session,
     sender_number: str,
-    text_clean: str,
+    message_text: str,
     admin_allowlist: set[str],
 ) -> bool:
     """
-    Fallback admin menu handler.
+    Admin menu fallback.
 
-    Always returns True for admin numbers.
+    Behaviour:
+    - If admin sends MENU → show menu
+    - If admin sends unknown command → show menu
+    - If not admin → return False
     """
 
-    if sender_number not in admin_allowlist:
-        logger.debug("ADMIN_MENU_REJECT | sender=%s", sender_number)
-        return False
-
     logger.info(
-        "ADMIN_MENU_SHOW | sender=%s | trigger=%r",
+        "ADMIN_MENU_ENTER | sender=%s | text=%r",
         sender_number,
-        text_clean,
+        message_text,
     )
 
+    if sender_number not in admin_allowlist:
+        logger.info("ADMIN_MENU_SKIP | not admin | sender=%s", sender_number)
+        return False
+
     meta = get_meta_client()
+    upper = (message_text or "").strip().upper()
+
+    # Explicit MENU command
+    if upper in {"MENU", "HELP", "ADMIN"}:
+        logger.info("ADMIN_MENU_EXPLICIT_REQUEST")
+        meta.send_generic_business_update_template(
+            to_msisdn=sender_number,
+            blob_text=ADMIN_MENU_TEXT,
+        )
+        return True
+
+    # Fallback: unknown admin command
+    logger.warning(
+        "ADMIN_MENU_FALLBACK | unknown admin command | text=%r",
+        message_text,
+    )
 
     meta.send_generic_business_update_template(
         to_msisdn=sender_number,
