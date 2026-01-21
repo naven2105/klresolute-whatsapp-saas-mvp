@@ -54,11 +54,7 @@ def _normalise_msisdn(raw: str | None) -> str | None:
 
 
 _SURVEY_TYPED_RE = re.compile(
-    r"^\s*survey\s*(?:\[|\s)(sentiment|frequency|helpfulness)(?:\]|\s)\s*:\s*(.+)\s*$",
-    re.IGNORECASE,
-)
-_SURVEY_DEFAULT_RE = re.compile(
-    r"^\s*survey\s*:\s*(.+)\s*$",
+    r"^\s*survey\s+(sentiment|frequency|helpfulness)\s*:\s*(.+)\s*$",
     re.IGNORECASE,
 )
 

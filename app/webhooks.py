@@ -139,15 +139,29 @@ async def whatsapp_webhook(
     _upsert_client(db, sender)
 
     # -------------------------------
-    # Media (admin images → SPECIALS)
+    # Media (admin images / specials)
     # -------------------------------
     if handle_media_message(
         db=db,
         sender=sender,
         msg=msg,
         admin_allowlist=ADMIN_ALLOWLIST,
-        client_id=client_id,   # ✅ REQUIRED
+        client_id=client_id,
     ):
+        return Response(status_code=200)
+
+    # -------------------------------
+    # Interactive (survey button taps)
+    # -------------------------------
+    if msg.get("type") == "interactive":
+        handle_client_command(
+            db=db,
+            sender_number=sender,
+            message_text="",
+            msg=msg,
+            resolved_client_id=client_id,
+            resolved_business_number=resolved_business_msisdn,
+        )
         return Response(status_code=200)
 
     # -------------------------------
