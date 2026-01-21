@@ -53,8 +53,7 @@ def handle_admin_surveys(
     *,
     db: Session,
     sender_number: str,
-    text_clean: str,
-    upper: str,
+    message_text: str,
     admin_allowlist: set[str],
 ) -> bool:
     """
