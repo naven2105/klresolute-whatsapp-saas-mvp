@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 File: app/handlers/admin_commands.py
 Project: KLResolute WhatsApp SaaS MVP
@@ -24,9 +22,7 @@ from app.services.contacts_service import add_contact, remove_contact
 # =========================
 # Logging
 # =========================
-
 logger = logging.getLogger("admin_commands")
-logger.setLevel(logging.INFO)
 
 # =========================
 # Survey imports
@@ -57,13 +53,8 @@ def _normalise_msisdn(raw: str | None) -> str | None:
     return None
 
 
-# Accept flexible admin survey syntax (case-insensitive):
-# - SURVEY: <question>
-# - SURVEY SENTIMENT: <question>
-# - SURVEY FREQUENCY: <question>
-# - SURVEY HELPFULNESS: <question>
 _SURVEY_TYPED_RE = re.compile(
-    r"^\s*survey\s+(sentiment|frequency|helpfulness)\s*:\s*(.+)\s*$",
+    r"^\s*survey\s*(?:\[|\s)(sentiment|frequency|helpfulness)(?:\]|\s)\s*:\s*(.+)\s*$",
     re.IGNORECASE,
 )
 _SURVEY_DEFAULT_RE = re.compile(
@@ -80,83 +71,143 @@ def handle_admin_command(
     admin_allowlist: set[str],
 ) -> bool:
 
-    logger.info(
-        "ADMIN_CMD_ENTER | sender=%s | raw=%r",
-        sender_number,
-        message_text,
-    )
+    logger.info("ADMIN_CMD_ENTER | sender=%s | raw=%r", sender_number, message_text)
 
-    # ----------------------------------
-    # Admin gate (SECURITY)
-    # ----------------------------------
     if sender_number not in admin_allowlist:
-        logger.info("ADMIN_CMD_REJECT | sender not in allowlist")
+        logger.info("ADMIN_CMD_REJECT | not in allowlist | sender=%s", sender_number)
         return False
 
     meta = get_meta_client()
     text_clean = (message_text or "").strip()
     upper = text_clean.upper()
 
-    logger.info(
-        "ADMIN_CMD_CLEAN | clean=%r | upper=%r",
-        text_clean,
-        upper,
-    )
+    logger.info("ADMIN_CMD_CLEAN | clean=%r | upper=%r", text_clean, upper)
 
-    # ----------------------------------
-    # Resolve business identity ONCE
-    # ----------------------------------
     business_number = sender_number
 
     # ----------------------------------
     # AUTO-CLOSE SURVEY (SAFE)
     # ----------------------------------
-    closed = auto_close_expired_surveys(db, business_number)
-    if closed:
-        logger.info("ADMIN_CMD_SURVEY_AUTO_CLOSED | survey_id=%s", closed.id)
-        summary = build_survey_summary_text(db, closed)
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=summary,
-        )
+    try:
+        closed = auto_close_expired_surveys(db, business_number)
+    except Exception as exc:
+        logger.error("ADMIN_CMD_AUTO_CLOSE_FAIL | error=%s", exc, exc_info=True)
+        closed = None
 
-    # ----------------------------------
-    # SAFE PAUSE FLAG
-    # ----------------------------------
+    if closed:
+        logger.info("ADMIN_CMD_AUTO_CLOSED | survey_id=%s", closed.id)
+        try:
+            summary = build_survey_summary_text(db, closed)
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=summary,
+            )
+            logger.info("ADMIN_CMD_AUTO_CLOSED_NOTIFY_OK | survey_id=%s", closed.id)
+        except Exception as exc:
+            logger.error(
+                "ADMIN_CMD_AUTO_CLOSED_NOTIFY_FAIL | survey_id=%s | error=%s",
+                closed.id,
+                exc,
+                exc_info=True,
+            )
+
     paused = getattr(meta, "is_paused", False)
     logger.info("ADMIN_CMD_PAUSE_STATE | paused=%s", paused)
 
     # ==================================================
-    # END SURVEY
+    # CLOSE SURVEY — GUARANTEED ADMIN FEEDBACK
     # ==================================================
-
     if upper == SURVEY_COMMAND_END:
-        logger.info("ADMIN_CMD_MATCH | END SURVEY")
-        active = get_active_survey(db, business_number)
+        logger.info("ADMIN_CMD_SURVEY_CLOSE_REQUEST")
+
+        try:
+            active = get_active_survey(db, business_number)
+        except Exception as exc:
+            logger.error("ADMIN_CMD_GET_ACTIVE_FAIL | error=%s", exc, exc_info=True)
+            active = None
+
         if not active:
-            logger.info("ADMIN_CMD_END_SURVEY | no active survey")
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
-            )
+            logger.warning("ADMIN_CMD_NO_ACTIVE_SURVEY")
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text=ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
+                )
+                logger.info("ADMIN_CMD_NO_ACTIVE_NOTIFY_OK")
+            except Exception as exc:
+                logger.error("ADMIN_CMD_NO_ACTIVE_NOTIFY_FAIL | error=%s", exc, exc_info=True)
             return True
 
-        close_survey(db, active, manual=True)
-        logger.info("ADMIN_CMD_END_SURVEY | closed survey_id=%s", active.id)
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=build_survey_summary_text(db, active),
-        )
+        try:
+            close_survey(db, active, manual=True)
+            logger.info("ADMIN_CMD_SURVEY_CLOSED | survey_id=%s", active.id)
+        except Exception as exc:
+            logger.error(
+                "ADMIN_CMD_SURVEY_CLOSE_FAIL | survey_id=%s | error=%s",
+                getattr(active, "id", None),
+                exc,
+                exc_info=True,
+            )
+            # Still try to notify admin something went wrong (without changing behaviour flow)
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="⚠️ Survey close failed (see logs).",
+                )
+            except Exception:
+                pass
+            return True
+
+        try:
+            summary = build_survey_summary_text(db, active)
+        except Exception as exc:
+            logger.error(
+                "ADMIN_CMD_BUILD_SUMMARY_FAIL | survey_id=%s | error=%s",
+                active.id,
+                exc,
+                exc_info=True,
+            )
+            summary = "⚠️ Survey closed, but summary generation failed (see logs)."
+
+        # 1️⃣ Send summary (exception-safe)
+        try:
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=summary,
+            )
+            logger.info("ADMIN_CMD_CLOSE_SUMMARY_SENT_OK | survey_id=%s", active.id)
+        except Exception as exc:
+            logger.error(
+                "ADMIN_CMD_CLOSE_SUMMARY_SENT_FAIL | survey_id=%s | error=%s",
+                active.id,
+                exc,
+                exc_info=True,
+            )
+
+        # 2️⃣ Explicit confirmation (exception-safe)
+        try:
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text="✅ Survey closed successfully.",
+            )
+            logger.info("ADMIN_CMD_CLOSE_CONFIRM_SENT_OK | survey_id=%s", active.id)
+        except Exception as exc:
+            logger.error(
+                "ADMIN_CMD_CLOSE_CONFIRM_SENT_FAIL | survey_id=%s | error=%s",
+                active.id,
+                exc,
+                exc_info=True,
+            )
+
         return True
 
     # ==================================================
-    # SURVEY (typed)
+    # SURVEY START (TYPED)
     # ==================================================
-
     m = _SURVEY_TYPED_RE.match(text_clean)
     if m:
         survey_type = m.group(1).upper()
-        question = (m.group(2) or "").strip()
+        question = m.group(2).strip()
 
         logger.info(
             "ADMIN_CMD_SURVEY_TYPED | type=%s | question=%r",
@@ -164,33 +215,45 @@ def handle_admin_command(
             question,
         )
 
-        if not question:
-            logger.warning("ADMIN_CMD_SURVEY_TYPED | empty question")
-            return False
-
-        started, survey = start_survey(
-            db=db,
-            business_number=business_number,
-            question=question,
-            button_set=survey_type,
-        )
+        try:
+            started, survey = start_survey(
+                db=db,
+                business_number=business_number,
+                question=question,
+                button_set=survey_type,
+            )
+        except Exception as exc:
+            logger.error("ADMIN_CMD_START_SURVEY_FAIL | error=%s", exc, exc_info=True)
+            # ensure admin gets a reply
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="⚠️ Survey start failed (see logs).",
+                )
+            except Exception:
+                pass
+            return True
 
         if not started:
-            logger.info(
-                "ADMIN_CMD_SURVEY_EXISTS | survey_id=%s",
-                survey.id,
-            )
-            remaining = max(
-                0,
-                int((survey.ends_at - survey.started_at).total_seconds() / 3600),
-            )
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
-                    question=survey.question,
-                    hours_remaining=remaining,
-                ),
-            )
+            logger.warning("ADMIN_CMD_SURVEY_EXISTS | survey_id=%s", survey.id)
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                        question=survey.question,
+                        hours_remaining=int(
+                            (survey.ends_at - survey.started_at).total_seconds() / 3600
+                        ),
+                    ),
+                )
+                logger.info("ADMIN_CMD_SURVEY_EXISTS_NOTIFY_OK | survey_id=%s", survey.id)
+            except Exception as exc:
+                logger.error(
+                    "ADMIN_CMD_SURVEY_EXISTS_NOTIFY_FAIL | survey_id=%s | error=%s",
+                    survey.id,
+                    exc,
+                    exc_info=True,
+                )
             return True
 
         buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
@@ -201,10 +264,13 @@ def handle_admin_command(
         )
 
         logger.info(
-            "ADMIN_CMD_SURVEY_SEND | survey_id=%s | recipients=%s",
+            "ADMIN_CMD_SURVEY_SEND_BEGIN | survey_id=%s | recipients=%s",
             survey.id,
             len(contacts),
         )
+
+        sent = 0
+        failed = 0
 
         for c in contacts:
             try:
@@ -214,59 +280,87 @@ def handle_admin_command(
                     body_text=question,
                     buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
                 )
+                sent += 1
             except Exception as exc:
+                failed += 1
                 logger.error(
-                    "ADMIN_CMD_SURVEY_SEND_FAIL | to=%s | error=%s",
-                    c.contact_number,
+                    "ADMIN_CMD_SURVEY_SEND_FAIL | survey_id=%s | to=%s | error=%s",
+                    survey.id,
+                    getattr(c, "contact_number", None),
                     exc,
                     exc_info=True,
                 )
 
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
+        logger.info(
+            "ADMIN_CMD_SURVEY_SEND_DONE | survey_id=%s | sent=%s | failed=%s",
+            survey.id,
+            sent,
+            failed,
         )
+
+        # Admin confirmation MUST always happen (exception-safe)
+        try:
+            meta.send_generic_business_update_template(
+                to_msisdn=sender_number,
+                blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
+            )
+            logger.info("ADMIN_CMD_SURVEY_STARTED_NOTIFY_OK | survey_id=%s", survey.id)
+        except Exception as exc:
+            logger.error(
+                "ADMIN_CMD_SURVEY_STARTED_NOTIFY_FAIL | survey_id=%s | error=%s",
+                survey.id,
+                exc,
+                exc_info=True,
+            )
+
         return True
 
     # ==================================================
-    # SURVEY (default sentiment)
+    # SURVEY START (DEFAULT)
     # ==================================================
-
     m2 = _SURVEY_DEFAULT_RE.match(text_clean)
     if m2:
-        question = (m2.group(1) or "").strip()
-        logger.info(
-            "ADMIN_CMD_SURVEY_DEFAULT | question=%r",
-            question,
-        )
+        question = m2.group(1).strip()
+        logger.info("ADMIN_CMD_SURVEY_DEFAULT | question=%r", question)
 
-        if not question:
-            logger.warning("ADMIN_CMD_SURVEY_DEFAULT | empty question")
-            return False
-
-        started, survey = start_survey(
-            db=db,
-            business_number=business_number,
-            question=question,
-            button_set="SENTIMENT",
-        )
+        try:
+            started, survey = start_survey(
+                db=db,
+                business_number=business_number,
+                question=question,
+                button_set="SENTIMENT",
+            )
+        except Exception as exc:
+            logger.error("ADMIN_CMD_START_SURVEY_FAIL | error=%s", exc, exc_info=True)
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text="⚠️ Survey start failed (see logs).",
+                )
+            except Exception:
+                pass
+            return True
 
         if not started:
-            logger.info(
-                "ADMIN_CMD_SURVEY_EXISTS | survey_id=%s",
-                survey.id,
-            )
-            remaining = max(
-                0,
-                int((survey.ends_at - survey.started_at).total_seconds() / 3600),
-            )
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
-                    question=survey.question,
-                    hours_remaining=remaining,
-                ),
-            )
+            logger.warning("ADMIN_CMD_SURVEY_EXISTS | survey_id=%s", survey.id)
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                        question=survey.question,
+                        hours_remaining=int(
+                            (survey.ends_at - survey.started_at).total_seconds() / 3600
+                        ),
+                    ),
+                )
+                logger.info("ADMIN_CMD_SURVEY_EXISTS_NOTIFY_OK | survey_id=%s", survey.id)
+            except Exception as exc:
+                logger.error(
+                    "ADMIN_CMD_SURVEY_EXISTS_NOTIFY_FAIL | survey_id=%s | error=%s",
+                    survey.id,
+                    exc,
+                    exc_info=True,
+                )
             return True
 
         buttons_def = SURVEY_BUTTON_SETS["SENTIMENT"]["buttons"]
@@ -277,10 +371,13 @@ def handle_admin_command(
         )
 
         logger.info(
-            "ADMIN_CMD_SURVEY_SEND | survey_id=%s | recipients=%s",
+            "ADMIN_CMD_SURVEY_SEND_BEGIN | survey_id=%s | recipients=%s",
             survey.id,
             len(contacts),
         )
+
+        sent = 0
+        failed = 0
 
         for c in contacts:
             try:
@@ -290,164 +387,40 @@ def handle_admin_command(
                     body_text=question,
                     buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
                 )
+                sent += 1
             except Exception as exc:
+                failed += 1
                 logger.error(
-                    "ADMIN_CMD_SURVEY_SEND_FAIL | to=%s | error=%s",
-                    c.contact_number,
+                    "ADMIN_CMD_SURVEY_SEND_FAIL | survey_id=%s | to=%s | error=%s",
+                    survey.id,
+                    getattr(c, "contact_number", None),
                     exc,
                     exc_info=True,
                 )
 
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
+        logger.info(
+            "ADMIN_CMD_SURVEY_SEND_DONE | survey_id=%s | sent=%s | failed=%s",
+            survey.id,
+            sent,
+            failed,
         )
-        return True
 
-    # ==================================================
-    # EXISTING COMMANDS
-    # ==================================================
-
-    if upper == "PAUSE":
-        logger.info("ADMIN_CMD_MATCH | PAUSE")
-        if hasattr(meta, "is_paused"):
-            meta.is_paused = True
-            db.commit()
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text="Outbound messaging is now PAUSED.",
-        )
-        return True
-
-    if upper == "RESUME":
-        logger.info("ADMIN_CMD_MATCH | RESUME")
-        if hasattr(meta, "is_paused"):
-            meta.is_paused = False
-            db.commit()
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text="Outbound messaging has been RESUMED.",
-        )
-        return True
-
-    if upper == "COUNT":
-        logger.info("ADMIN_CMD_MATCH | COUNT")
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=f"Active clients: {db.query(Contact).count()}",
-        )
-        return True
-
-    if upper.startswith("ADD CLIENT:"):
-        logger.info("ADMIN_CMD_MATCH | ADD CLIENT")
-        msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
-        if not msisdn:
-            logger.warning("ADMIN_CMD_ADD_CLIENT | invalid msisdn")
-            return True
-
-        added = add_contact(db, msisdn=msisdn)
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=(
-                f"Client {msisdn} added."
-                if added
-                else f"Client {msisdn} already exists."
-            ),
-        )
-        return True
-
-    if upper.startswith("REMOVE CLIENT:"):
-        logger.info("ADMIN_CMD_MATCH | REMOVE CLIENT")
-        msisdn = _normalise_msisdn(message_text.split(":", 1)[1])
-        if not msisdn:
-            logger.warning("ADMIN_CMD_REMOVE_CLIENT | invalid msisdn")
-            return True
-
-        removed = remove_contact(db, msisdn=msisdn)
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=(
-                f"Client {msisdn} removed."
-                if removed
-                else f"Client {msisdn} not found."
-            ),
-        )
-        return True
-
-    if upper.startswith("SEND:"):
-        logger.info("ADMIN_CMD_MATCH | SEND")
-        if paused:
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text="Outbound messaging is PAUSED.",
-            )
-            return True
-
+        # Admin confirmation MUST always happen (exception-safe)
         try:
-            _, body = message_text.split(":", 1)
-            raw, text_msg = body.strip().split(maxsplit=1)
-            msisdn = _normalise_msisdn(raw)
-
-            contact = (
-                db.query(Contact)
-                .filter(Contact.contact_number == msisdn)
-                .one_or_none()
-            )
-            if not contact:
-                raise ValueError()
-
-            meta.send_generic_business_update_template(
-                to_msisdn=msisdn,
-                blob_text=text_msg.strip(),
-            )
-
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
-                blob_text=f"Message sent to {msisdn}.",
+                blob_text=ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question),
             )
+            logger.info("ADMIN_CMD_SURVEY_STARTED_NOTIFY_OK | survey_id=%s", survey.id)
         except Exception as exc:
-            logger.error("ADMIN_CMD_SEND_FAIL | error=%s", exc, exc_info=True)
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text="SEND failed. Format: SEND: <number> <message>",
+            logger.error(
+                "ADMIN_CMD_SURVEY_STARTED_NOTIFY_FAIL | survey_id=%s | error=%s",
+                survey.id,
+                exc,
+                exc_info=True,
             )
 
         return True
 
-    if upper.startswith("BROADCAST"):
-        logger.info("ADMIN_CMD_MATCH | BROADCAST")
-        if paused:
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text="Outbound messaging is PAUSED.",
-            )
-            return True
-
-        text_msg = ""
-        if ":" in message_text:
-            text_msg = message_text.split(":", 1)[1].strip()
-
-        contacts = (
-            db.query(Contact)
-            .filter(~Contact.contact_number.in_(admin_allowlist))
-            .all()
-        )
-
-        for c in contacts:
-            if text_msg:
-                meta.send_generic_business_update_template(
-                    to_msisdn=c.contact_number,
-                    blob_text=text_msg,
-                )
-
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=f"Broadcast sent to {len(contacts)} clients.",
-        )
-        return True
-
-    logger.warning(
-        "ADMIN_CMD_FALLTHROUGH | unknown command | clean=%r",
-        text_clean,
-    )
+    logger.warning("ADMIN_CMD_FALLTHROUGH | unknown command | clean=%r", text_clean)
     return False
