@@ -58,6 +58,12 @@ _SURVEY_TYPED_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ✅ REPAIR 1: define missing default regex used later
+_SURVEY_DEFAULT_RE = re.compile(
+    r"^\s*survey\s*:\s*(.+)\s*$",
+    re.IGNORECASE,
+)
+
 
 def handle_admin_command(
     *,
@@ -144,7 +150,6 @@ def handle_admin_command(
                 exc,
                 exc_info=True,
             )
-            # Still try to notify admin something went wrong (without changing behaviour flow)
             try:
                 meta.send_generic_business_update_template(
                     to_msisdn=sender_number,
@@ -165,7 +170,6 @@ def handle_admin_command(
             )
             summary = "⚠️ Survey closed, but summary generation failed (see logs)."
 
-        # 1️⃣ Send summary (exception-safe)
         try:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
@@ -180,7 +184,6 @@ def handle_admin_command(
                 exc_info=True,
             )
 
-        # 2️⃣ Explicit confirmation (exception-safe)
         try:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
@@ -211,6 +214,39 @@ def handle_admin_command(
             question,
         )
 
+        # ----------------------------------
+        # BLOCK if another survey is active
+        # ----------------------------------
+        active_existing = get_active_survey(db, business_number)
+        if active_existing:
+            logger.warning(
+                "ADMIN_CMD_SURVEY_BLOCKED_ACTIVE | active_survey_id=%s",
+                active_existing.id,
+            )
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                        question=active_existing.question,
+                        hours_remaining=int(
+                            (active_existing.ends_at - active_existing.started_at)
+                            .total_seconds() / 3600
+                        ),
+                    ),
+                )
+                logger.info(
+                    "ADMIN_CMD_SURVEY_BLOCKED_NOTIFY_OK | active_survey_id=%s",
+                    active_existing.id,
+                )
+            except Exception as exc:
+                logger.error(
+                    "ADMIN_CMD_SURVEY_BLOCKED_NOTIFY_FAIL | active_survey_id=%s | error=%s",
+                    active_existing.id,
+                    exc,
+                    exc_info=True,
+                )
+            return True
+
         try:
             started, survey = start_survey(
                 db=db,
@@ -220,7 +256,6 @@ def handle_admin_command(
             )
         except Exception as exc:
             logger.error("ADMIN_CMD_START_SURVEY_FAIL | error=%s", exc, exc_info=True)
-            # ensure admin gets a reply
             try:
                 meta.send_generic_business_update_template(
                     to_msisdn=sender_number,
@@ -228,28 +263,6 @@ def handle_admin_command(
                 )
             except Exception:
                 pass
-            return True
-
-        if not started:
-            logger.warning("ADMIN_CMD_SURVEY_EXISTS | survey_id=%s", survey.id)
-            try:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
-                        question=survey.question,
-                        hours_remaining=int(
-                            (survey.ends_at - survey.started_at).total_seconds() / 3600
-                        ),
-                    ),
-                )
-                logger.info("ADMIN_CMD_SURVEY_EXISTS_NOTIFY_OK | survey_id=%s", survey.id)
-            except Exception as exc:
-                logger.error(
-                    "ADMIN_CMD_SURVEY_EXISTS_NOTIFY_FAIL | survey_id=%s | error=%s",
-                    survey.id,
-                    exc,
-                    exc_info=True,
-                )
             return True
 
         buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
@@ -294,7 +307,6 @@ def handle_admin_command(
             failed,
         )
 
-        # Admin confirmation MUST always happen (exception-safe)
         try:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
@@ -318,6 +330,37 @@ def handle_admin_command(
     if m2:
         question = m2.group(1).strip()
         logger.info("ADMIN_CMD_SURVEY_DEFAULT | question=%r", question)
+
+        # ✅ REPAIR 2: active-survey guard immediately above start_survey(...)
+        active_existing = get_active_survey(db, business_number)
+        if active_existing:
+            logger.warning(
+                "ADMIN_CMD_SURVEY_BLOCKED_ACTIVE | active_survey_id=%s",
+                active_existing.id,
+            )
+            try:
+                meta.send_generic_business_update_template(
+                    to_msisdn=sender_number,
+                    blob_text=ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
+                        question=active_existing.question,
+                        hours_remaining=int(
+                            (active_existing.ends_at - active_existing.started_at)
+                            .total_seconds() / 3600
+                        ),
+                    ),
+                )
+                logger.info(
+                    "ADMIN_CMD_SURVEY_BLOCKED_NOTIFY_OK | active_survey_id=%s",
+                    active_existing.id,
+                )
+            except Exception as exc:
+                logger.error(
+                    "ADMIN_CMD_SURVEY_BLOCKED_NOTIFY_FAIL | active_survey_id=%s | error=%s",
+                    active_existing.id,
+                    exc,
+                    exc_info=True,
+                )
+            return True
 
         try:
             started, survey = start_survey(
@@ -401,7 +444,6 @@ def handle_admin_command(
             failed,
         )
 
-        # Admin confirmation MUST always happen (exception-safe)
         try:
             meta.send_generic_business_update_template(
                 to_msisdn=sender_number,
