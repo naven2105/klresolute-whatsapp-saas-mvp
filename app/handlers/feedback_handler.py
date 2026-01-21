@@ -38,18 +38,39 @@ logger.setLevel(logging.INFO)
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 ADMIN_TEMPLATE_NAME = "klr_admin_alert_v1"
+CUSTOMER_ACK_TEMPLATE_NAME = "generic_business_update"
 
+
+# -------------------------------------------------
+# Outbound helpers
+# -------------------------------------------------
 
 def _send_customer_ack(to_number: str) -> None:
+    logger.info(
+        "FEEDBACK_ACK_ATTEMPT | customer=%s | template=%s",
+        to_number,
+        CUSTOMER_ACK_TEMPLATE_NAME,
+    )
+
     try:
-        _meta_client.send_session_message(
+        result = _meta_client.send_template(
             to_msisdn=to_number,
-            text="🙏 Thank you. Your feedback has been sent to the manager.",
+            template_name=CUSTOMER_ACK_TEMPLATE_NAME,
+            language_code="en_US",
+            body_params=[
+                "🙏 Thank you for your feedback. It has been sent to the manager."
+            ],
         )
-        logger.info("Customer ACK sent to %s", to_number)
+
+        logger.info(
+            "FEEDBACK_ACK_SENT | customer=%s | result=%s",
+            to_number,
+            result,
+        )
+
     except Exception as exc:
         logger.error(
-            "FAILED to send customer ACK to %s | error=%s",
+            "FEEDBACK_ACK_FAIL | customer=%s | error=%s",
             to_number,
             exc,
             exc_info=True,
@@ -58,7 +79,7 @@ def _send_customer_ack(to_number: str) -> None:
 
 def _send_admin_alert(to_number: str, alert_text: str) -> None:
     logger.info(
-        "Attempting admin template send | admin_msisdn=%s | template=%s",
+        "ADMIN_ALERT_ATTEMPT | admin=%s | template=%s",
         to_number,
         ADMIN_TEMPLATE_NAME,
     )
@@ -72,14 +93,14 @@ def _send_admin_alert(to_number: str, alert_text: str) -> None:
         )
 
         logger.info(
-            "Admin template send result | admin=%s | result=%s",
+            "ADMIN_ALERT_SENT | admin=%s | result=%s",
             to_number,
             result,
         )
 
     except Exception as exc:
         logger.error(
-            "FAILED admin template send | admin=%s | error=%s",
+            "ADMIN_ALERT_FAIL | admin=%s | error=%s",
             to_number,
             exc,
             exc_info=True,
@@ -108,71 +129,90 @@ def handle_feedback_message(
         False -> ignore
     """
 
-    # Nothing to store
+    logger.info(
+        "FEEDBACK_ENTER | from=%s | client_id=%s | has_text=%s | has_media=%s",
+        sender_number,
+        client_id,
+        bool(message_text),
+        bool(media_id),
+    )
+
     if not message_text and not media_id:
-        logger.info("feedback ignored (no text / no media)")
+        logger.info("FEEDBACK_IGNORED | reason=no_text_no_media")
         return False
 
     # -------------------------------
-    # Store feedback (schema-aligned)
+    # Store feedback
     # -------------------------------
-    db.execute(
-        text(
-            """
-            INSERT INTO feedbacks (
-                client_id,
-                customer_msisdn,
-                message_text,
-                media_id,
-                media_type,
-                created_at
-            )
-            VALUES (
-                :client_id,
-                :customer_msisdn,
-                :message_text,
-                :media_id,
-                :media_type,
-                now()
-            )
-            """
-        ),
-        {
-            "client_id": client_id,
-            "customer_msisdn": sender_number,
-            "message_text": message_text,
-            "media_id": media_id,
-            "media_type": media_type,
-        },
-    )
-    db.commit()
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO feedbacks (
+                    client_id,
+                    customer_msisdn,
+                    message_text,
+                    media_id,
+                    media_type,
+                    created_at
+                )
+                VALUES (
+                    :client_id,
+                    :customer_msisdn,
+                    :message_text,
+                    :media_id,
+                    :media_type,
+                    now()
+                )
+                """
+            ),
+            {
+                "client_id": client_id,
+                "customer_msisdn": sender_number,
+                "message_text": message_text,
+                "media_id": media_id,
+                "media_type": media_type,
+            },
+        )
+        db.commit()
 
-    logger.info(
-        "feedback stored | client_id=%s | from=%s",
-        client_id,
-        sender_number,
-    )
+        logger.info(
+            "FEEDBACK_STORED | client_id=%s | from=%s",
+            client_id,
+            sender_number,
+        )
+
+    except Exception as exc:
+        logger.error(
+            "FEEDBACK_STORE_FAIL | client_id=%s | from=%s | error=%s",
+            client_id,
+            sender_number,
+            exc,
+            exc_info=True,
+        )
+        return True  # still handled, but logged
 
     # -------------------------------
-    # Acknowledge customer (session)
+    # Customer acknowledgement (TEMPLATE)
     # -------------------------------
     _send_customer_ack(sender_number)
 
     # -------------------------------
-    # Notify admins (TEMPLATE ONLY)
+    # Admin notification (TEMPLATE)
     # -------------------------------
     alert_text = (
-        f"New feedback received | "
-        f"From: {sender_number} | "
+        f"New feedback received\n"
+        f"From: {sender_number}\n"
         f"Message: {message_text or 'Media received'}"
     )
 
     if not admin_numbers:
-        logger.warning("No admin numbers configured for feedback alert")
+        logger.warning("ADMIN_ALERT_SKIP | reason=no_admin_numbers")
     else:
-        logger.info("Admin alert target count = %s", len(admin_numbers))
+        logger.info("ADMIN_ALERT_TARGETS | count=%s", len(admin_numbers))
 
     for admin in admin_numbers:
         _send_admin_alert(admin, alert_text)
 
+    logger.info("FEEDBACK_COMPLETE | from=%s", sender_number)
     return True
