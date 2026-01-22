@@ -13,6 +13,7 @@ Routing rule (LOCKED):
 """
 
 import os
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -20,8 +21,12 @@ from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
-from app.services.event_logger import log_event
 from app.models import WhatsAppNumber
+
+# =========================
+# Logging
+# =========================
+logger = logging.getLogger("client_commands")
 
 # =========================
 # Survey imports
@@ -89,6 +94,7 @@ _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 # =========================
 
 def _send_text(to_number: str, text: str) -> None:
+    logger.info("SEND_TEXT | to=%s | text=%r", to_number, text)
     _meta_client.send_session_message(
         to_msisdn=to_number,
         text=text,
@@ -96,6 +102,8 @@ def _send_text(to_number: str, text: str) -> None:
 
 
 def _send_latest_special(db: Session, to_number: str, client_id) -> None:
+    logger.info("SEND_SPECIAL | to=%s | client_id=%s", to_number, client_id)
+
     row = (
         db.execute(
             text(
@@ -114,9 +122,11 @@ def _send_latest_special(db: Session, to_number: str, client_id) -> None:
     )
 
     if not row:
+        logger.info("NO_SPECIAL_FOUND | to=%s", to_number)
         _send_text(to_number, "No specials are available right now.")
         return
 
+    logger.info("SPECIAL_FOUND | to=%s | media_id=%s", to_number, row["media_id"])
     _meta_client.send_image_message(
         to_msisdn=to_number,
         media_id=row["media_id"],
@@ -125,12 +135,14 @@ def _send_latest_special(db: Session, to_number: str, client_id) -> None:
 
 
 def _resolve_store_context_fallback(db: Session):
+    logger.warning("FALLBACK_STORE_CONTEXT")
     wa = (
         db.query(WhatsAppNumber)
         .filter(WhatsAppNumber.status == "active")
         .first()
     )
     if not wa:
+        logger.error("NO_ACTIVE_WHATSAPP_NUMBER")
         return None, None
 
     return wa.client_id, wa.destination_number
@@ -150,6 +162,14 @@ def handle_client_command(
     resolved_business_number: str | None = None,
     resolved_phone_number_id: str | None = None,
 ) -> bool:
+
+    logger.info(
+        "CLIENT_CMD_ENTER | sender=%s | text=%r | msg_type=%s",
+        sender_number,
+        message_text,
+        msg.get("type") if msg else None,
+    )
+
     is_admin = sender_number in ADMIN_ALLOWLIST
 
     client_id = resolved_client_id
@@ -158,32 +178,61 @@ def handle_client_command(
     if not client_id or not business_number:
         client_id, business_number = _resolve_store_context_fallback(db)
 
+    # ----------------------------------
+    # Auto-close surveys (admin notify)
+    # ----------------------------------
     if business_number:
         closed = auto_close_expired_surveys(db, business_number)
         if closed:
+            logger.info("SURVEY_AUTO_CLOSED | survey_id=%s", closed.id)
             summary = build_survey_summary_text(db, closed)
             for admin in ADMIN_ALLOWLIST:
                 _send_text(admin, summary)
 
+    # ----------------------------------
+    # Survey button replies
+    # ----------------------------------
     if msg and msg.get("type") == "interactive":
         button_reply = (
             msg.get("interactive", {})
             .get("button_reply", {})
             .get("id")
         )
-        if button_reply:
-            active = get_active_survey(db, sender_number)
-            if active and record_response(
-                db=db,
-                survey=active,
-                client_number=sender_number,
-                button_id=button_reply,
-            ):
-                _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
+
+        logger.info(
+            "INTERACTIVE_REPLY | sender=%s | button_id=%s",
+            sender_number,
+            button_reply,
+        )
+
+        if button_reply and business_number:
+            active = get_active_survey(db, business_number)
+            if active:
+                ok = record_response(
+                    db=db,
+                    survey=active,
+                    client_number=sender_number,
+                    button_id=button_reply,
+                )
+                logger.info(
+                    "SURVEY_RESPONSE_RECORDED | ok=%s | survey_id=%s",
+                    ok,
+                    active.id,
+                )
+                if ok:
+                    _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
+            else:
+                logger.warning("NO_ACTIVE_SURVEY_FOR_RESPONSE")
+
             return True
 
+    # ----------------------------------
+    # Text commands
+    # ----------------------------------
     text = (message_text or "").strip()
     upper = text.upper()
+
+    logger.info("TEXT_CMD | sender=%s | upper=%s | admin=%s", sender_number, upper, is_admin)
 
     if upper == "MENU" or not upper:
         _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
@@ -221,6 +270,6 @@ def handle_client_command(
         _send_latest_special(db, sender_number, client_id)
         return True
 
+    logger.info("FALLBACK_MENU | sender=%s | admin=%s", sender_number, is_admin)
     _send_text(sender_number, ADMIN_MENU_TEXT if is_admin else CLIENT_MENU_TEXT)
     return True
-    

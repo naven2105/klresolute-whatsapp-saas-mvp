@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 File: app/main.py
 
@@ -11,6 +13,7 @@ Responsible only for:
 - Meta WhatsApp webhook verification (GET)
 - Health check endpoint
 - T-18 Admin router registration (read-only)
+- Startup wiring (background jobs only)
 
 Design principles:
 - No business logic in this file
@@ -31,6 +34,12 @@ from fastapi.responses import PlainTextResponse
 from app.webhooks import router as webhooks_router  # BRS-driven webhook pipeline
 from app.admin.routes import router as admin_router  # T-18 read-only admin endpoints
 
+# Background jobs (wired only, logic lives elsewhere)
+from app.survey.survey_expiry_notifier import start_survey_expiry_notifier
+
+# -------------------------------------------------------------------
+# App
+# -------------------------------------------------------------------
 app = FastAPI()
 
 # -------------------------------------------------------------------
@@ -42,6 +51,14 @@ app.include_router(webhooks_router)
 # T-18: Admin visibility (read-only)
 # -------------------------------------------------------------------
 app.include_router(admin_router)
+
+# -------------------------------------------------------------------
+# Startup (background jobs only)
+# -------------------------------------------------------------------
+@app.on_event("startup")
+async def startup() -> None:
+    # Background survey auto-expiry + admin notification
+    start_survey_expiry_notifier()
 
 # -------------------------------------------------------------------
 # T-12: Meta webhook verification (GET)
@@ -58,7 +75,6 @@ def verify_webhook(request: Request):
         return challenge
 
     raise HTTPException(status_code=403, detail="Webhook verification failed")
-
 
 # -------------------------------------------------------------------
 # Health
