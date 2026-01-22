@@ -16,6 +16,7 @@ ROUTING RULE (LOCKED):
 import logging
 import os
 import re
+from typing import Optional
 
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
@@ -34,12 +35,14 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
+# -------------------------------------------------
+# TEMPORARY GLOBAL FALLBACK (DO NOT REMOVE YET)
+# -------------------------------------------------
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
     if n.strip()
 }
-
 
 # -------------------------------------------------
 # Helpers
@@ -64,7 +67,7 @@ def _extract_message(payload: dict):
         return None, None
 
 
-def _extract_business_msisdn(payload: dict) -> str | None:
+def _extract_business_msisdn(payload: dict) -> Optional[str]:
     try:
         raw = payload["entry"][0]["changes"][0]["value"]["metadata"]["display_phone_number"]
         return _normalise_msisdn(raw)
@@ -89,7 +92,7 @@ def _upsert_client(db: Session, client_number: str) -> None:
     db.commit()
 
 
-def _resolve_business_context(db: Session, business_msisdn: str | None):
+def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     if not business_msisdn:
         return None, None
 
@@ -104,6 +107,32 @@ def _resolve_business_context(db: Session, business_msisdn: str | None):
         return None, None
 
     return wa.client_id, wa.destination_number
+
+
+# -------------------------------------------------
+# NEW: Client-scoped admin check (READ ONLY)
+# -------------------------------------------------
+
+def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
+    # DB-first check
+    row = db.execute(
+        sql_text(
+            """
+            SELECT 1
+            FROM KLResolute_Admin
+            WHERE client_id = :client_id
+              AND msisdn = :msisdn
+              AND is_active = TRUE
+            """
+        ),
+        {"client_id": client_id, "msisdn": sender_msisdn},
+    ).first()
+
+    if row:
+        return True
+
+    # Fallback (temporary)
+    return sender_msisdn in ADMIN_ALLOWLIST
 
 
 # -------------------------------------------------
@@ -137,6 +166,11 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     _upsert_client(db, sender)
+
+    # --------------------------------
+    # Resolve admin ONCE (client-scoped)
+    # --------------------------------
+    is_admin = _is_client_admin(db, client_id, sender)
 
     # -------------------------------
     # Media (admin images / specials)
@@ -173,7 +207,7 @@ async def whatsapp_webhook(
         upper = text.upper()
 
         # Admin commands
-        if handle_admin_command(
+        if is_admin and handle_admin_command(
             db=db,
             sender_number=sender,
             message_text=text,
