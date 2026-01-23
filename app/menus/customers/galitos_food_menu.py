@@ -53,19 +53,19 @@ def handle_galitos_menu(
     client_id: str,
 ) -> bool:
     """
-    Entry point for Galito’s FOOD / MENU flow.
+    Entry point for Galito’s FOOD flow.
 
     Returns:
         True  -> message handled here
-        False -> not a Galito’s menu message
+        False -> not a Galito’s food message
     """
 
     text_norm = message_text.strip().upper()
 
     # -------------------------------
-    # SHOW MENU
+    # SHOW FOOD MENU  (CHANGED)
     # -------------------------------
-    if text_norm in {"MENU", "FOOD"}:
+    if text_norm == "FOOD":
         menu_lines = [
             "🍗 *Galito’s Food Menu*",
             "",

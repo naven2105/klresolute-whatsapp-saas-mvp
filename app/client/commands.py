@@ -37,7 +37,7 @@ def handle_client_command(
     meta = get_meta_client()
 
     # -------------------------------
-    # FOOD MENU (must be FIRST)
+    # FOOD MENU (FOOD ONLY)
     # -------------------------------
     if handle_galitos_menu(
         db=db,
@@ -75,7 +75,7 @@ def handle_client_command(
         )
         return True
 
-    # -------- CUSTOMER MENU --------
+    # -------- CUSTOMER MENU (explicit) --------
     if text_upper in {"MENU", "HELP", "ABOUT"}:
         meta.send_text_message(
             to_msisdn=sender,
@@ -83,4 +83,9 @@ def handle_client_command(
         )
         return True
 
-    return False
+    # -------- UNKNOWN TEXT → CUSTOMER MENU (ADDED) --------
+    meta.send_text_message(
+        to_msisdn=sender,
+        body=_render_menu(GALITOS_CUSTOMER_MENU),
+    )
+    return True
