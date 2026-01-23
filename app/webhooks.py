@@ -3,6 +3,14 @@ from __future__ import annotations
 """
 File: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+WhatsApp webhook receiver and dispatcher.
+
+ROUTING RULE (LOCKED):
+- Route strictly by receiving WhatsApp business MSISDN
+- Match against whatsapp_numbers.destination_number
+- If no active match exists → DO NOT RESPOND
 """
 
 import logging
@@ -27,6 +35,9 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
+# -------------------------------------------------
+# TEMPORARY GLOBAL FALLBACK (DO NOT REMOVE YET)
+# -------------------------------------------------
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
@@ -82,7 +93,7 @@ def _upsert_client(db: Session, client_number: str) -> None:
 
 
 # -------------------------------------------------
-# Business context (NOW CORRECT)
+# BUSINESS CONTEXT RESOLUTION (FIXED)
 # -------------------------------------------------
 
 def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
@@ -102,8 +113,9 @@ def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     return wa.klresolute_client_id, wa.destination_number
 
 
+
 # -------------------------------------------------
-# Client-scoped admin check
+# Client-scoped admin check (DB first)
 # -------------------------------------------------
 
 def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
@@ -120,7 +132,11 @@ def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
         {"client_id": client_id, "msisdn": sender_msisdn},
     ).first()
 
-    return bool(row) or sender_msisdn in ADMIN_ALLOWLIST
+    if row:
+        return True
+
+    # fallback (temporary)
+    return sender_msisdn in ADMIN_ALLOWLIST
 
 
 # -------------------------------------------------
@@ -155,8 +171,12 @@ async def whatsapp_webhook(
 
     _upsert_client(db, sender)
 
+    # Resolve admin ONCE (client-scoped)
     is_admin = _is_client_admin(db, client_id, sender)
 
+    # -------------------------------
+    # Media
+    # -------------------------------
     if handle_media_message(
         db=db,
         sender=sender,
@@ -166,6 +186,9 @@ async def whatsapp_webhook(
     ):
         return Response(status_code=200)
 
+    # -------------------------------
+    # Interactive
+    # -------------------------------
     if msg.get("type") == "interactive":
         handle_client_command(
             db=db,
@@ -177,8 +200,12 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
+    # -------------------------------
+    # Text
+    # -------------------------------
     if msg.get("type") == "text":
-        text = (msg["text"]["body"] or "").strip()
+        raw_text = msg["text"]["body"] or ""
+        text = raw_text.strip()
         upper = text.upper()
 
         if is_admin and handle_admin_command(
@@ -190,10 +217,11 @@ async def whatsapp_webhook(
             return Response(status_code=200)
 
         if upper.startswith("FEEDBACK:"):
+            feedback_text = text[len("FEEDBACK:"):].strip()
             handle_feedback_message(
                 db=db,
                 sender_number=sender,
-                message_text=text[9:].strip(),
+                message_text=feedback_text,
                 media_id=None,
                 media_type=None,
                 client_id=client_id,

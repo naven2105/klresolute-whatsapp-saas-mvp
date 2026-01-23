@@ -74,11 +74,21 @@ class WhatsAppNumber(Base):
     __tablename__ = "whatsapp_numbers"
 
     wa_number_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Legacy client linkage (UUID-based, DO NOT REMOVE)
     client_id = Column(
         UUID(as_uuid=True),
         ForeignKey("clients.client_id"),
         nullable=False,
     )
+
+    # NEW: KLResolute SaaS client linkage (INTEGER-based)
+    klresolute_client_id = Column(
+        Integer,
+        ForeignKey("KLResolute_Client.id"),
+        nullable=True,
+    )
+
     destination_number = Column(Text, nullable=False, unique=True)
     status = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -91,6 +101,7 @@ class WhatsAppNumber(Base):
     )
 
     client = relationship("Client")
+
 
 
 # ---------------------------------------------------------------------
