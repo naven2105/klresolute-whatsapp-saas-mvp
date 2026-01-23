@@ -75,17 +75,17 @@ def handle_client_command(
         )
         return True
 
-    # -------- CUSTOMER MENU (explicit) --------
+    # -------- CUSTOMER MENU --------
     if text_upper in {"MENU", "HELP", "ABOUT"}:
-        meta.send_text_message(
+        meta.send_session_message(
             to_msisdn=sender,
-            body=_render_menu(GALITOS_CUSTOMER_MENU),
+            text=_render_menu(GALITOS_CUSTOMER_MENU),
         )
         return True
 
-    # -------- UNKNOWN TEXT → CUSTOMER MENU (ADDED) --------
-    meta.send_text_message(
+    # -------- UNKNOWN TEXT → CUSTOMER MENU --------
+    meta.send_session_message(
         to_msisdn=sender,
-        body=_render_menu(GALITOS_CUSTOMER_MENU),
+        text=_render_menu(GALITOS_CUSTOMER_MENU),
     )
     return True
