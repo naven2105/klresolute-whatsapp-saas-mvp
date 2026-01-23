@@ -92,6 +92,10 @@ def _upsert_client(db: Session, client_number: str) -> None:
     db.commit()
 
 
+# -------------------------------------------------
+# BUSINESS CONTEXT RESOLUTION (FIXED)
+# -------------------------------------------------
+
 def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     if not business_msisdn:
         return None, None
@@ -106,15 +110,33 @@ def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     if not wa:
         return None, None
 
-    return wa.client_id, wa.destination_number
+    # IMPORTANT:
+    # WhatsAppNumber.client_id is UUID
+    # KLResolute_Client.id is INTEGER
+    # We must resolve the INTEGER id explicitly
+    client_row = db.execute(
+        sql_text(
+            """
+            SELECT id
+            FROM KLResolute_Client
+            WHERE id = :client_id
+              AND is_active = TRUE
+            """
+        ),
+        {"client_id": wa.client_id},
+    ).first()
+
+    if not client_row:
+        return None, None
+
+    return client_row.id, wa.destination_number
 
 
 # -------------------------------------------------
-# NEW: Client-scoped admin check (READ ONLY)
+# Client-scoped admin check (DB first)
 # -------------------------------------------------
 
 def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
-    # DB-first check
     row = db.execute(
         sql_text(
             """
@@ -131,7 +153,7 @@ def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
     if row:
         return True
 
-    # Fallback (temporary)
+    # fallback (temporary)
     return sender_msisdn in ADMIN_ALLOWLIST
 
 
@@ -167,13 +189,11 @@ async def whatsapp_webhook(
 
     _upsert_client(db, sender)
 
-    # --------------------------------
     # Resolve admin ONCE (client-scoped)
-    # --------------------------------
     is_admin = _is_client_admin(db, client_id, sender)
 
     # -------------------------------
-    # Media (admin images / specials)
+    # Media
     # -------------------------------
     if handle_media_message(
         db=db,
@@ -185,7 +205,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------
-    # Interactive (survey button taps)
+    # Interactive
     # -------------------------------
     if msg.get("type") == "interactive":
         handle_client_command(
@@ -206,7 +226,6 @@ async def whatsapp_webhook(
         text = raw_text.strip()
         upper = text.upper()
 
-        # Admin commands
         if is_admin and handle_admin_command(
             db=db,
             sender_number=sender,
@@ -215,10 +234,8 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # FEEDBACK intent (explicit only)
         if upper.startswith("FEEDBACK:"):
             feedback_text = text[len("FEEDBACK:"):].strip()
-
             handle_feedback_message(
                 db=db,
                 sender_number=sender,
@@ -230,7 +247,6 @@ async def whatsapp_webhook(
             )
             return Response(status_code=200)
 
-        # Orders
         if handle_order_message(
             db=db,
             from_number=sender,
@@ -239,7 +255,6 @@ async def whatsapp_webhook(
         ):
             return Response(status_code=200)
 
-        # Unknown → Client menu
         handle_client_command(
             db=db,
             sender_number=sender,
