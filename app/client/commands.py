@@ -1,19 +1,6 @@
 """
 File: app/client/commands.py
 Path: app/client/commands.py
-
-Purpose:
-Client (customer) self-service commands.
-
-Handled:
-- STOP        → opt out
-- RESUME      → opt in
-- MENU        → show customer options
-- FOOD        → show food menu
-
-Rules:
-- Inbound always allowed
-- Admin numbers ignored here
 """
 
 from sqlalchemy.orm import Session
@@ -22,7 +9,7 @@ from app.models import Contact
 from app.outbound.factory import get_meta_client
 
 from app.menus.customers.galitos_customer_menu import GALITOS_CUSTOMER_MENU
-from app.menus.customers.galitos_food_menu import GALITOS_FOOD_MENU
+from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 
 def _render_menu(menu: dict) -> str:
@@ -30,7 +17,7 @@ def _render_menu(menu: dict) -> str:
     for section in menu.get("sections", []):
         lines.append(section["title"])
         for cmd in section.get("commands", []):
-            lines.append(f"- {cmd}")
+            lines.append(cmd)
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -41,15 +28,29 @@ def handle_client_command(
     sender: str,
     msg: dict,
     admin_allowlist: set[str],
+    client_id: str,
 ) -> bool:
     if msg.get("type") != "text":
         return False
 
-    text = msg["text"]["body"].strip().upper()
+    text = msg["text"]["body"].strip()
     meta = get_meta_client()
 
+    # -------------------------------
+    # FOOD MENU (must be FIRST)
+    # -------------------------------
+    if handle_galitos_menu(
+        db=db,
+        sender_number=sender,
+        message_text=text,
+        client_id=client_id,
+    ):
+        return True
+
+    text_upper = text.upper()
+
     # -------- STOP --------
-    if text == "STOP":
+    if text_upper == "STOP":
         contact = db.query(Contact).filter(Contact.contact_number == sender).one_or_none()
         if contact:
             db.delete(contact)
@@ -62,7 +63,7 @@ def handle_client_command(
         return True
 
     # -------- RESUME --------
-    if text == "RESUME" and sender not in admin_allowlist:
+    if text_upper == "RESUME" and sender not in admin_allowlist:
         existing = db.query(Contact).filter(Contact.contact_number == sender).one_or_none()
         if not existing:
             db.add(Contact(contact_number=sender))
@@ -75,18 +76,10 @@ def handle_client_command(
         return True
 
     # -------- CUSTOMER MENU --------
-    if text in {"MENU", "HELP"}:
+    if text_upper in {"MENU", "HELP", "ABOUT"}:
         meta.send_text_message(
             to_msisdn=sender,
             body=_render_menu(GALITOS_CUSTOMER_MENU),
-        )
-        return True
-
-    # -------- FOOD MENU --------
-    if text in {"FOOD", "MENU ITEMS"}:
-        meta.send_text_message(
-            to_msisdn=sender,
-            body=_render_menu(GALITOS_FOOD_MENU),
         )
         return True
 

@@ -3,19 +3,31 @@ File: app/menus/customers/galitos_customer_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Public-facing menu for Galitos customers.
-No admin or internal functions exposed.
+Customer-facing menu for Galitos.
 """
 
 GALITOS_CUSTOMER_MENU = {
-    "title": "👋 Welcome to Galitos",
+    "title": "📋 MENU",
     "sections": [
         {
-            "title": "📋 Options",
+            "title": "👋 Welcome!",
             "commands": [
-                "LATEST SPECIALS",
-                "GIVE FEEDBACK",
+                '"ABOUT" – Store information',
+                '"JOIN" – Receive store updates',
+                '"STOP" – Opt out of updates',
+                '"FEEDBACK" – Type: FEEDBACK: your message',
+                '"MENU" – Show this menu again',
+                '"FOOD" – Order ONE food item (for multiple items, call store)',
+                '"HOURS" – Store hours',
+                '"SPECIALS" – Today’s specials',
             ],
-        }
+        },
+        {
+            "title": "📊 Surveys",
+            "commands": [
+                "From time to time, you may receive a short survey.",
+                "Please tap the buttons to respond — it only takes a second.",
+            ],
+        },
     ],
 }
