@@ -157,7 +157,9 @@ def handle_admin_command(
     try:
         if handle_admin_menu(
             sender_number=sender_number,
-            message_text=clean_text,
+            message_text=message_text,
+            db=db,
+            admin_allowlist=admin_allowlist,            
         ):
             logger.info("ADMIN_ROUTER_HANDLED | handler=menu")
             return True
