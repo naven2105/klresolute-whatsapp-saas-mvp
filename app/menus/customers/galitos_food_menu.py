@@ -53,7 +53,7 @@ def handle_galitos_menu(
     client_id: str,
 ) -> bool:
     """
-    Entry point for Galito’s MENU flow.
+    Entry point for Galito’s FOOD / MENU flow.
 
     Returns:
         True  -> message handled here
@@ -65,9 +65,15 @@ def handle_galitos_menu(
     # -------------------------------
     # SHOW MENU
     # -------------------------------
-    if text_norm == "MENU":
+    if text_norm in {"MENU", "FOOD"}:
         menu_lines = [
-            "🍗 *Galito’s Menu* (Single item only)",
+            "🍗 *Galito’s Food Menu*",
+            "",
+            "⚠️ *Important*",
+            "- One item per order only",
+            "- For multiple items, please *call the store*",
+            "",
+            "👇 *Available items*",
             "",
         ]
 
@@ -79,8 +85,7 @@ def handle_galitos_menu(
         menu_lines.extend(
             [
                 "",
-                "Reply with the *number* to select.",
-                "For multiple items, please call the store.",
+                "Reply with the *number* to order ONE item.",
             ]
         )
 
