@@ -1,5 +1,5 @@
 """
-File: app/menus/clients/galitos_customer_menu.py
+File: app/menus/customers/galitos_customer_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:

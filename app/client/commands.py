@@ -3,9 +3,13 @@ File: app/client/commands.py
 Path: app/client/commands.py
 
 Purpose:
-Client self-service commands.
-- STOP   → opt out (remove contact)
-- RESUME → opt in (add contact)
+Client (customer) self-service commands.
+
+Handled:
+- STOP        → opt out
+- RESUME      → opt in
+- MENU        → show customer options
+- FOOD        → show food menu
 
 Rules:
 - Inbound always allowed
@@ -16,6 +20,19 @@ from sqlalchemy.orm import Session
 
 from app.models import Contact
 from app.outbound.factory import get_meta_client
+
+from app.menus.customers.galitos_customer_menu import GALITOS_CUSTOMER_MENU
+from app.menus.customers.galitos_food_menu import GALITOS_FOOD_MENU
+
+
+def _render_menu(menu: dict) -> str:
+    lines = [menu["title"], ""]
+    for section in menu.get("sections", []):
+        lines.append(section["title"])
+        for cmd in section.get("commands", []):
+            lines.append(f"- {cmd}")
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 def handle_client_command(
@@ -54,6 +71,22 @@ def handle_client_command(
         meta.send_generic_business_update_template(
             to_msisdn=sender,
             blob_text="You have been added back. You will receive updates again.",
+        )
+        return True
+
+    # -------- CUSTOMER MENU --------
+    if text in {"MENU", "HELP"}:
+        meta.send_text_message(
+            to_msisdn=sender,
+            body=_render_menu(GALITOS_CUSTOMER_MENU),
+        )
+        return True
+
+    # -------- FOOD MENU --------
+    if text in {"FOOD", "MENU ITEMS"}:
+        meta.send_text_message(
+            to_msisdn=sender,
+            body=_render_menu(GALITOS_FOOD_MENU),
         )
         return True
 
