@@ -85,9 +85,18 @@ def _notify_galitos_staff(
 
         for r in rows:
             try:
-                _meta_client.send_session_message(
+                _meta_client.send_template_message(
                     to_msisdn=r.msisdn,
-                    text=message,
+                    template_name="klr_notification_v1",
+                    language="en_US",
+                    components=[
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": message}
+                            ],
+                        }
+                    ],
                 )
                 logger.info(
                     "STAFF_NOTIFIED | client_id=%s | msisdn=%s",
@@ -290,12 +299,13 @@ def handle_order_message(
             # Notify Galitos staff
             # -------------------------------
             staff_message = (
-                "🍗 NEW ORDER RECEIVED\n\n"
-                f"Item: {state['item_name']}\n"
-                f"Flavour: {state['flavour']}\n"
-                f"Customer: {from_number}\n"
-                f"Amount: R{state['total_amount']}"
+                f"Order | {state['item_name']} | "
+                f"{state['flavour']} | "
+                f"R{state['total_amount']} | "
+                f"Cust: {from_number} | "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
             )
+
             _notify_galitos_staff(
                 db,
                 client_id=state["client_id"],
