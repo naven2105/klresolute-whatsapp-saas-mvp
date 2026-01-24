@@ -14,11 +14,18 @@ RULE (LOCKED):
 - Can be replayed later via "SPECIALS"
 """
 
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.models import Contact
 from app.outbound.factory import get_meta_client
+
+# -------------------------------------------------
+# Logging
+# -------------------------------------------------
+
+logger = logging.getLogger("media_handler")
 
 DEFAULT_CAPTION = "Today’s specials"
 
@@ -36,53 +43,105 @@ def handle_media_message(
     Returns False if message is NOT an image.
     """
 
+    logger.info(
+        "MEDIA_HANDLER_ENTER | sender=%s | msg_type=%s | client_id=%s",
+        sender,
+        msg.get("type"),
+        client_id,
+    )
+
+    # -------------------------------------------------
+    # Only images handled here
+    # -------------------------------------------------
     if msg.get("type") != "image":
+        logger.debug("MEDIA_HANDLER_SKIP | not image")
         return False
 
+    # -------------------------------------------------
+    # Admin-only rule
+    # -------------------------------------------------
     if sender not in admin_allowlist:
-        return True  # ignore non-admin images
+        logger.warning(
+            "MEDIA_HANDLER_REJECT | non-admin sender=%s",
+            sender,
+        )
+        return True  # explicitly consumed but ignored
 
     meta = get_meta_client()
 
     media_id = msg["image"]["id"]
     caption = msg["image"].get("caption") or DEFAULT_CAPTION
 
-    # -------------------------------
-    # Store SPECIAL (latest wins)
-    # -------------------------------
-    db.execute(
-        text(
-            """
-            INSERT INTO specials (
-                client_id,
-                media_id,
-                caption,
-                created_at
-            )
-            VALUES (
-                :client_id,
-                :media_id,
-                :caption,
-                now()
-            )
-            """
-        ),
-        {
-            "client_id": client_id,
-            "media_id": media_id,
-            "caption": caption,
-        },
+    logger.info(
+        "MEDIA_HANDLER_IMAGE | sender=%s | media_id=%s | caption=%r",
+        sender,
+        media_id,
+        caption,
     )
-    db.commit()
 
-    # -------------------------------
+    # -------------------------------------------------
+    # Store SPECIAL (latest wins)
+    # -------------------------------------------------
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO specials (
+                    client_id,
+                    media_id,
+                    caption,
+                    created_at
+                )
+                VALUES (
+                    :client_id,
+                    :media_id,
+                    :caption,
+                    now()
+                )
+                """
+            ),
+            {
+                "client_id": client_id,
+                "media_id": media_id,
+                "caption": caption,
+            },
+        )
+        db.commit()
+        logger.info(
+            "MEDIA_HANDLER_DB_OK | client_id=%s | media_id=%s",
+            client_id,
+            media_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "MEDIA_HANDLER_DB_FAIL | client_id=%s | media_id=%s | error=%s",
+            client_id,
+            media_id,
+            exc,
+            exc_info=True,
+        )
+        return True  # stop further processing safely
+
+    # -------------------------------------------------
     # Push SPECIAL to all customers
-    # -------------------------------
-    contacts = (
-        db.query(Contact)
-        .filter(~Contact.contact_number.in_(admin_allowlist))
-        .all()
-    )
+    # -------------------------------------------------
+    try:
+        contacts = (
+            db.query(Contact)
+            .filter(~Contact.contact_number.in_(admin_allowlist))
+            .all()
+        )
+        logger.info(
+            "MEDIA_HANDLER_BROADCAST_BEGIN | recipients=%s",
+            len(contacts),
+        )
+    except Exception as exc:
+        logger.error(
+            "MEDIA_HANDLER_CONTACT_FETCH_FAIL | error=%s",
+            exc,
+            exc_info=True,
+        )
+        return True
 
     sent = 0
     failed = 0
@@ -95,15 +154,39 @@ def handle_media_message(
                 caption=caption,
             )
             sent += 1
-        except Exception:
+        except Exception as exc:
             failed += 1
+            logger.error(
+                "MEDIA_HANDLER_SEND_FAIL | to=%s | error=%s",
+                c.contact_number,
+                exc,
+                exc_info=True,
+            )
 
-    # -------------------------------
-    # Confirm to admin
-    # -------------------------------
-    meta.send_generic_business_update_template(
-        to_msisdn=sender,
-        blob_text=f"Special sent to customers. Delivered: {sent}. Failed: {failed}.",
+    logger.info(
+        "MEDIA_HANDLER_BROADCAST_DONE | sent=%s | failed=%s",
+        sent,
+        failed,
     )
+
+    # -------------------------------------------------
+    # Confirm to admin
+    # -------------------------------------------------
+    try:
+        meta.send_generic_business_update_template(
+            to_msisdn=sender,
+            blob_text=f"Special sent to customers. Delivered: {sent}. Failed: {failed}.",
+        )
+        logger.info(
+            "MEDIA_HANDLER_ADMIN_CONFIRM_OK | sender=%s",
+            sender,
+        )
+    except Exception as exc:
+        logger.error(
+            "MEDIA_HANDLER_ADMIN_CONFIRM_FAIL | sender=%s | error=%s",
+            sender,
+            exc,
+            exc_info=True,
+        )
 
     return True

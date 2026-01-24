@@ -16,6 +16,7 @@ Scope (LOCKED):
 Rules:
 - Admin-facing only
 - Any unknown admin input MUST return the admin menu
+- Menu is CLIENT-SPECIFIC
 """
 
 import logging
@@ -29,31 +30,40 @@ from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("admin_menu")
 
+# -------------------------------------------------
+# Client-specific admin menus
+# -------------------------------------------------
+
+from app.menus.admin.galitos_admin_menu import GALITOS_ADMIN_MENU
+from app.menus.admin.magen_admin_menu import MAGEN_ADMIN_MENU
+
 
 # -------------------------------------------------
-# Admin Menu Text (SINGLE SOURCE)
+# Helpers
 # -------------------------------------------------
 
-ADMIN_MENU_TEXT = (
-    "🛠️ Admin Menu\n\n"
-    "📊 Surveys (button-based)\n"
-    "SURVEY SENTIMENT: <question> – Sentiment (👍 Yes / 😐 Okay / 👎 No)\n"
-    "SURVEY FREQUENCY: <question> – Frequency (Weekly / Occasionally / First time)\n"
-    "SURVEY HELPFULNESS: <question> – Helpfulness (Very / Somewhat / Not helpful)\n"
-    "END SURVEY – Close active survey early\n\n"
-    "👥 Clients\n"
-    "ADD CLIENT: <number>\n"
-    "REMOVE CLIENT: <number>\n"
-    "COUNT – Active clients\n\n"
-    "✉️ Messaging\n"
-    "SEND: <number> <message>\n"
-    "BROADCAST: <message>  (text only)\n\n"
-    "🖼️ Specials\n"
-    "Send image + caption – Updates specials (push + replay)\n\n"
-    "⚙️ System\n"
-    "PAUSE – Stop outbound messages\n"
-    "RESUME – Resume outbound messages"
-)
+def _render_menu(menu: dict) -> str:
+    """
+    Render menu dict to WhatsApp-safe text.
+    """
+    lines = [menu["title"], ""]
+    for section in menu.get("sections", []):
+        lines.append(section["title"])
+        for cmd in section.get("commands", []):
+            lines.append(cmd)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _get_admin_menu_for_client(client_id: int | None) -> dict | None:
+    """
+    Resolve admin menu by KLResolute client.
+    """
+    if client_id == 2:   # Galitos
+        return GALITOS_ADMIN_MENU
+    if client_id == 3:   # Magen
+        return MAGEN_ADMIN_MENU
+    return None
 
 
 # -------------------------------------------------
@@ -66,6 +76,7 @@ def handle_admin_menu(
     sender_number: str,
     message_text: str,
     admin_allowlist: set[str],
+    client_id: int | None = None,
 ) -> bool:
     """
     Handles admin menu display and fallback.
@@ -76,9 +87,10 @@ def handle_admin_menu(
     """
 
     logger.info(
-        "ADMIN_MENU_ENTER | sender=%s | raw=%r",
+        "ADMIN_MENU_ENTER | sender=%s | raw=%r | client_id=%s",
         sender_number,
         message_text,
+        client_id,
     )
 
     if sender_number not in admin_allowlist:
@@ -90,13 +102,30 @@ def handle_admin_menu(
 
     meta = get_meta_client()
 
-    # Always show menu for admin fallback
     try:
+        menu = _get_admin_menu_for_client(client_id)
+
+        if not menu:
+            logger.error(
+                "ADMIN_MENU_NO_CLIENT_MENU | sender=%s | client_id=%s",
+                sender_number,
+                client_id,
+            )
+            return True  # fail closed, no menu leak
+
+        rendered = _render_menu(menu)
+
         meta.send_session_message(
             to_msisdn=sender_number,
-            text=ADMIN_MENU_TEXT,
+            text=rendered,
         )
-        logger.info("ADMIN_MENU_SENT_OK | sender=%s", sender_number)
+
+        logger.info(
+            "ADMIN_MENU_SENT_OK | sender=%s | client_id=%s",
+            sender_number,
+            client_id,
+        )
+
     except Exception as exc:
         logger.error(
             "ADMIN_MENU_SEND_FAIL | sender=%s | error=%s",
