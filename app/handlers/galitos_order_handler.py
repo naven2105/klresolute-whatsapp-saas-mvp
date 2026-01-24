@@ -85,7 +85,7 @@ def _notify_galitos_staff(
 
         for r in rows:
             try:
-                _meta_client.send_template_message(
+                _meta_client.send_generic_business_update_template(
                     to_msisdn=r.msisdn,
                     template_name="klr_notification_v1",
                     language="en_US",
