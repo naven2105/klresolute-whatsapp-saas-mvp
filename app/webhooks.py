@@ -6,11 +6,6 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 WhatsApp webhook receiver and dispatcher.
-
-ROUTING RULE (LOCKED):
-- Route strictly by receiving WhatsApp business MSISDN
-- Match against whatsapp_numbers.destination_number
-- If no active match exists → DO NOT RESPOND
 """
 
 import logging
@@ -27,7 +22,7 @@ from app.models import WhatsAppNumber
 from app.handlers.admin_commands import handle_admin_command
 from app.handlers.client_commands import handle_client_command
 from app.handlers.media_handler import handle_media_message
-from app.handlers.order_handler import handle_order_message
+from app.handlers.galitos_order_handler import handle_order_message
 from app.handlers.feedback_handler import handle_feedback_message
 from app.survey.auto_close import auto_close_expired_surveys
 
@@ -35,9 +30,6 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
 
-# -------------------------------------------------
-# TEMPORARY GLOBAL FALLBACK (DO NOT REMOVE YET)
-# -------------------------------------------------
 ADMIN_ALLOWLIST = {
     n.strip()
     for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
@@ -75,27 +67,6 @@ def _extract_business_msisdn(payload: dict) -> Optional[str]:
         return None
 
 
-def _upsert_client(db: Session, client_number: str) -> None:
-    db.execute(
-        sql_text(
-            """
-            INSERT INTO clients (client_number, last_interaction_at)
-            VALUES (:client_number, now())
-            ON CONFLICT (client_number)
-            DO UPDATE SET
-                last_interaction_at = now(),
-                updated_at = now();
-            """
-        ),
-        {"client_number": client_number},
-    )
-    db.commit()
-
-
-# -------------------------------------------------
-# BUSINESS CONTEXT RESOLUTION (FIXED)
-# -------------------------------------------------
-
 def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     if not business_msisdn:
         return None, None
@@ -113,30 +84,21 @@ def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     return wa.klresolute_client_id, wa.destination_number
 
 
-
-# -------------------------------------------------
-# Client-scoped admin check (DB first)
-# -------------------------------------------------
-
-def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
+def _is_galitos_client(db: Session, client_id: int) -> bool:
     row = db.execute(
         sql_text(
             """
             SELECT 1
-            FROM KLResolute_Admin
-            WHERE client_id = :client_id
-              AND msisdn = :msisdn
+            FROM klresolute_client
+            WHERE id = :id
+              AND LOWER(name) = 'galitos'
               AND is_active = TRUE
             """
         ),
-        {"client_id": client_id, "msisdn": sender_msisdn},
+        {"id": client_id},
     ).first()
 
-    if row:
-        return True
-
-    # fallback (temporary)
-    return sender_msisdn in ADMIN_ALLOWLIST
+    return bool(row)
 
 
 # -------------------------------------------------
@@ -169,10 +131,7 @@ async def whatsapp_webhook(
     if not msg or not sender:
         return Response(status_code=200)
 
-    _upsert_client(db, sender)
-
-    # Resolve admin ONCE (client-scoped)
-    is_admin = _is_client_admin(db, client_id, sender)
+    is_admin = sender in ADMIN_ALLOWLIST
 
     # -------------------------------
     # Media
@@ -204,8 +163,7 @@ async def whatsapp_webhook(
     # Text
     # -------------------------------
     if msg.get("type") == "text":
-        raw_text = msg["text"]["body"] or ""
-        text = raw_text.strip()
+        text = (msg["text"]["body"] or "").strip()
         upper = text.upper()
 
         if is_admin and handle_admin_command(
@@ -217,11 +175,10 @@ async def whatsapp_webhook(
             return Response(status_code=200)
 
         if upper.startswith("FEEDBACK:"):
-            feedback_text = text[len("FEEDBACK:"):].strip()
             handle_feedback_message(
                 db=db,
                 sender_number=sender,
-                message_text=feedback_text,
+                message_text=text[len("FEEDBACK:"):].strip(),
                 media_id=None,
                 media_type=None,
                 client_id=client_id,
@@ -229,13 +186,15 @@ async def whatsapp_webhook(
             )
             return Response(status_code=200)
 
-        if handle_order_message(
-            db=db,
-            from_number=sender,
-            text=text,
-            context={"client_id": client_id},
-        ):
-            return Response(status_code=200)
+        # ✅ Galitos-only order handler
+        if _is_galitos_client(db, client_id):
+            if handle_order_message(
+                db=db,
+                from_number=sender,
+                text=text,
+                context={"client_id": client_id},
+            ):
+                return Response(status_code=200)
 
         handle_client_command(
             db=db,
