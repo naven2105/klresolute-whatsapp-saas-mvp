@@ -19,7 +19,7 @@ RULES (LOCKED):
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 
 from sqlalchemy.orm import Session
@@ -294,7 +294,7 @@ def handle_order_message(
                 f"{state['flavour']} | "
                 f"R{state['total_amount']} | "
                 f"Cust: {from_number} | "
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                f"{datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=2))).strftime('%Y-%m-%d %H:%M')}"
             )
 
             _notify_galitos_staff(
