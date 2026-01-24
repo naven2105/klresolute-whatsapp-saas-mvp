@@ -296,7 +296,11 @@ def handle_order_message(
                 f"Customer: {from_number}\n"
                 f"Amount: R{state['total_amount']}"
             )
-            _notify_galitos_staff(db, staff_message)
+            _notify_galitos_staff(
+                db,
+                client_id=state["client_id"],
+                message=staff_message,
+            )
 
             _send_text(
                 from_number,
