@@ -87,16 +87,7 @@ def _notify_galitos_staff(
             try:
                 _meta_client.send_generic_business_update_template(
                     to_msisdn=r.msisdn,
-                    template_name="klr_notification_v1",
-                    language="en_US",
-                    components=[
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": message}
-                            ],
-                        }
-                    ],
+                    blob_text=message,
                 )
                 logger.info(
                     "STAFF_NOTIFIED | client_id=%s | msisdn=%s",
