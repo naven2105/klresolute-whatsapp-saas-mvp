@@ -34,6 +34,10 @@ logger = logging.getLogger("galitos_order_handler")
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
+# =================================================
+# Messaging helpers
+# =================================================
+
 def _send_text(to_number: str, text: str) -> None:
     logger.info("SEND_TEXT | to=%s | text=%r", to_number, text)
     _meta_client.send_session_message(
@@ -41,6 +45,46 @@ def _send_text(to_number: str, text: str) -> None:
         text=text,
     )
 
+
+def _notify_galitos_staff(db: Session, message: str) -> None:
+    """
+    Notify ALL active Galitos staff members.
+    """
+    logger.info("STAFF_NOTIFY_BEGIN")
+
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT msisdn
+                FROM galitos_staff
+                WHERE is_active = true
+                """
+            )
+        ).fetchall()
+
+        logger.info("STAFF_COUNT | count=%s", len(rows))
+
+        for r in rows:
+            try:
+                _meta_client.send_session_message(
+                    to_msisdn=r.msisdn,
+                    text=message,
+                )
+                logger.info("STAFF_NOTIFIED | msisdn=%s", r.msisdn)
+            except Exception:
+                logger.exception(
+                    "STAFF_NOTIFY_FAIL | msisdn=%s",
+                    r.msisdn,
+                )
+
+    except Exception:
+        logger.exception("STAFF_NOTIFY_FATAL")
+
+
+# =================================================
+# Conversation helpers
+# =================================================
 
 def _get_active_order_state(db: Session, sender_msisdn: str) -> dict | None:
     logger.info("FETCH_ORDER_STATE | sender=%s", sender_msisdn)
@@ -63,7 +107,11 @@ def _get_active_order_state(db: Session, sender_msisdn: str) -> dict | None:
         logger.info("NO_ACTIVE_ORDER_STATE | sender=%s", sender_msisdn)
         return None
 
-    logger.info("ACTIVE_ORDER_STATE_FOUND | sender=%s | state_id=%s", sender_msisdn, row["id"])
+    logger.info(
+        "ACTIVE_ORDER_STATE_FOUND | sender=%s | state_id=%s",
+        sender_msisdn,
+        row["id"],
+    )
     return dict(row)
 
 
@@ -98,6 +146,10 @@ def _set_flavour(db: Session, state_id: str, flavour: str) -> None:
     db.commit()
 
 
+# =================================================
+# Main handler
+# =================================================
+
 def handle_order_message(
     *,
     db: Session,
@@ -123,9 +175,15 @@ def handle_order_message(
             return False
 
         normalized = (text or "").strip().upper()
-        logger.info("ORDER_STATE_ACTIVE | sender=%s | input=%s", from_number, normalized)
+        logger.info(
+            "ORDER_STATE_ACTIVE | sender=%s | input=%s",
+            from_number,
+            normalized,
+        )
 
+        # -------------------------------
         # MENU = HARD RESET
+        # -------------------------------
         if normalized == "MENU":
             _close_order_state(db, state["id"])
             _send_text(
@@ -136,7 +194,9 @@ def handle_order_message(
             logger.info("ORDER_RESET_BY_MENU | sender=%s", from_number)
             return True
 
+        # -------------------------------
         # AWAIT FLAVOUR
+        # -------------------------------
         if state.get("flavour") is None:
             flavour_map = {
                 "1": ("L", "Lemon & Herb"),
@@ -180,7 +240,9 @@ def handle_order_message(
             )
             return True
 
+        # -------------------------------
         # CONFIRM ORDER
+        # -------------------------------
         if normalized == "YES":
             order = OrderCreate(
                 client_id=state["client_id"],
@@ -198,6 +260,18 @@ def handle_order_message(
             create_order(db, order)
             _close_order_state(db, state["id"])
 
+            # -------------------------------
+            # Notify Galitos staff
+            # -------------------------------
+            staff_message = (
+                "🍗 NEW ORDER RECEIVED\n\n"
+                f"Item: {state['item_name']}\n"
+                f"Flavour: {state['flavour']}\n"
+                f"Customer: {from_number}\n"
+                f"Amount: R{state['total_amount']}"
+            )
+            _notify_galitos_staff(db, staff_message)
+
             _send_text(
                 from_number,
                 "✅ Thank you! Your order has been received.\n\n"
@@ -206,9 +280,15 @@ def handle_order_message(
                 "Type MENU to order again."
             )
 
-            logger.info("ORDER_CONFIRMED | sender=%s | order_created=true", from_number)
+            logger.info(
+                "ORDER_CONFIRMED | sender=%s | staff_notified=true",
+                from_number,
+            )
             return True
 
+        # -------------------------------
+        # CANCEL ORDER
+        # -------------------------------
         if normalized == "NO":
             _close_order_state(db, state["id"])
             _send_text(
@@ -220,7 +300,9 @@ def handle_order_message(
             logger.info("ORDER_CANCELLED_BY_USER | sender=%s", from_number)
             return True
 
+        # -------------------------------
         # UNKNOWN INPUT
+        # -------------------------------
         _send_text(
             from_number,
             "Please reply YES to confirm or NO to cancel.\n"
