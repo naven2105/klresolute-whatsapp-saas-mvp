@@ -60,12 +60,41 @@ def _normalise_msisdn(raw: str | None) -> str | None:
 
 
 def _extract_message(payload: dict):
+    """
+    Safely extract an inbound WhatsApp message.
+
+    Returns:
+    - (message_dict, from_msisdn)
+    - (None, None) for non-message webhooks (status updates, receipts, etc)
+    """
     try:
-        msg = payload["entry"][0]["changes"][0]["value"]["messages"][0]
-        return msg, msg.get("from")
+        entry = payload.get("entry", [])
+        if not entry:
+            return None, None
+
+        changes = entry[0].get("changes", [])
+        if not changes:
+            return None, None
+
+        value = changes[0].get("value", {})
+        messages = value.get("messages")
+
+        # Legit webhook, but not a message (e.g. status update)
+        if not messages:
+            return None, None
+
+        msg = messages[0]
+        from_msisdn = msg.get("from")
+
+        return msg, from_msisdn
+
     except Exception:
-        logger.warning("EXTRACT_MESSAGE_FAILED")
+        logger.exception(
+            "EXTRACT_MESSAGE_FATAL_ERROR | payload_keys=%s",
+            list(payload.keys()),
+        )
         return None, None
+
 
 
 def _extract_business_msisdn(payload: dict) -> Optional[str]:
