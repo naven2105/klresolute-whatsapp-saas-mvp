@@ -7,16 +7,17 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Inbound router for Galitos WhatsApp number.
 
-LOCKED RULES:
-- DO NOT confirm orders here
-- YES / NO confirmation is handled ONLY by galitos_order_handler
-- This file only routes messages
+RULES (LOCKED):
+- Orders are handled ONLY by galitos_order_handler
+- Non-order text must fall through to client_commands
+- This handler must CLAIM the message if it sends anything
 """
 
 import logging
 from sqlalchemy.orm import Session
 
 from app.handlers.galitos_order_handler import handle_order_message
+from app.handlers.client_commands import handle_client_command as client_commands
 
 logger = logging.getLogger("clients.galitos")
 
@@ -30,9 +31,6 @@ def handle_inbound(
     sender: str,
     msg: dict,
 ) -> bool:
-    """
-    Returns True if handled, False otherwise.
-    """
 
     if business_msisdn != GALITOS_BUSINESS_MSISDN:
         return False
@@ -41,27 +39,33 @@ def handle_inbound(
         return False
 
     text = (msg.get("text", {}) or {}).get("body", "") or ""
-    normalized = text.strip()
 
     # -------------------------------------------------
-    # Delegate ALL order-related input to order handler
+    # 1) ORDER FLOW (state-driven)
     # -------------------------------------------------
-    handled = handle_order_message(
+    if handle_order_message(
         db=db,
         from_number=sender,
-        text=normalized,
+        text=text,
         context={"client": "galitos"},
-    )
-
-    if handled:
+    ):
         logger.info(
             "GALITOS_ORDER_HANDLER_USED | sender=%s | text=%r",
             sender,
-            normalized,
+            text,
         )
         return True
 
     # -------------------------------------------------
-    # Not an order → let client_commands handle menus
+    # 2) NON-ORDER → CUSTOMER MENU / HELP / FOOD
     # -------------------------------------------------
-    return False
+    handled = client_commands(
+        db=db,
+        sender_number=sender,
+        message_text=text,
+        msg=msg,
+        resolved_client_id=None,
+        resolved_business_number=business_msisdn,
+    )
+
+    return bool(handled)
