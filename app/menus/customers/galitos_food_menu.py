@@ -9,7 +9,10 @@ Galitos food ordering flow.
 
 NOTE:
 State is driven by conversation_state.
-This file must NOT override state-based routing.
+This file is responsible ONLY for:
+- Showing food menu
+- Creating order state on item selection
+- Capturing flavour selection
 """
 
 import logging
@@ -34,6 +37,7 @@ def _get_active_order(db: Session, sender: str):
             FROM conversation_state
             WHERE sender_msisdn = :sender
               AND active = TRUE
+              AND state_type = 'ORDER'
             LIMIT 1
             """
         ),
@@ -46,8 +50,8 @@ def _ask_for_flavour(sender: str):
         to_msisdn=sender,
         text=(
             "Please choose a flavour:\n"
-            "1️⃣ Mild\n"
-            "2️⃣ Medium\n"
+            "1️⃣ Lemon & Herb\n"
+            "2️⃣ Mild\n"
             "3️⃣ Hot"
         ),
     )
@@ -73,9 +77,10 @@ def handle_galitos_menu(
     client_id: str,
 ) -> bool:
     user_text = message_text.strip()
+    upper = user_text.upper()
 
     # ----------------------------------
-    # STATE-FIRST routing
+    # ACTIVE ORDER → FLAVOUR SELECTION
     # ----------------------------------
     active = _get_active_order(db, sender_number)
 
@@ -101,8 +106,10 @@ def handle_galitos_menu(
             meta.send_session_message(
                 to_msisdn=sender_number,
                 text=(
-                    f"✅ {active['item_name']} selected.\n"
-                    "Reply YES to confirm or NO to cancel."
+                    f"✅ {active['item_name']}\n"
+                    f"Price: R{active['total_amount']}\n\n"
+                    "Reply YES to confirm\n"
+                    "Reply NO to cancel"
                 ),
             )
             return True
@@ -111,18 +118,76 @@ def handle_galitos_menu(
         return True
 
     # ----------------------------------
-    # FOOD keyword
+    # FOOD MENU
     # ----------------------------------
-    if user_text.upper() == "FOOD":
+    if upper == "FOOD":
         meta.send_session_message(
             to_msisdn=sender_number,
             text=(
                 "🍗 Welcome to Galitos\n\n"
-                "1️⃣ 1/2 Chicken\n"
-                "2️⃣ Hot Box 3 Piece + Chips\n\n"
+                "1️⃣ 1/2 Chicken – R89\n"
+                "2️⃣ Hot Box 3 Piece + Chips – R79\n"
+                "3️⃣ Full Chicken – R159\n\n"
                 "Reply with the number."
             ),
         )
+        return True
+
+    # ----------------------------------
+    # ITEM SELECTION → CREATE STATE
+    # ----------------------------------
+    if user_text.isdigit():
+        menu = {
+            "1": ("HALF_CHICKEN", "1/2 Chicken", 89),
+            "2": ("HB_3_CHIPS", "Hot Box 3 Piece + Chips", 79),
+            "3": ("FULL_CHICKEN", "Full Chicken", 159),
+        }
+
+        if user_text not in menu:
+            return False
+
+        sku, name, price = menu[user_text]
+
+        db.execute(
+            sql_text(
+                """
+                INSERT INTO conversation_state (
+                    sender_msisdn,
+                    client_id,
+                    state_type,
+                    item_sku,
+                    item_name,
+                    base_price,
+                    drink_addon,
+                    addon_price,
+                    total_amount,
+                    active
+                )
+                VALUES (
+                    :sender,
+                    :client_id,
+                    'ORDER',
+                    :sku,
+                    :name,
+                    :price,
+                    'NONE',
+                    0,
+                    :price,
+                    TRUE
+                )
+                """
+            ),
+            {
+                "sender": sender_number,
+                "client_id": client_id,
+                "sku": sku,
+                "name": name,
+                "price": price,
+            },
+        )
+        db.commit()
+
+        _ask_for_flavour(sender_number)
         return True
 
     return False
