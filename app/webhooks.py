@@ -30,7 +30,7 @@ from app.handlers.media_handler import handle_media_message
 from app.handlers.galitos_order_handler import handle_order_message
 from app.handlers.feedback_handler import handle_feedback_message
 from app.survey.auto_close import auto_close_expired_surveys
-from app.messaging.client_messenger import send_message  # ✅ EXISTING sender
+from app.messaging.client_messenger import send_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
@@ -61,13 +61,6 @@ def _normalise_msisdn(raw: str | None) -> str | None:
 
 
 def _extract_message(payload: dict):
-    """
-    Safely extract an inbound WhatsApp message.
-
-    Returns:
-    - (message_dict, from_msisdn)
-    - (None, None) for non-message webhooks (status updates, receipts, etc)
-    """
     try:
         entry = payload.get("entry", [])
         if not entry:
@@ -89,10 +82,7 @@ def _extract_message(payload: dict):
         return msg, from_msisdn
 
     except Exception:
-        logger.exception(
-            "EXTRACT_MESSAGE_FATAL_ERROR | payload_keys=%s",
-            list(payload.keys()),
-        )
+        logger.exception("EXTRACT_MESSAGE_FATAL_ERROR")
         return None, None
 
 
@@ -136,10 +126,7 @@ def _resolve_business_context(db: Session, business_msisdn: Optional[str]):
     )
 
     if not wa or not wa.klresolute_client_id:
-        logger.warning(
-            "BUSINESS_CONTEXT_NOT_FOUND | msisdn=%s",
-            business_msisdn,
-        )
+        logger.warning("BUSINESS_CONTEXT_NOT_FOUND | msisdn=%s", business_msisdn)
         return None, None
 
     logger.info(
@@ -165,19 +152,12 @@ def _is_client_admin(db: Session, client_id: int, sender_msisdn: str) -> bool:
     ).first()
 
     if row:
-        logger.info(
-            "ADMIN_MATCH_DB | client_id=%s | msisdn=%s",
-            client_id,
-            sender_msisdn,
-        )
+        logger.info("ADMIN_MATCH_DB | client_id=%s | msisdn=%s", client_id, sender_msisdn)
         return True
 
     fallback = sender_msisdn in ADMIN_ALLOWLIST
     if fallback:
-        logger.warning(
-            "ADMIN_MATCH_ALLOWLIST | msisdn=%s",
-            sender_msisdn,
-        )
+        logger.warning("ADMIN_MATCH_ALLOWLIST | msisdn=%s", sender_msisdn)
     return fallback
 
 
@@ -216,15 +196,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     try:
-        business_msisdn = _extract_business_msisdn(payload)
-        client_id, resolved_business_msisdn = _resolve_business_context(db, business_msisdn)
-
-        if not client_id:
-            logger.warning("NO_CLIENT_RESOLVED | ignoring message")
-            return Response(status_code=200)
-
-        auto_close_expired_surveys(db, resolved_business_msisdn)
-
+        # --- Extract message & sender FIRST ---
         msg, sender_raw = _extract_message(payload)
         sender = _normalise_msisdn(sender_raw)
 
@@ -256,13 +228,20 @@ async def whatsapp_webhook(
             logger.info("PILATESHQ_AUTORESPONSE_SENT | sender=%s", sender)
             return Response(status_code=200)
 
+        # --- Existing KLResolute logic BELOW (unchanged) ---
+
+        business_msisdn = _extract_business_msisdn(payload)
+        client_id, resolved_business_msisdn = _resolve_business_context(db, business_msisdn)
+
+        if not client_id:
+            logger.warning("NO_CLIENT_RESOLVED | ignoring message")
+            return Response(status_code=200)
+
+        auto_close_expired_surveys(db, resolved_business_msisdn)
         _upsert_client(db, sender)
 
         is_admin = _is_client_admin(db, client_id, sender)
 
-        # -------------------------------
-        # Media
-        # -------------------------------
         if handle_media_message(
             db=db,
             sender=sender,
@@ -270,14 +249,9 @@ async def whatsapp_webhook(
             admin_allowlist=ADMIN_ALLOWLIST,
             client_id=client_id,
         ):
-            logger.info("MEDIA_HANDLED")
             return Response(status_code=200)
 
-        # -------------------------------
-        # Interactive
-        # -------------------------------
         if msg.get("type") == "interactive":
-            logger.info("INTERACTIVE_MESSAGE")
             handle_client_command(
                 db=db,
                 sender_number=sender,
@@ -288,19 +262,9 @@ async def whatsapp_webhook(
             )
             return Response(status_code=200)
 
-        # -------------------------------
-        # Text
-        # -------------------------------
         if msg.get("type") == "text":
             text = (msg["text"]["body"] or "").strip()
             upper = text.upper()
-
-            logger.info(
-                "TEXT_MESSAGE | sender=%s | admin=%s | text=%r",
-                sender,
-                is_admin,
-                text,
-            )
 
             if is_admin and handle_admin_command(
                 db=db,
@@ -308,7 +272,6 @@ async def whatsapp_webhook(
                 message_text=text,
                 admin_allowlist=ADMIN_ALLOWLIST,
             ):
-                logger.info("ADMIN_COMMAND_HANDLED")
                 return Response(status_code=200)
 
             if upper.startswith("FEEDBACK:"):
@@ -321,7 +284,6 @@ async def whatsapp_webhook(
                     client_id=client_id,
                     admin_numbers=ADMIN_ALLOWLIST,
                 )
-                logger.info("FEEDBACK_HANDLED")
                 return Response(status_code=200)
 
             if _is_galitos_client(db, client_id):
@@ -331,7 +293,6 @@ async def whatsapp_webhook(
                     text=text,
                     context={"client_id": client_id},
                 ):
-                    logger.info("GALITOS_ORDER_HANDLED")
                     return Response(status_code=200)
 
             handle_client_command(
