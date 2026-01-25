@@ -58,13 +58,33 @@ def _notify_galitos_staff(
 ) -> None:
     """
     Notify ALL active Galitos staff members for a client.
+    NOTE:
+    galitos_staff.klresolute_client_id is INTEGER
+    conversation_state.client_id is UUID (TEXT)
+    We must resolve INTEGER client id first.
     """
-    logger.info(
-        "STAFF_NOTIFY_BEGIN | client_id=%s",
-        client_id,
-    )
+    logger.info("STAFF_NOTIFY_BEGIN | client_id=%s", client_id)
 
     try:
+        # Resolve INTEGER client id from klresolute_client table
+        row = db.execute(
+            text(
+                """
+                SELECT id
+                FROM klresolute_client
+                WHERE client_uuid = :uuid
+                  AND is_active = TRUE
+                """
+            ),
+            {"uuid": client_id},
+        ).mappings().first()
+
+        if not row:
+            logger.error("STAFF_NOTIFY_ABORT | client_not_resolved")
+            return
+
+        int_client_id = row["id"]
+
         rows = db.execute(
             text(
                 """
@@ -74,14 +94,10 @@ def _notify_galitos_staff(
                   AND is_active = true
                 """
             ),
-            {"client_id": client_id},
+            {"client_id": int_client_id},
         ).fetchall()
 
-        logger.info(
-            "STAFF_COUNT | client_id=%s | count=%s",
-            client_id,
-            len(rows),
-        )
+        logger.info("STAFF_COUNT | client_id=%s | count=%s", int_client_id, len(rows))
 
         for r in rows:
             try:
@@ -89,23 +105,13 @@ def _notify_galitos_staff(
                     to_msisdn=r.msisdn,
                     blob_text=message,
                 )
-                logger.info(
-                    "STAFF_NOTIFIED | client_id=%s | msisdn=%s",
-                    client_id,
-                    r.msisdn,
-                )
+                logger.info("STAFF_NOTIFIED | msisdn=%s", r.msisdn)
             except Exception:
-                logger.exception(
-                    "STAFF_NOTIFY_FAIL | client_id=%s | msisdn=%s",
-                    client_id,
-                    r.msisdn,
-                )
+                logger.exception("STAFF_NOTIFY_FAIL | msisdn=%s", r.msisdn)
 
     except Exception:
-        logger.exception(
-            "STAFF_NOTIFY_FATAL | client_id=%s",
-            client_id,
-        )
+        logger.exception("STAFF_NOTIFY_FATAL")
+
 
 
 # =================================================
