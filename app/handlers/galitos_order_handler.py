@@ -249,4 +249,4 @@ def handle_order_message(
         return True
 
     _send_text(from_number, "Reply YES to confirm or NO to cancel.")
-    return True
+    return True  
