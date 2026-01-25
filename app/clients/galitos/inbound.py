@@ -5,115 +5,126 @@ File: app/clients/galitos/inbound.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Inbound entry point for Galitos WhatsApp number.
+Inbound dispatcher for Galitos WhatsApp number.
 
-RULES:
-- NO business logic here
-- Text + interactive messages must pass through
-- YES / NO intercepted ONLY when awaiting order confirmation
-- Status / delivery events ignored
+RULES (LOCKED):
+- conversation_state is the ONLY source of truth
+- messages table is NEVER used for flow decisions
 """
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.handlers.client_commands import handle_client_command
-from app.messaging.client_messenger import send_message
+from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("clients.galitos")
+meta = get_meta_client()
+
+GALITOS_BUSINESS_MSISDN = "27735534607"
 
 
-def _awaiting_order_confirmation(db: Session, sender: str) -> bool:
-    row = db.execute(
+# -------------------------------------------------
+# State helpers
+# -------------------------------------------------
+
+def _get_active_order(db: Session, sender: str):
+    return db.execute(
         text(
             """
-            SELECT 1
-            FROM messages
-            WHERE to_msisdn = :msisdn
-              AND direction = 'OUTBOUND'
-              AND content ILIKE '%confirm%'
-            ORDER BY created_at DESC
+            SELECT *
+            FROM conversation_state
+            WHERE sender_msisdn = :sender
+              AND active = TRUE
             LIMIT 1
             """
         ),
-        {"msisdn": sender},
-    ).first()
+        {"sender": sender},
+    ).mappings().first()
 
-    return bool(row)
 
+# -------------------------------------------------
+# Inbound handler
+# -------------------------------------------------
 
 def handle_inbound(
     *,
     db: Session,
-    msg: dict,
+    business_msisdn: str | None,
     sender: str,
-    business_msisdn: str,
+    msg: dict,
 ) -> bool:
-    """
-    Returns True if Galitos logic handles the message.
-    """
-
-    msg_type = msg.get("type")
-
-    # ----------------------------------
-    # Ignore Meta status / delivery events ONLY
-    # ----------------------------------
-    if msg_type not in ("text", "interactive"):
-        logger.info(
-            "GALITOS_IGNORE_EVENT | type=%s | sender=%s",
-            msg_type,
-            sender,
-        )
-        return True
-
-    # ----------------------------------
-    # YES / NO — text only, awaiting confirmation
-    # ----------------------------------
-    if msg_type == "text":
-        text_body = (msg.get("text", {}) or {}).get("body", "").strip()
-        upper = text_body.upper()
-
-        if upper in ("YES", "NO") and _awaiting_order_confirmation(db, sender):
-            send_message(
-                to_number=sender,
-                text="✅ Thanks! Your Galitos order has been received.",
-            )
-            logger.info(
-                "GALITOS_ORDER_ACK_SENT | sender=%s | response=%s",
-                sender,
-                upper,
-            )
-            return True
-
-    # ----------------------------------
-    # EVERYTHING ELSE MUST PASS THROUGH
-    # (including interactive flavour selection)
-    # ----------------------------------
-    try:
-        handled = handle_client_command(
-            db=db,
-            sender_number=sender,
-            message_text=(
-                (msg.get("text", {}) or {}).get("body", "")
-                if msg_type == "text"
-                else ""
-            ),
-            msg=msg,
-            resolved_client_id=None,
-            resolved_business_number=business_msisdn,
-        )
-
-        if handled:
-            logger.info(
-                "GALITOS_INBOUND_HANDLED | sender=%s | type=%s",
-                sender,
-                msg_type,
-            )
-            return True
-
+    if business_msisdn != GALITOS_BUSINESS_MSISDN:
         return False
 
-    except Exception:
-        logger.exception("GALITOS_INBOUND_FATAL | sender=%s", sender)
+    if msg.get("type") != "text":
+        return False
+
+    text_body = msg["text"]["body"].strip()
+    upper = text_body.upper()
+
+    active = _get_active_order(db, sender)
+
+    # ----------------------------------
+    # Order confirmation (YES / NO)
+    # ----------------------------------
+    if active and active["flavour"] is not None and active["order_pending"]:
+
+        if upper == "YES":
+            db.execute(
+                text(
+                    """
+                    UPDATE conversation_state
+                    SET
+                        order_pending = FALSE,
+                        active = FALSE,
+                        completed_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": active["id"]},
+            )
+            db.commit()
+
+            meta.send_session_message(
+                to_msisdn=sender,
+                text=(
+                    "✅ Order confirmed.\n\n"
+                    "Thank you for choosing Galitos 🍗"
+                ),
+            )
+            logger.info("GALITOS_ORDER_CONFIRMED | sender=%s", sender)
+            return True
+
+        if upper == "NO":
+            db.execute(
+                text(
+                    """
+                    UPDATE conversation_state
+                    SET active = FALSE,
+                        completed_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": active["id"]},
+            )
+            db.commit()
+
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="❌ Order cancelled.",
+            )
+            logger.info("GALITOS_ORDER_CANCELLED | sender=%s", sender)
+            return True
+
+        # Awaiting YES/NO → ignore everything else
+        meta.send_session_message(
+            to_msisdn=sender,
+            text="Please reply YES to confirm or NO to cancel.",
+        )
         return True
+
+    # ----------------------------------
+    # Let customer_commands handle rest
+    # ----------------------------------
+    return False
