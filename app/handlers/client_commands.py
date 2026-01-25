@@ -50,7 +50,7 @@ from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 # =========================
 # Delegate customer handler
 # =========================
-from app.client.commands import handle_client_command as handle_customer_commands
+from app.clients.galitos.customer_commands import handle_client_command as handle_customer_commands
 
 # =========================
 # Admin menu ONLY (kept)

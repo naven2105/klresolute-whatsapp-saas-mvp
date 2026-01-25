@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 """
-File: app/client/commands.py
-Path: app/client/commands.py
+File: app/clients/galitos/customer_commands.py
 
 Purpose:
-Customer self-service command router.
+Galitos customer self-service command router.
 
 Rules (LOCKED):
 - FOOD → food menu
