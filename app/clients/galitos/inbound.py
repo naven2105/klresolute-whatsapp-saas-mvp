@@ -85,7 +85,7 @@ def handle_inbound(
     # 2) NON-ORDER → CUSTOMER MENU / HELP / FOOD
     # -------------------------------------------------
     handled = client_commands(
-        db=db,
+        db=db,   
         sender_number=sender,
         message_text=text,
         msg=msg,

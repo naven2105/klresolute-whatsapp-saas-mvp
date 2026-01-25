@@ -7,7 +7,7 @@ Customer-facing menu for Galitos.
 """
 
 GALITOS_CUSTOMER_MENU = {
-    "title": "📋 MENU",
+    "title": "📋 Welcome to Galitos",
     "sections": [
         {
             "title": "👋 Welcome!",
