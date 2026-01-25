@@ -16,9 +16,9 @@ Behaviour (LOCKED):
 
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
-from app.models import MagenStaff  # maps to magen_staff table
 
 logger = logging.getLogger("clients.magen")
 
@@ -65,14 +65,20 @@ def handle_magen_customer(
         return False
 
     # ----------------------------------
-    # Check if sender is active Magen staff
+    # Check if sender is active Magen staff (RAW SQL)
     # ----------------------------------
-    staff = (
-        db.query(MagenStaff)
-        .filter(MagenStaff.msisdn == sender)
-        .filter(MagenStaff.is_active.is_(True))
-        .one_or_none()
-    )
+    staff = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM magen_staff
+            WHERE msisdn = :msisdn
+              AND is_active = TRUE
+            LIMIT 1
+            """
+        ),
+        {"msisdn": sender},
+    ).first()
 
     if staff:
         send_message(
