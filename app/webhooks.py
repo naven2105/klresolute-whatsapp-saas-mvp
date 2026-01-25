@@ -30,6 +30,7 @@ from app.handlers.media_handler import handle_media_message
 from app.handlers.galitos_order_handler import handle_order_message
 from app.handlers.feedback_handler import handle_feedback_message
 from app.survey.auto_close import auto_close_expired_surveys
+from app.messaging.client_messenger import send_message  # ✅ EXISTING sender
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
@@ -79,7 +80,6 @@ def _extract_message(payload: dict):
         value = changes[0].get("value", {})
         messages = value.get("messages")
 
-        # Legit webhook, but not a message (e.g. status update)
         if not messages:
             return None, None
 
@@ -94,7 +94,6 @@ def _extract_message(payload: dict):
             list(payload.keys()),
         )
         return None, None
-
 
 
 def _extract_business_msisdn(payload: dict) -> Optional[str]:
@@ -231,6 +230,30 @@ async def whatsapp_webhook(
 
         if not msg or not sender:
             logger.warning("INVALID_MESSAGE_PAYLOAD")
+            return Response(status_code=200)
+
+        # -------------------------------------------------
+        # PILATESHQ AUTORESPONSE (REMINDERS-ONLY NUMBER)
+        # -------------------------------------------------
+        business_phone_number_id = (
+            payload.get("entry", [{}])[0]
+                .get("changes", [{}])[0]
+                .get("value", {})
+                .get("metadata", {})
+                .get("phone_number_id")
+        )
+
+        if business_phone_number_id == "926822817182737":
+            send_message(
+                to_number=sender,
+                text=(
+                    "Hi 👋 Thanks for your message.\n\n"
+                    "This number is used for PilatesHQ class reminders only.\n"
+                    "For bookings or questions, please WhatsApp Nadine on "
+                    "0843131635 💜"
+                ),
+            )
+            logger.info("PILATESHQ_AUTORESPONSE_SENT | sender=%s", sender)
             return Response(status_code=200)
 
         _upsert_client(db, sender)
