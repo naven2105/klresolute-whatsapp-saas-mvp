@@ -10,6 +10,7 @@ Inbound entry point for Galitos WhatsApp number.
 RULES:
 - This file contains NO business logic
 - Delegates immediately to existing Galitos handlers
+- Guards against duplicate Meta webhook events
 - Exists to satisfy the unified dispatcher contract
 """
 
@@ -31,6 +32,17 @@ def handle_inbound(
     """
     Returns True if Galitos logic handles the message.
     """
+
+    # -------------------------------------------------
+    # Guard: ignore non-text events (delivery, status)
+    # -------------------------------------------------
+    if msg.get("type") != "text":
+        logger.info(
+            "GALITOS_IGNORE_NON_TEXT | sender=%s | business=%s",
+            sender,
+            business_msisdn,
+        )
+        return True
 
     try:
         handled = handle_client_command(
@@ -58,4 +70,5 @@ def handle_inbound(
             sender,
             business_msisdn,
         )
-        return True  # fail-safe: webhook must never crash
+        # Fail-safe: webhook must never crash
+        return True
