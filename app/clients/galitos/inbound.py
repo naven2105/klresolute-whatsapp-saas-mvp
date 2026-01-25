@@ -8,10 +8,10 @@ Purpose:
 Inbound entry point for Galitos WhatsApp number.
 
 RULES:
-- No business logic here
-- Delegates to existing Galitos handlers
-- Guards against duplicate Meta events
-- YES / NO only acknowledged IF awaiting order confirmation
+- NO business logic here
+- Text + interactive messages must pass through
+- YES / NO intercepted ONLY when awaiting order confirmation
+- Status / delivery events ignored
 """
 
 import logging
@@ -25,10 +25,6 @@ logger = logging.getLogger("clients.galitos")
 
 
 def _awaiting_order_confirmation(db: Session, sender: str) -> bool:
-    """
-    Returns True if the last Galitos outbound message
-    asked the client to confirm an order.
-    """
     row = db.execute(
         text(
             """
@@ -36,7 +32,6 @@ def _awaiting_order_confirmation(db: Session, sender: str) -> bool:
             FROM messages
             WHERE to_msisdn = :msisdn
               AND direction = 'OUTBOUND'
-              AND content ILIKE '%YES%'
               AND content ILIKE '%confirm%'
             ORDER BY created_at DESC
             LIMIT 1
@@ -59,43 +54,51 @@ def handle_inbound(
     Returns True if Galitos logic handles the message.
     """
 
-    # -------------------------------------------------
-    # Ignore non-text events (Meta status, delivery)
-    # -------------------------------------------------
-    if msg.get("type") != "text":
+    msg_type = msg.get("type")
+
+    # ----------------------------------
+    # Ignore Meta status / delivery events ONLY
+    # ----------------------------------
+    if msg_type not in ("text", "interactive"):
         logger.info(
-            "GALITOS_IGNORE_NON_TEXT | sender=%s | business=%s",
+            "GALITOS_IGNORE_EVENT | type=%s | sender=%s",
+            msg_type,
             sender,
-            business_msisdn,
         )
         return True
 
-    text = (msg.get("text", {}) or {}).get("body", "").strip()
-    upper = text.upper()
+    # ----------------------------------
+    # YES / NO — text only, awaiting confirmation
+    # ----------------------------------
+    if msg_type == "text":
+        text_body = (msg.get("text", {}) or {}).get("body", "").strip()
+        upper = text_body.upper()
 
-    # -------------------------------------------------
-    # YES / NO — only if awaiting order confirmation
-    # -------------------------------------------------
-    if upper in ("YES", "NO") and _awaiting_order_confirmation(db, sender):
-        send_message(
-            to_number=sender,
-            text="✅ Thanks! Your Galitos order has been received.",
-        )
-        logger.info(
-            "GALITOS_ORDER_ACK_SENT | sender=%s | response=%s",
-            sender,
-            upper,
-        )
-        return True
+        if upper in ("YES", "NO") and _awaiting_order_confirmation(db, sender):
+            send_message(
+                to_number=sender,
+                text="✅ Thanks! Your Galitos order has been received.",
+            )
+            logger.info(
+                "GALITOS_ORDER_ACK_SENT | sender=%s | response=%s",
+                sender,
+                upper,
+            )
+            return True
 
-    # -------------------------------------------------
-    # Delegate all other handling to existing logic
-    # -------------------------------------------------
+    # ----------------------------------
+    # EVERYTHING ELSE MUST PASS THROUGH
+    # (including interactive flavour selection)
+    # ----------------------------------
     try:
         handled = handle_client_command(
             db=db,
             sender_number=sender,
-            message_text=text,
+            message_text=(
+                (msg.get("text", {}) or {}).get("body", "")
+                if msg_type == "text"
+                else ""
+            ),
             msg=msg,
             resolved_client_id=None,
             resolved_business_number=business_msisdn,
@@ -103,18 +106,14 @@ def handle_inbound(
 
         if handled:
             logger.info(
-                "GALITOS_INBOUND_HANDLED | sender=%s | business=%s",
+                "GALITOS_INBOUND_HANDLED | sender=%s | type=%s",
                 sender,
-                business_msisdn,
+                msg_type,
             )
             return True
 
         return False
 
     except Exception:
-        logger.exception(
-            "GALITOS_INBOUND_FATAL | sender=%s | business=%s",
-            sender,
-            business_msisdn,
-        )
-        return True  # fail-safe
+        logger.exception("GALITOS_INBOUND_FATAL | sender=%s", sender)
+        return True
