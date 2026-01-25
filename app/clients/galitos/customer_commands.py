@@ -14,6 +14,7 @@ Rules (LOCKED):
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.models import Contact
 from app.outbound.factory import get_meta_client
@@ -32,6 +33,29 @@ def _render_menu(menu: dict) -> str:
     return "\n".join(lines).strip()
 
 
+def _is_awaiting_flavour(db: Session, sender: str) -> bool:
+    """
+    Returns True if the last outbound Galitos message
+    asked the user to choose a flavour.
+    """
+    row = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM messages
+            WHERE to_msisdn = :msisdn
+              AND direction = 'OUTBOUND'
+              AND content ILIKE '%flavour%'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ),
+        {"msisdn": sender},
+    ).first()
+
+    return bool(row)
+
+
 def handle_client_command(
     *,
     db: Session,
@@ -48,7 +72,20 @@ def handle_client_command(
     meta = get_meta_client()
 
     # ----------------------------------
-    # FOOD MENU (must be FIRST)
+    # FLAVOUR SELECTION (MUST BE FIRST)
+    # ----------------------------------
+    if text.isdigit() and _is_awaiting_flavour(db, sender):
+        # Let food handler process flavour ONLY
+        handled = handle_galitos_menu(
+            db=db,
+            sender_number=sender,
+            message_text=text,
+            client_id=client_id,
+        )
+        return bool(handled)
+
+    # ----------------------------------
+    # FOOD MENU (item selection)
     # ----------------------------------
     if handle_galitos_menu(
         db=db,
@@ -107,7 +144,7 @@ def handle_client_command(
         return True
 
     # ----------------------------------
-    # FALLBACK: UNKNOWN TEXT → CUSTOMER MENU
+    # FALLBACK
     # ----------------------------------
     meta.send_session_message(
         to_msisdn=sender,
