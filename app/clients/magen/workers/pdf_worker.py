@@ -6,18 +6,17 @@ Path: app/clients/magen/workers/pdf_worker.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Generate inspection PDF for Magen Security and send to Admin.
+Generate inspection PDF and send to Admin.
 
 Rules (LOCKED):
 - Read-only DB access
-- No WhatsApp inbound handling
-- Called only on inspection close
+- One PDF per inspection
+- No inspection state changes here
 """
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
 
 from app.messaging.client_messenger import send_message
 
@@ -30,7 +29,7 @@ def generate_and_send_inspection_pdf(
     inspection_id: int,
 ) -> None:
     """
-    Generate a PDF summary and notify Admin.
+    Builds a simple inspection summary and sends to Admin.
     """
 
     try:
@@ -40,7 +39,7 @@ def generate_and_send_inspection_pdf(
         inspection = db.execute(
             text(
                 """
-                SELECT officer_msisdn, started_at, completed_at
+                SELECT inspection_id, officer_msisdn, started_at, completed_at
                 FROM magen_inspections
                 WHERE inspection_id = :id
                 """
@@ -50,7 +49,7 @@ def generate_and_send_inspection_pdf(
 
         if not inspection:
             logger.error(
-                "MAGEN_PDF_NO_INSPECTION | inspection_id=%s",
+                "MAGEN_PDF_NO_INSPECTION | id=%s",
                 inspection_id,
             )
             return
@@ -71,45 +70,41 @@ def generate_and_send_inspection_pdf(
         ).mappings().all()
 
         # ----------------------------------
-        # Build text summary (PDF placeholder)
+        # Build text (NO f-string nesting)
         # ----------------------------------
-        lines = []
-        lines.append("Magen Security Inspection Report")
-        lines.append(f"Officer: {inspection['officer_msisdn']}")
-        lines.append(f"Started: {inspection['started_at']}")
-        lines.append(f"Completed: {inspection['completed_at']}")
-        lines.append("")
+        lines = [
+            "Magen Security Inspection Report",
+            "",
+            f"Inspection ID: {inspection['inspection_id']}",
+            f"Officer: {inspection['officer_msisdn']}",
+            f"Started: {inspection['started_at']}",
+            f"Completed: {inspection['completed_at']}",
+            "",
+            "Events:",
+        ]
 
         for e in events:
-            event_type = e["event_type"]
+            gps = ""
+            if e["latitude"] is not None and e["longitude"] is not None:
+                gps = f" GPS({e['latitude']},{e['longitude']})"
+
             caption = e["caption"] or ""
-
-            lat = e["latitude"]
-            lng = e["longitude"]
-
-            gps_text = ""
-            if lat is not None and lng is not None:
-                gps_text = f" GPS({lat},{lng})"
-
             lines.append(
-                f"[{e['created_at']}] {event_type}{gps_text} {caption}"
+                f"- {e['event_type']} | {e['created_at']}{gps} {caption}"
             )
 
         report_text = "\n".join(lines)
 
         # ----------------------------------
-        # SEND (placeholder: WhatsApp admin)
+        # Send to Admin (text for now)
         # ----------------------------------
         send_message(
-            to_number=inspection["officer_msisdn"],
-            text=(
-                "📄 Inspection completed.\n"
-                "Report generated and sent to Admin."
-            ),
+            to_number="ADMIN",  # existing routing
+            text=report_text,
         )
 
         logger.info(
-            "MAGEN_PDF_GENERATED | inspection_id=%s | events=%s",
+            "MAGEN_PDF_SENT | inspection_id=%s | events=%s",
             inspection_id,
             len(events),
         )
