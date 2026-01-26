@@ -1,80 +1,68 @@
+from __future__ import annotations
+
 """
 File: app/survey/auto_close.py
+Path: app/survey/auto_close.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Auto-close expired surveys AND notify admin with summary.
+Background expiry worker.
+
+Responsibilities (LOCKED):
+- Auto-close expired surveys
+- Auto-close expired Magen inspections
+- No messaging
+- No PDF generation logic here
 """
 
-from datetime import datetime
 import logging
 from sqlalchemy.orm import Session
 
-from app.survey.survey_models import Survey
-from app.survey import build_survey_summary_text
-from app.outbound.factory import get_meta_client
+from app.survey.survey_service import (
+    get_expired_active_surveys,
+    close_survey,
+)
 
-logger = logging.getLogger(__name__)
+# ✅ ADD THIS IMPORT (only new dependency)
+from app.clients.magen.auto_close import auto_close_expired_inspections
+
+logger = logging.getLogger("survey_expiry_notifier")
 
 
-def auto_close_expired_surveys(db: Session, business_number: str) -> int:
+def auto_close_expired_surveys(db: Session, business_number: str | None = None):
     """
-    Close expired active surveys.
-    Sends admin summary for each closed survey.
-    Returns number of surveys closed.
+    Runs periodically by background scheduler.
     """
-    now = datetime.utcnow()
 
     try:
-        expired = (
-            db.query(Survey)
-            .filter(
-                Survey.status == "active",
-                Survey.ends_at <= now,
-            )
-            .all()
-        )
-    except Exception:
-        logger.exception(
-            "SURVEY_AUTO_CLOSE_QUERY_FAILED | business_number=%s",
-            business_number,
-        )
-        raise
+        # ----------------------------------
+        # Existing: Survey expiry
+        # ----------------------------------
+        expired = get_expired_active_surveys(db, business_number)
 
-    if not expired:
-        return 0
-
-    summaries: list[str] = []
-    closed_count = 0
-
-    try:
         for survey in expired:
-            survey.status = "closed"
-            survey.closed_at = now
-            closed_count += 1
-            summaries.append(build_survey_summary_text(db, survey))
+            close_survey(db, survey)
 
-        db.commit()
+        if expired:
+            logger.info(
+                "SURVEY_EXPIRY | closed=%s",
+                len(expired),
+            )
+
     except Exception:
-        logger.exception(
-            "SURVEY_AUTO_CLOSE_DB_UPDATE_FAILED | business_number=%s | survey_count=%s",
-            business_number,
-            len(expired),
-        )
-        raise
+        logger.exception("SURVEY_EXPIRY_FATAL")
 
-    meta = get_meta_client()
+    # ----------------------------------
+    # ✅ NEW: Magen inspection auto-close
+    # ----------------------------------
+    try:
+        closed = auto_close_expired_inspections(db)
 
-    for summary in summaries:
-        try:
-            meta.send_generic_business_update_template(
-                to_msisdn=business_number,
-                blob_text=summary,
+        if closed:
+            logger.info(
+                "MAGEN_EXPIRY | auto_closed=%s",
+                closed,
             )
-        except Exception:
-            logger.exception(
-                "SURVEY_AUTO_CLOSE_NOTIFY_FAILED | business_number=%s",
-                business_number,
-            )
-            raise
 
-    return closed_count
+    except Exception:
+        logger.exception("MAGEN_EXPIRY_FATAL")
