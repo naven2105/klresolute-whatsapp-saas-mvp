@@ -6,151 +6,166 @@ Path: app/clients/magen/workers/pdf_worker.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Generate and deliver a Magen Security Inspection PDF to Admin.
+Generate a PDF inspection report for a completed Magen inspection
+and send it to Admin WhatsApp number(s).
 
 Responsibilities (LOCKED):
-- Fetch inspection + events from DB
-- Generate a single immutable PDF per inspection
-- Log failures clearly (no silent failures)
-- No WhatsApp inbound logic
-- No inspection state changes
+- Read inspection + events from DB
+- Generate a PDF (single inspection)
+- Send PDF to Admin(s)
+- Log every step and failure
 
 Notes:
-- Storage backend (local/S3) is abstracted
-- PDF generation must never block webhook flow
+- Called by auto_close_worker or explicit DONE command
+- Must never crash the caller
 """
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
+
+from app.outbound.meta import MetaWhatsAppClient
+from app.outbound.settings import load_meta_settings
 
 logger = logging.getLogger("magen.pdf_worker")
 
+_meta = MetaWhatsAppClient(settings=load_meta_settings())
 
-# -------------------------------------------------
-# Main entry
-# -------------------------------------------------
 
 def generate_and_send_inspection_pdf(
     *,
     db: Session,
     inspection_id: int,
 ) -> None:
-    """
-    Generate PDF for a completed inspection and send to Admin.
-    """
-
     logger.info(
-        "PDF_WORKER_START | inspection_id=%s",
+        "MAGEN_PDF_START | inspection_id=%s",
         inspection_id,
     )
 
     try:
-        inspection = _load_inspection(db, inspection_id)
-        events = _load_events(db, inspection_id)
+        # -------------------------------------------------
+        # Load inspection header
+        # -------------------------------------------------
+        inspection = db.execute(
+            text(
+                """
+                SELECT
+                    i.inspection_id,
+                    i.officer_msisdn,
+                    i.status,
+                    i.started_at,
+                    i.completed_at
+                FROM magen_inspections i
+                WHERE i.inspection_id = :inspection_id
+                """
+            ),
+            {"inspection_id": inspection_id},
+        ).mappings().first()
 
         if not inspection:
             logger.error(
-                "PDF_WORKER_NO_INSPECTION | inspection_id=%s",
+                "MAGEN_PDF_NO_INSPECTION | inspection_id=%s",
                 inspection_id,
             )
             return
 
-        pdf_path = _build_pdf(
-            inspection=inspection,
-            events=events,
-        )
-
-        _notify_admin(
-            db=db,
-            inspection=inspection,
-            pdf_path=pdf_path,
-        )
+        # -------------------------------------------------
+        # Load inspection events
+        # -------------------------------------------------
+        events = db.execute(
+            text(
+                """
+                SELECT
+                    event_type,
+                    media_id,
+                    latitude,
+                    longitude,
+                    caption,
+                    created_at
+                FROM magen_inspection_events
+                WHERE inspection_id = :inspection_id
+                ORDER BY created_at ASC
+                """
+            ),
+            {"inspection_id": inspection_id},
+        ).mappings().all()
 
         logger.info(
-            "PDF_WORKER_SUCCESS | inspection_id=%s | pdf=%s",
+            "MAGEN_PDF_DATA_READY | inspection_id=%s | events=%s",
             inspection_id,
-            pdf_path,
+            len(events),
         )
+
+        # -------------------------------------------------
+        # PDF generation (placeholder – deterministic)
+        # -------------------------------------------------
+        # NOTE:
+        # For now we generate a simple text-based PDF payload.
+        # Actual PDF rendering (ReportLab) can replace this later
+        # without touching callers.
+
+        pdf_bytes = (
+            f"Magen Inspection Report\n\n"
+            f"Inspection ID: {inspection['inspection_id']}\n"
+            f"Officer: {inspection['officer_msisdn']}\n"
+            f"Status: {inspection['status']}\n"
+            f"Started: {inspection['started_at']}\n"
+            f"Completed: {inspection['completed_at']}\n\n"
+            f"Events:\n"
+        ).encode("utf-8")
+
+        for e in events:
+            line = (
+                f"- {e['created_at']} | {e['event_type']} | "
+                f"{e.get('caption') or ''} "
+                f"{f'GPS({e['latitude']},{e['longitude']})' if e['latitude'] else ''}\n"
+            )
+            pdf_bytes += line.encode("utf-8")
+
+        # -------------------------------------------------
+        # Resolve Admin recipients
+        # -------------------------------------------------
+        admins = db.execute(
+            text(
+                """
+                SELECT msisdn
+                FROM klresolute_admin
+                WHERE is_active = TRUE
+                """
+            )
+        ).fetchall()
+
+        if not admins:
+            logger.warning("MAGEN_PDF_NO_ADMINS")
+            return
+
+        # -------------------------------------------------
+        # Send PDF to Admin(s)
+        # -------------------------------------------------
+        for admin in admins:
+            try:
+                _meta.send_document_message(
+                    to_msisdn=admin.msisdn,
+                    filename=f"inspection_{inspection_id}.pdf",
+                    file_bytes=pdf_bytes,
+                    caption="Magen Security Inspection Report",
+                )
+
+                logger.info(
+                    "MAGEN_PDF_SENT | inspection_id=%s | admin=%s",
+                    inspection_id,
+                    admin.msisdn,
+                )
+
+            except Exception:
+                logger.exception(
+                    "MAGEN_PDF_SEND_FAIL | inspection_id=%s | admin=%s",
+                    inspection_id,
+                    admin.msisdn,
+                )
 
     except Exception:
         logger.exception(
-            "PDF_WORKER_FATAL | inspection_id=%s",
+            "MAGEN_PDF_FATAL | inspection_id=%s",
             inspection_id,
         )
-
-
-# -------------------------------------------------
-# Data loaders
-# -------------------------------------------------
-
-def _load_inspection(db: Session, inspection_id: int):
-    return db.execute(
-        text(
-            """
-            SELECT *
-            FROM magen_inspections
-            WHERE inspection_id = :id
-            """
-        ),
-        {"id": inspection_id},
-    ).mappings().first()
-
-
-def _load_events(db: Session, inspection_id: int):
-    return db.execute(
-        text(
-            """
-            SELECT *
-            FROM magen_inspection_events
-            WHERE inspection_id = :id
-            ORDER BY created_at ASC
-            """
-        ),
-        {"id": inspection_id},
-    ).mappings().all()
-
-
-# -------------------------------------------------
-# PDF builder (stub – deterministic)
-# -------------------------------------------------
-
-def _build_pdf(*, inspection: dict, events: list[dict]) -> str:
-    """
-    Deterministic PDF build.
-    Replace internals later (ReportLab / WeasyPrint).
-    """
-
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    pdf_path = f"/tmp/magen_inspection_{inspection['inspection_id']}_{timestamp}.pdf"
-
-    logger.info(
-        "PDF_BUILD | inspection_id=%s | events=%s",
-        inspection["inspection_id"],
-        len(events),
-    )
-
-    # Placeholder: actual PDF generation lives here
-    # MUST be deterministic and repeatable
-
-    return pdf_path
-
-
-# -------------------------------------------------
-# Admin notification (stub)
-# -------------------------------------------------
-
-def _notify_admin(*, db: Session, inspection: dict, pdf_path: str) -> None:
-    """
-    Notify Admin that inspection PDF is ready.
-    Delivery mechanism is pluggable.
-    """
-
-    logger.info(
-        "PDF_ADMIN_NOTIFY | inspection_id=%s | pdf=%s",
-        inspection["inspection_id"],
-        pdf_path,
-    )
-
-    # WhatsApp / Email / Drive upload hooks go here
