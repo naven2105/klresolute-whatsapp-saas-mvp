@@ -6,19 +6,22 @@ Path: app/clients/magen/auto_close.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Auto-close stale Magen inspections after inactivity.
+Auto-close stale Magen inspections after inactivity
+and trigger PDF generation + delivery.
 
 Rules (LOCKED):
 - Only ACTIVE inspections
 - Auto-close after 5 minutes of no events
 - Update status + completed_at
-- No messaging
-- No PDF generation here
+- PDF generation is best-effort (never blocks auto-close)
+- No WhatsApp messaging here
 """
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
+from app.clients.magen.workers.pdf_worker import generate_and_send_inspection_pdf
 
 logger = logging.getLogger("clients.magen.auto_close")
 
@@ -27,7 +30,10 @@ AUTO_CLOSE_MINUTES = 5
 
 def auto_close_expired_inspections(db: Session) -> int:
     """
-    Returns number of inspections auto-closed.
+    Auto-close expired inspections and trigger PDF generation.
+
+    Returns:
+        Number of inspections auto-closed.
     """
 
     try:
@@ -55,9 +61,30 @@ def auto_close_expired_inspections(db: Session) -> int:
             logger.debug("MAGEN_AUTO_CLOSE_NONE")
 
         db.commit()
-        return closed_count
 
     except Exception:
         db.rollback()
         logger.exception("MAGEN_AUTO_CLOSE_FAIL")
         return 0
+
+    # -------------------------------------------------
+    # PDF generation (best-effort, never blocks)
+    # -------------------------------------------------
+    for row in rows:
+        inspection_id = row.inspection_id
+        try:
+            generate_and_send_inspection_pdf(
+                db=db,
+                inspection_id=inspection_id,
+            )
+            logger.info(
+                "MAGEN_PDF_TRIGGERED | inspection_id=%s",
+                inspection_id,
+            )
+        except Exception:
+            logger.exception(
+                "MAGEN_PDF_TRIGGER_FAIL | inspection_id=%s",
+                inspection_id,
+            )
+
+    return closed_count
