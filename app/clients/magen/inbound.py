@@ -6,12 +6,6 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Inbound router for Magen Security inspections.
-
-RULES (LOCKED):
-- Inspection starts automatically on FIRST photo or GPS
-- No START command
-- 'done' closes inspection (handled later)
-- Staff vs public handled here
 """
 
 import logging
@@ -55,6 +49,53 @@ def _start_inspection(db: Session, sender: str):
     return row.inspection_id
 
 
+def _insert_event(
+    db: Session,
+    *,
+    inspection_id: int,
+    sender: str,
+    event_type: str,
+    media_id: str | None = None,
+    lat: float | None = None,
+    lng: float | None = None,
+    caption: str | None = None,
+):
+    db.execute(
+        text(
+            """
+            INSERT INTO magen_inspection_events (
+                inspection_id,
+                officer_msisdn,
+                event_type,
+                media_id,
+                latitude,
+                longitude,
+                caption
+            )
+            VALUES (
+                :inspection_id,
+                :msisdn,
+                :event_type,
+                :media_id,
+                :lat,
+                :lng,
+                :caption
+            )
+            """
+        ),
+        {
+            "inspection_id": inspection_id,
+            "msisdn": sender,
+            "event_type": event_type,
+            "media_id": media_id,
+            "lat": lat,
+            "lng": lng,
+            "caption": caption,
+        },
+    )
+    db.commit()
+
+
 def handle_inbound(
     *,
     db: Session,
@@ -66,9 +107,6 @@ def handle_inbound(
     if business_msisdn != MAGEN_BUSINESS_MSISDN:
         return False
 
-    # -------------------------------
-    # Check if sender is Magen staff
-    # -------------------------------
     staff = db.execute(
         text(
             """
@@ -87,53 +125,72 @@ def handle_inbound(
             to_number=sender,
             text=(
                 "Magen Security WhatsApp\n"
-                "This number is reserved for internal inspections only.\n\n"
-                "Visit www.KLResolute.co.za for information."
+                "Internal inspections only."
             ),
         )
-        logger.info("MAGEN_PUBLIC_BLOCK_SENT | sender=%s", sender)
         return True
 
     msg_type = msg.get("type")
+    active = _get_active_inspection(db, sender)
 
     # -------------------------------
-    # START inspection on PHOTO or GPS
+    # IMAGE
     # -------------------------------
-    if msg_type in ("image", "location"):
-        active = _get_active_inspection(db, sender)
+    if msg_type == "image":
+        inspection_id = active.inspection_id if active else _start_inspection(db, sender)
 
-        if not active:
-            inspection_id = _start_inspection(db, sender)
-            logger.info(
-                "MAGEN_INSPECTION_STARTED | sender=%s | inspection_id=%s",
-                sender,
-                inspection_id,
-            )
+        media_id = msg["image"]["id"]
+        caption = msg["image"].get("caption")
 
-            send_message(
-                to_number=sender,
-                text=(
-                    "📋 Inspection started.\n\n"
-                    "Send photos, notes, or location.\n"
-                    "Send 'done' to finish.\n\n"
-                    "Inspection auto-closes after 5 minutes of inactivity."
-                ),
-            )
+        _insert_event(
+            db,
+            inspection_id=inspection_id,
+            sender=sender,
+            event_type="PHOTO",
+            media_id=media_id,
+            caption=caption,
+        )
 
-        # Message is CLAIMED (event handling comes next phase)
         return True
 
     # -------------------------------
-    # Guidance message (text only)
+    # LOCATION
+    # -------------------------------
+    if msg_type == "location":
+        inspection_id = active.inspection_id if active else _start_inspection(db, sender)
+
+        loc = msg["location"]
+
+        _insert_event(
+            db,
+            inspection_id=inspection_id,
+            sender=sender,
+            event_type="GPS",
+            lat=loc["latitude"],
+            lng=loc["longitude"],
+        )
+
+        return True
+
+    # -------------------------------
+    # TEXT NOTE
     # -------------------------------
     if msg_type == "text":
-        send_message(
-            to_number=sender,
-            text=(
-                "Magen Security Inspection Bot\n\n"
-                "Please start the inspection by sending a PHOTO or LOCATION.\n"
-                "Send 'done' when finished."
-            ),
+        text_body = msg["text"]["body"].strip()
+
+        if not active:
+            send_message(
+                to_number=sender,
+                text="Send a photo or location to start an inspection.",
+            )
+            return True
+
+        _insert_event(
+            db,
+            inspection_id=active.inspection_id,
+            sender=sender,
+            event_type="NOTE",
+            caption=text_body,
         )
         return True
 
