@@ -21,9 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
-from app.clients.magen.workers.pdf_worker import (
-    generate_and_send_inspection_pdf,
-)
+from app.clients.magen.workers.pdf_worker import generate_and_send_inspection_pdf
 
 logger = logging.getLogger("clients.magen")
 
@@ -61,8 +59,10 @@ def _start_inspection(db: Session, sender: str) -> int:
         {"msisdn": sender},
     ).first()
     db.commit()
-    logger.info("MAGEN_INSPECTION_STARTED | sender=%s | id=%s", sender, row.inspection_id)
-    return row.inspection_id
+
+    inspection_id = row.inspection_id
+    logger.info("MAGEN_INSPECTION_STARTED | sender=%s | id=%s", sender, inspection_id)
+    return inspection_id
 
 
 def _close_inspection(db: Session, inspection_id: int, status: str):
