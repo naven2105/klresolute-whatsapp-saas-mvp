@@ -31,6 +31,9 @@ from app.clients.pilateshq.inbound import handle_inbound as pilateshq_inbound
 from app.clients.magen.inbound import handle_inbound as magen_inbound
 from app.clients.galitos.inbound import handle_inbound as galitos_inbound
 
+# ---- Magen auto-close (SAFE background control) ----
+from app.clients.magen.auto_close import auto_close_expired_inspections
+
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 logging.basicConfig(level=logging.INFO)
@@ -57,7 +60,13 @@ def _extract_message(payload: dict):
         msg = entry.get("messages", [None])[0]
         sender = msg.get("from") if msg else None
         business_raw = entry.get("metadata", {}).get("display_phone_number")
-        return msg, _normalise_msisdn(sender), _normalise_msisdn(business_raw)
+
+        return (
+            msg,
+            _normalise_msisdn(sender),
+            _normalise_msisdn(business_raw),
+        )
+
     except Exception:
         logger.exception("PAYLOAD_PARSE_FAILED")
         return None, None, None
@@ -90,6 +99,14 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
+    # -------------------------------------------------
+    # SAFE BACKGROUND MAINTENANCE (NO SIDE EFFECTS)
+    # -------------------------------------------------
+    try:
+        auto_close_expired_inspections(db)
+    except Exception:
+        logger.exception("MAGEN_AUTO_CLOSE_FAILED")
+
     # ---- Ordered client dispatch ----
     handlers = [
         pilateshq_inbound,
@@ -111,6 +128,7 @@ async def whatsapp_webhook(
                     business_msisdn,
                 )
                 return Response(status_code=200)
+
         except Exception:
             logger.exception(
                 "HANDLER_FAILURE | handler=%s | business=%s",

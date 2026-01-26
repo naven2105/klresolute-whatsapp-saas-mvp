@@ -80,7 +80,11 @@ def _insert_event(
                 :lat,
                 :lng,
                 :caption
-            )
+            );
+
+            UPDATE magen_inspections
+            SET last_event_at = now()
+            WHERE inspection_id = :inspection_id;
             """
         ),
         {
