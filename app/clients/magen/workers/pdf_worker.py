@@ -113,4 +113,4 @@ def generate_and_send_inspection_pdf(
         logger.exception(
             "MAGEN_PDF_FATAL | inspection_id=%s",
             inspection_id,
-        )
+        )  
