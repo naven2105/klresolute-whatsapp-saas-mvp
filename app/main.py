@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """
 File: app/main.py
-
+Path: app/main.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
@@ -31,11 +31,19 @@ import os
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 
-from app.webhooks import router as webhooks_router  # BRS-driven webhook pipeline
-from app.admin.routes import router as admin_router  # T-18 read-only admin endpoints
+from app.webhooks import router as webhooks_router
+from app.admin.routes import router as admin_router
 
 # Background jobs (wired only, logic lives elsewhere)
 from app.survey.survey_expiry_notifier import start_survey_expiry_notifier
+
+# ✅ NEW (wiring only)
+from app.clients.magen.auto_close import auto_close_expired_inspections
+from app.db import SessionLocal
+import asyncio
+import logging
+
+logger = logging.getLogger("main")
 
 # -------------------------------------------------------------------
 # App
@@ -43,25 +51,45 @@ from app.survey.survey_expiry_notifier import start_survey_expiry_notifier
 app = FastAPI()
 
 # -------------------------------------------------------------------
-# Webhook routes (POST /webhooks/whatsapp)
+# Webhook routes
 # -------------------------------------------------------------------
 app.include_router(webhooks_router)
 
 # -------------------------------------------------------------------
-# T-18: Admin visibility (read-only)
+# Admin visibility (read-only)
 # -------------------------------------------------------------------
 app.include_router(admin_router)
 
 # -------------------------------------------------------------------
-# Startup (background jobs only)
+# Background worker: Magen auto-close
+# -------------------------------------------------------------------
+async def magen_auto_close_loop() -> None:
+    logger.info("MAGEN_AUTO_CLOSE_WORKER_START")
+
+    while True:
+        try:
+            db = SessionLocal()
+            auto_close_expired_inspections(db)
+        except Exception:
+            logger.exception("MAGEN_AUTO_CLOSE_WORKER_FAIL")
+        finally:
+            db.close()
+
+        await asyncio.sleep(60)
+
+# -------------------------------------------------------------------
+# Startup
 # -------------------------------------------------------------------
 @app.on_event("startup")
 async def startup() -> None:
-    # Background survey auto-expiry + admin notification
+    # Existing survey auto-expiry
     start_survey_expiry_notifier()
 
+    # ✅ Magen inspection auto-close
+    asyncio.create_task(magen_auto_close_loop())
+
 # -------------------------------------------------------------------
-# T-12: Meta webhook verification (GET)
+# Meta webhook verification (GET)
 # -------------------------------------------------------------------
 @app.get("/webhooks/whatsapp", response_class=PlainTextResponse)
 def verify_webhook(request: Request):
