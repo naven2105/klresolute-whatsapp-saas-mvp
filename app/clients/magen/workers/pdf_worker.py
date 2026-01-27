@@ -143,11 +143,11 @@ def generate_and_send_inspection_pdf(
         )
 
         # ----------------------------------
-        # Send summary to Admin (unchanged)
+        # Dont Send summary to Admin 
         # ----------------------------------
-        send_message(
-            to_number="ADMIN",  # existing routing
-            text=report_text,
+        logger.info(
+            "MAGEN_PDF_ADMIN_SEND_SKIPPED | inspection_id=%s",
+            inspection_id,
         )
 
         logger.info(
