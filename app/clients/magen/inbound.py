@@ -197,16 +197,20 @@ def handle_inbound(
                 return True
 
             inspection_id = active.inspection_id
+
+            # --- GUARANTEED officer confirmation (send FIRST) ---
+            send_message(
+                to_number=sender,
+                text="✅ Inspection completed. Thank you.",
+            )
+
+            # --- Now close inspection ---
             _close_inspection(db, inspection_id, status="DONE")
 
+            # --- Post-close processing (non-interactive) ---
             generate_and_send_inspection_pdf(
                 db=db,
                 inspection_id=inspection_id,
-            )
-
-            send_message(
-                to_number=sender,
-                text="✅ Inspection closed. Report sent to Admin.",
             )
 
             logger.info(
