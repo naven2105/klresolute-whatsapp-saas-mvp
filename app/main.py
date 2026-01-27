@@ -28,20 +28,19 @@ Change policy:
 """
 
 import os
+import asyncio
+import logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from app.webhooks import router as webhooks_router
 from app.admin.routes import router as admin_router
+from app.admin.magen_routes import router as magen_admin_router
 
 # Background jobs (wired only, logic lives elsewhere)
 from app.survey.survey_expiry_notifier import start_survey_expiry_notifier
-
-# ✅ NEW (wiring only)
 from app.clients.magen.auto_close import auto_close_expired_inspections
 from app.db import SessionLocal
-import asyncio
-import logging
 
 logger = logging.getLogger("main")
 
@@ -59,6 +58,9 @@ app.include_router(webhooks_router)
 # Admin visibility (read-only)
 # -------------------------------------------------------------------
 app.include_router(admin_router)
+
+# ✅ NEW — Magen admin (read-only, inspections only)
+app.include_router(magen_admin_router)
 
 # -------------------------------------------------------------------
 # Background worker: Magen auto-close

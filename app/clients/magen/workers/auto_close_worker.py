@@ -25,7 +25,7 @@ from sqlalchemy import text
 
 from app.clients.magen.workers.pdf_worker import generate_and_send_inspection_pdf
 
-logger = logging.getLogger("magen.auto_close")
+logger = logging.getLogger("clients.magen.auto_close_worker")
 
 AUTO_CLOSE_MINUTES = 5
 
@@ -49,12 +49,15 @@ def auto_close_expired_inspections(db: Session) -> None:
 
         if not rows:
             logger.info("MAGEN_AUTO_CLOSE_NONE")
+            db.commit()
             return
 
         logger.info(
             "MAGEN_AUTO_CLOSE_COUNT | closed=%s",
             len(rows),
         )
+
+        db.commit()
 
         for row in rows:
             inspection_id = row.inspection_id
@@ -76,4 +79,5 @@ def auto_close_expired_inspections(db: Session) -> None:
                 )
 
     except Exception:
+        db.rollback()
         logger.exception("MAGEN_AUTO_CLOSE_FATAL")

@@ -23,6 +23,8 @@ from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 from app.clients.magen.workers.pdf_worker import generate_and_send_inspection_pdf
 
+from app.clients.magen.magen_media_handler import handle_magen_inspection_media
+
 logger = logging.getLogger("clients.magen")
 
 MAGEN_BUSINESS_MSISDN = "27631016099"
