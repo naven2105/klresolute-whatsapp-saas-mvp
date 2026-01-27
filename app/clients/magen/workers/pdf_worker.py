@@ -15,12 +15,17 @@ Rules (LOCKED):
 """
 
 import logging
+from datetime import date
+
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
+from app.storage.s3_evidence_store import S3EvidenceStore
 
 logger = logging.getLogger("clients.magen.pdf")
+
+_s3_store = S3EvidenceStore()
 
 
 def generate_and_send_inspection_pdf(
@@ -29,7 +34,8 @@ def generate_and_send_inspection_pdf(
     inspection_id: int,
 ) -> None:
     """
-    Builds a simple inspection summary and sends to Admin.
+    Builds a simple inspection summary, stores PDF in S3,
+    and sends summary to Admin.
     """
 
     try:
@@ -55,22 +61,29 @@ def generate_and_send_inspection_pdf(
             return
 
         # ----------------------------------
-        # Fetch events
+        # Fetch events (schema-aligned)
         # ----------------------------------
         events = db.execute(
             text(
                 """
-                SELECT event_type, media_id, latitude, longitude, caption, created_at
+                SELECT
+                    event_type,
+                    meta_media_id,
+                    s3_url,
+                    gps_lat,
+                    gps_lng,
+                    caption,
+                    received_at
                 FROM magen_inspection_events
                 WHERE inspection_id = :id
-                ORDER BY created_at
+                ORDER BY received_at
                 """
             ),
             {"id": inspection_id},
         ).mappings().all()
 
         # ----------------------------------
-        # Build text (NO f-string nesting)
+        # Build report text (PDF content)
         # ----------------------------------
         lines = [
             "Magen Security Inspection Report",
@@ -85,18 +98,52 @@ def generate_and_send_inspection_pdf(
 
         for e in events:
             gps = ""
-            if e["latitude"] is not None and e["longitude"] is not None:
-                gps = f" GPS({e['latitude']},{e['longitude']})"
+            if e["gps_lat"] is not None and e["gps_lng"] is not None:
+                gps = f" GPS({e['gps_lat']},{e['gps_lng']})"
 
             caption = e["caption"] or ""
             lines.append(
-                f"- {e['event_type']} | {e['created_at']}{gps} {caption}"
+                f"- {e['event_type']} | {e['received_at']}{gps} {caption}"
             )
 
         report_text = "\n".join(lines)
 
         # ----------------------------------
-        # Send to Admin (text for now)
+        # Generate PDF bytes (text-only MVP)
+        # ----------------------------------
+        pdf_bytes = report_text.encode("utf-8")
+
+        # ----------------------------------
+        # Store immutable PDF in S3 (Sprint 2)
+        # ----------------------------------
+        inspection_date = (
+            inspection["completed_at"].date()
+            if inspection["completed_at"]
+            else date.today()
+        )
+
+        s3_key = (
+            f"magen/inspections/"
+            f"UNKNOWN/"
+            f"{inspection_date}/"
+            f"{inspection_id}/"
+            f"report/inspection.pdf"
+        )
+
+        _s3_store.put_bytes(
+            key=s3_key,
+            data=pdf_bytes,
+            content_type="application/pdf",
+        )
+
+        logger.info(
+            "MAGEN_PDF_STORED | inspection_id=%s | s3_key=%s",
+            inspection_id,
+            s3_key,
+        )
+
+        # ----------------------------------
+        # Send summary to Admin (unchanged)
         # ----------------------------------
         send_message(
             to_number="ADMIN",  # existing routing
@@ -113,4 +160,4 @@ def generate_and_send_inspection_pdf(
         logger.exception(
             "MAGEN_PDF_FATAL | inspection_id=%s",
             inspection_id,
-        )  
+        )
