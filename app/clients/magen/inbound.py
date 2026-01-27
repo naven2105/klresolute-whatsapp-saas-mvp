@@ -93,25 +93,28 @@ def _insert_event(
     lng: float | None = None,
     caption: str | None = None,
 ):
+    """
+    Insert a single inspection event.
+    Schema-aligned with magen_inspection_events.
+    """
+
     db.execute(
         text(
             """
             INSERT INTO magen_inspection_events (
                 inspection_id,
-                officer_msisdn,
                 event_type,
-                media_id,
-                latitude,
-                longitude,
+                meta_media_id,
+                gps_lat,
+                gps_lng,
                 caption
             )
             VALUES (
                 :inspection_id,
-                :msisdn,
                 :event_type,
-                :media_id,
-                :lat,
-                :lng,
+                :meta_media_id,
+                :gps_lat,
+                :gps_lng,
                 :caption
             );
 
@@ -122,15 +125,15 @@ def _insert_event(
         ),
         {
             "inspection_id": inspection_id,
-            "msisdn": sender,
             "event_type": event_type,
-            "media_id": media_id,
-            "lat": lat,
-            "lng": lng,
+            "meta_media_id": media_id,
+            "gps_lat": lat,
+            "gps_lng": lng,
             "caption": caption,
         },
     )
     db.commit()
+
 
 
 # -------------------------------------------------
