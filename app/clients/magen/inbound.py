@@ -194,15 +194,18 @@ def handle_inbound(
                     to_number=sender,
                     text="No active inspection to close.",
                 )
+
+                
                 return True
 
             inspection_id = active.inspection_id
 
-            # --- GUARANTEED officer confirmation (send FIRST) ---
+            # --- Use template to send Inspection complete ACK to officer
             send_message(
                 to_number=sender,
-                text="✅ Inspection completed. Thank you.",
-            )
+                template_name="magen_inspection_completed",
+                language_code="en_US",
+            )            
 
             # --- Now close inspection ---
             _close_inspection(db, inspection_id, status="DONE")
