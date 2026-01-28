@@ -41,7 +41,7 @@ def send_message(
         return
 
     if template_name:
-        _meta_client.send_template_message(
+        _meta_client.send_template(
             to_msisdn=to_number,
             template_name=template_name,
             language_code=language_code,
