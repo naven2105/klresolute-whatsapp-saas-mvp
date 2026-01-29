@@ -9,9 +9,10 @@ Purpose:
 Inbound entry point for Broadcast module.
 
 Responsibilities (LOCKED):
-- Admin: handle BROADCAST text + image (specials)
-- Customer: handle SPECIAL / SPECIALS request
-- Delegate all persistence + delivery to service layer
+- Decide if inbound message is a broadcast command
+- Validate admin permission
+- Persist broadcast intent
+- Delegate delivery to service layer
 - Return True if message was handled
 
 NO direct DB schema logic.
@@ -24,10 +25,10 @@ from sqlalchemy.orm import Session
 from app.modules.broadcast.service import (
     handle_text_broadcast,
     handle_image_broadcast,
-    send_latest_special_to_customer,
 )
 
-from app.handlers.client_commands import is_admin_message
+# ✅ DO NOT import app.handlers.client_commands (too many legacy dependencies)
+from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("module.broadcast")
 
@@ -44,39 +45,16 @@ def handle(
     Entry point for Broadcast module.
     """
 
-    msg_type = msg.get("type")
-
-    # =================================================
-    # CUSTOMER: request latest special
-    # =================================================
-    if msg_type == "text":
-        body = msg.get("text", {}).get("body", "").strip()
-        if not body:
-            return False
-
-        upper = body.upper()
-
-        if upper in ("SPECIAL", "SPECIALS"):
-            send_latest_special_to_customer(
-                db=db,
-                business_msisdn=business_msisdn,
-                customer_msisdn=sender,
-            )
-            logger.info(
-                "SPECIAL_SENT_TO_CUSTOMER | business=%s | customer=%s",
-                business_msisdn,
-                sender,
-            )
-            return True
-
-    # =================================================
-    # ADMIN ONLY from here
-    # =================================================
+    # ----------------------------------
+    # Admin check
+    # ----------------------------------
     if not is_admin_message(sender, admin_allowlist):
         return False
 
+    msg_type = msg.get("type")
+
     # ----------------------------------
-    # ADMIN: TEXT broadcast
+    # TEXT broadcast
     # ----------------------------------
     if msg_type == "text":
         body = msg.get("text", {}).get("body", "").strip()
@@ -85,6 +63,7 @@ def handle(
 
         upper = body.upper()
 
+        # Explicit BROADCAST command only
         if not upper.startswith("BROADCAST:"):
             return False
 
@@ -107,7 +86,7 @@ def handle(
         return True
 
     # ----------------------------------
-    # ADMIN: IMAGE broadcast (specials)
+    # IMAGE broadcast (specials)
     # ----------------------------------
     if msg_type == "image":
         image = msg.get("image", {})
