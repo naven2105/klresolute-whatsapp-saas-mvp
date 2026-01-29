@@ -26,7 +26,8 @@ from app.modules.broadcast.service import (
     handle_image_broadcast,
     send_latest_special_to_customer,
 )
-from app.services.client_commands import is_admin_message
+
+from app.handlers.client_commands import is_admin_message
 
 logger = logging.getLogger("module.broadcast")
 
