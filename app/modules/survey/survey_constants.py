@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 """
-app/survey/survey_constants.py
+File: app/modules/survey/survey_constants.py
+Path: app/modules/survey/survey_constants.py
+Project: KLResolute WhatsApp SaaS MVP
+
 Survey constants for KLResolute MVP
 ----------------------------------
 Scope: Tier 1 only

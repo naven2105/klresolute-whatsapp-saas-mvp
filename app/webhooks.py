@@ -10,8 +10,8 @@ Minimal WhatsApp webhook dispatcher.
 RESPONSIBILITIES (LOCKED):
 - Parse inbound payload
 - Extract sender + business MSISDN + message
-- Dispatch to client handlers
-- Stop at first handler that claims the message
+- Dispatch to generic inbound dispatcher
+- Stop at first module that claims the message
 - Send fallback clarification if no client matches
 
 NO BUSINESS LOGIC HERE.
@@ -26,10 +26,8 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 
-# ---- Client handlers (one per business) ----
-from app.clients.pilateshq.inbound import handle_inbound as pilateshq_inbound
-from app.clients.magen.inbound import handle_inbound as magen_inbound
-from app.clients.galitos.inbound import handle_inbound as galitos_inbound
+# ---- Generic inbound dispatcher ----
+from app.inbound_dispatcher import dispatch
 
 # ---- Magen auto-close (SAFE background control) ----
 from app.clients.magen.auto_close import auto_close_expired_inspections
@@ -107,37 +105,34 @@ async def whatsapp_webhook(
     except Exception:
         logger.exception("MAGEN_AUTO_CLOSE_FAILED")
 
-    # ---- Ordered client dispatch ----
-    handlers = [
-        pilateshq_inbound,
-        magen_inbound,
-        galitos_inbound,
-    ]
+    # -------------------------------------------------
+    # Generic dispatch (modules decide)
+    # -------------------------------------------------
+    try:
+        handled = dispatch(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        )
 
-    for handler in handlers:
-        try:
-            if handler(
-                db=db,
-                msg=msg,
-                sender=sender,
-                business_msisdn=business_msisdn,
-            ):
-                logger.info(
-                    "MESSAGE_HANDLED | handler=%s | business=%s",
-                    handler.__module__,
-                    business_msisdn,
-                )
-                return Response(status_code=200)
-
-        except Exception:
-            logger.exception(
-                "HANDLER_FAILURE | handler=%s | business=%s",
-                handler.__module__,
+        if handled:
+            logger.info(
+                "MESSAGE_HANDLED | business=%s",
                 business_msisdn,
             )
             return Response(status_code=200)
 
-    # ---- Fallback: unknown / unconfigured number ----
+    except Exception:
+        logger.exception(
+            "DISPATCH_FAILURE | business=%s",
+            business_msisdn,
+        )
+        return Response(status_code=200)
+
+    # -------------------------------------------------
+    # Fallback: unknown / unconfigured number
+    # -------------------------------------------------
     logger.warning(
         "NO_HANDLER_MATCH | sender=%s | business=%s",
         sender,

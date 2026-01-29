@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/survey/auto_close.py
-Path: app/survey/auto_close.py
+File: app/modules/survey/auto_close.py
+Path: app/modules/survey/auto_close.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
@@ -18,12 +18,13 @@ Responsibilities (LOCKED):
 import logging
 from sqlalchemy.orm import Session
 
-from app.survey.survey_service import (
+# ---- Survey module imports (UPDATED) ----
+from app.modules.survey.service import (
     get_expired_active_surveys,
     close_survey,
 )
 
-# ✅ ADD THIS IMPORT (only new dependency)
+# ---- Cross-module dependency (unchanged, intentional) ----
 from app.clients.magen.auto_close import auto_close_expired_inspections
 
 logger = logging.getLogger("survey_expiry_notifier")
@@ -36,7 +37,7 @@ def auto_close_expired_surveys(db: Session, business_number: str | None = None):
 
     try:
         # ----------------------------------
-        # Existing: Survey expiry
+        # Survey expiry
         # ----------------------------------
         expired = get_expired_active_surveys(db, business_number)
 
@@ -53,7 +54,7 @@ def auto_close_expired_surveys(db: Session, business_number: str | None = None):
         logger.exception("SURVEY_EXPIRY_FATAL")
 
     # ----------------------------------
-    # ✅ NEW: Magen inspection auto-close
+    # Magen inspection auto-close
     # ----------------------------------
     try:
         closed = auto_close_expired_inspections(db)

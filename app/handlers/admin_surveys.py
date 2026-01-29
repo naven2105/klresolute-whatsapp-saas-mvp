@@ -21,15 +21,17 @@ from sqlalchemy.orm import Session
 
 from app.models import Contact
 from app.outbound.factory import get_meta_client
-from app.survey import (
+
+# ---- Survey module imports (UPDATED ONLY) ----
+from app.modules.survey.survey_service import (
     start_survey,
     get_active_survey,
     close_survey,
-    build_survey_summary_text,
     auto_close_expired_surveys,
-    SURVEY_COMMAND_END,
 )
-from app.survey.survey_constants import (
+from app.modules.survey.summary import build_survey_summary_text
+from app.modules.survey.survey_constants import (
+    SURVEY_COMMAND_END,
     ADMIN_SURVEY_STARTED_TEMPLATE,
     ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE,
     ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,

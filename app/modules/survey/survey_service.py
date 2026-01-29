@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 """
-app/survey/survey_service.py
+File: app/modules/survey/survey_service.py
+Path: app/modules/survey/survey_service.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Survey lifecycle service for KLResolute MVP
 -------------------------------------------
@@ -20,8 +24,9 @@ from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.survey.survey_models import Survey, SurveyResponse
-from app.survey.survey_constants import (
+# ---- Survey module imports (UPDATED ONLY) ----
+from app.modules.survey.survey_models import Survey, SurveyResponse
+from app.modules.survey.survey_constants import (
     DEFAULT_SURVEY_DURATION_HOURS,
     SURVEY_STATUS_ACTIVE,
     SURVEY_STATUS_CLOSED,

@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 """
-File: app/survey/close_survey.py
+File: app/modules/survey/close_survey.py
+Path: app/modules/survey/close_survey.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Single authoritative way to close a survey
@@ -9,8 +13,8 @@ and notify admin exactly once.
 from datetime import datetime
 from sqlalchemy.orm import Session
 
-from app.survey.survey_models import Survey
-from app.survey.survey_text import build_survey_summary_text
+from app.modules.survey.models import Survey
+from app.modules.survey.summary import build_survey_summary_text
 from app.outbound.factory import get_meta_client
 
 

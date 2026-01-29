@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/survey/survey_expiry_notifier.py
+File: app/modules/survey/survey_expiry_notifier.py
+Path: app/modules/survey/survey_expiry_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
@@ -30,7 +31,10 @@ from typing import Optional
 from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
-from app.survey import close_survey, build_survey_summary_text
+
+# ---- Survey module imports (UPDATED ONLY) ----
+from app.modules.survey.close_survey import close_survey_and_notify as close_survey
+from app.modules.survey.summary import build_survey_summary_text
 
 logger = logging.getLogger("survey_expiry_notifier")
 
@@ -77,9 +81,7 @@ async def _run_forever() -> None:
         logger.warning("EXPIRY_NOTIFIER_DISABLED | exiting")
         return
 
-    # Import here so startup won't crash if app.db changes
     try:
-        # Typical pattern: app.db exposes SessionLocal
         from app.db import SessionLocal  # type: ignore
     except Exception as exc:
         logger.error("EXPIRY_NOTIFIER_NO_SESSIONLOCAL | error=%s", exc, exc_info=True)
@@ -93,9 +95,6 @@ async def _run_forever() -> None:
             if not admin_allowlist:
                 logger.warning("EXPIRY_NOTIFIER_NO_ADMINS | OUTBOUND_TEST_ALLOWLIST empty")
 
-            # IMPORTANT:
-            # We query surveys directly to handle “no inbound message” cases.
-            # We only pick ACTIVE surveys with ends_at <= now().
             db = SessionLocal()
             try:
                 rows = (
@@ -122,8 +121,6 @@ async def _run_forever() -> None:
                     if not survey_id:
                         continue
 
-                    # Load the ORM Survey object via the existing helper pattern:
-                    # close_survey/build_survey_summary_text expect a Survey object.
                     survey = (
                         db.execute(
                             text(
@@ -139,11 +136,8 @@ async def _run_forever() -> None:
                         .first()
                     )
 
-                    # If ORM model isn’t directly available here (mapping row),
-                    # we fall back to a safe close via SQL + then send a minimal notice.
-                    # BUT: we try the “proper” way first using ORM if possible.
                     try:
-                        from app.survey.survey_models import Survey  # type: ignore
+                        from app.modules.survey.models import Survey  # type: ignore
 
                         obj: Optional[Survey] = db.get(Survey, survey_id)  # type: ignore[attr-defined]
                         if not obj:
@@ -156,11 +150,10 @@ async def _run_forever() -> None:
                             getattr(obj, "business_number", None),
                         )
 
-                        close_survey(db, obj, manual=False)
+                        close_survey(db=db, survey=obj, closed_by="auto")
                         logger.info("EXPIRY_CLOSED | survey_id=%s", obj.id)
 
                         summary = build_survey_summary_text(db, obj)
-                        # Template rule: ensure no newlines/tabs/multi-spaces
                         summary_single = " ".join((summary or "").split())
 
                         for admin in admin_allowlist:
@@ -189,7 +182,6 @@ async def _run_forever() -> None:
                                 )
 
                     except Exception as exc:
-                        # Fallback: close by SQL if ORM import fails, and still log loudly.
                         logger.error(
                             "EXPIRY_CLOSE_ORM_FAIL | survey_id=%s | error=%s",
                             survey_id,
@@ -249,7 +241,6 @@ def start_survey_expiry_notifier() -> None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        # No running loop: safe no-op (prevents crash on import)
         logger.warning("EXPIRY_NOTIFIER_NO_LOOP | cannot start (no running loop)")
         return
 

@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 """
-File: app/survey/summary.py
+File: app/modules/survey/summary.py
+Path: app/modules/survey/summary.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Build admin-facing survey summaries with counts + percentages.
 """
 
 from sqlalchemy.orm import Session
-from app.survey.survey_models import Survey, SurveyResponse
+
+# ---- Survey module imports (UPDATED) ----
+from app.modules.survey.models import Survey, SurveyResponse
 
 
 def build_survey_summary_text(db: Session, survey: Survey) -> str:
