@@ -1,21 +1,42 @@
 """
-File: app/modules/survey/__init__.py
+File: app/survey/__init__.py
+Path: app/survey/__init__.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Explicit public interface for Survey module.
-
-Rules (LOCKED):
-- No logic
-- No side effects
-- Only stable exports
+LEGACY SHIM.
+Keep old import paths working while the codebase migrates to app/modules/survey.
 """
 
-from app.modules.survey.handler import handle
+from app.modules.survey.constants import (
+    DEFAULT_SURVEY_DURATION_HOURS,
+    SURVEY_BUTTON_SETS,
+    SUPPORTED_SURVEY_COMMANDS,
+    SURVEY_COMMAND_END,
+)
+
+from app.modules.survey.lifecycle import (
+    start_survey,
+    get_active_survey,
+    close_survey,
+    auto_close_expired_surveys,
+    record_response,
+    build_survey_summary_text,
+)
+
 from app.modules.survey.models import Survey, SurveyResponse
 
 __all__ = [
-    "handle",
+    "DEFAULT_SURVEY_DURATION_HOURS",
+    "SURVEY_BUTTON_SETS",
+    "SUPPORTED_SURVEY_COMMANDS",
+    "SURVEY_COMMAND_END",
+    "start_survey",
+    "get_active_survey",
+    "close_survey",
+    "auto_close_expired_surveys",
+    "record_response",
+    "build_survey_summary_text",
     "Survey",
     "SurveyResponse",
 ]
