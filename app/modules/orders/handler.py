@@ -17,8 +17,7 @@ Rules (LOCKED):
 import logging
 from sqlalchemy.orm import Session
 
-# ✅ SAFE ADAPTER: import existing handler and alias it locally
-from app.handlers.galitos_order_handler import handle as handle_order  # EXISTING, STABLE
+import app.handlers.galitos_order_handler as galitos_orders  # MODULE import (SAFE)
 
 logger = logging.getLogger("module.orders")
 
@@ -35,12 +34,24 @@ def handle(
     """
 
     try:
-        handled = handle_order(
-            db=db,
-            sender=sender,
-            msg=msg,
-            business_msisdn=business_msisdn,
-        )
+        # 🔒 Delegate to the existing handler's public entry point
+        if hasattr(galitos_orders, "handle_order"):
+            handled = galitos_orders.handle_order(
+                db=db,
+                sender=sender,
+                msg=msg,
+                business_msisdn=business_msisdn,
+            )
+        elif hasattr(galitos_orders, "handle"):
+            handled = galitos_orders.handle(
+                db=db,
+                sender=sender,
+                msg=msg,
+                business_msisdn=business_msisdn,
+            )
+        else:
+            logger.error("GALITOS_HANDLER_NO_ENTRYPOINT")
+            return False
 
         if handled:
             logger.info(
@@ -57,4 +68,4 @@ def handle(
             sender,
             business_msisdn,
         )
-        return True  # protect webhook
+        return True  # swallow to protect webhook
