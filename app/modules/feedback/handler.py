@@ -6,17 +6,19 @@ Path: app/modules/feedback/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Stub handler for Feedback module.
+Feedback module adapter.
 
 Responsibilities (LOCKED):
-- Claim feedback-related messages (future)
-- Return False for now so other modules can handle
-- NO DB writes
-- NO outbound messaging
+- Delegate ALL feedback handling to existing feedback_handler
+- No new business logic
+- No DB schema changes
+- Return True if feedback was handled
 """
 
 import logging
 from sqlalchemy.orm import Session
+
+from app.handlers.feedback_handler import handle_feedback_message  # EXISTING, STABLE
 
 logger = logging.getLogger("module.feedback")
 
@@ -29,8 +31,30 @@ def handle(
     business_msisdn: str,
 ) -> bool:
     """
-    Feedback module stub.
+    Feedback module entry point.
     """
 
-    # Not implemented yet — do not consume messages
-    return False
+    try:
+        handled = handle_feedback_message(
+            db=db,
+            msg=msg,
+            sender_number=sender,
+            business_msisdn=business_msisdn,
+        )
+
+        if handled:
+            logger.info(
+                "FEEDBACK_HANDLED | sender=%s | business=%s",
+                sender,
+                business_msisdn,
+            )
+
+        return bool(handled)
+
+    except Exception:
+        logger.exception(
+            "FEEDBACK_HANDLER_FAIL | sender=%s | business=%s",
+            sender,
+            business_msisdn,
+        )
+        return True  # swallow to protect webhook
