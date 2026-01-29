@@ -15,19 +15,15 @@ Responsibilities (LOCKED):
 - NO messaging
 - NO admin logic
 - NO schema definitions
-
-This file is a thin compatibility layer while Survey is migrated
-from app/survey → app/modules/survey.
 """
 
 from sqlalchemy.orm import Session
 
-# ---- survey models (authoritative DB schema) ----
-from app.modules.survey.models import Survey, SurveyResponse
+# ---- Authoritative DB schema (STAYS in app/survey) ----
+from app.survey.survey_models import Survey, SurveyResponse
 
-# ---- Legacy constants (authoritative definitions) ----
-from app.survey.survey_constants import SURVEY_BUTTON_SETS
-
+# ---- Authoritative constants (MOVED to module) ----
+from app.modules.survey.constants import SURVEY_BUTTON_SETS
 
 
 # -------------------------------------------------
@@ -83,9 +79,7 @@ def record_response(
         return False
 
     button_defs = SURVEY_BUTTON_SETS[survey.button_set]["buttons"]
-    tag = next(
-        b["tag"] for b in button_defs if b["id"] == button_id
-    )
+    tag = next(b["tag"] for b in button_defs if b["id"] == button_id)
 
     response = SurveyResponse(
         survey_id=survey.id,
