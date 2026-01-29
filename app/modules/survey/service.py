@@ -29,6 +29,7 @@ from app.modules.survey.models import Survey, SurveyResponse
 from app.survey.survey_constants import SURVEY_BUTTON_SETS
 
 
+
 # -------------------------------------------------
 # Active survey
 # -------------------------------------------------
