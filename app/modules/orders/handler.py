@@ -17,7 +17,8 @@ Rules (LOCKED):
 import logging
 from sqlalchemy.orm import Session
 
-from app.handlers.galitos_order_handler import handle_order  # EXISTING, STABLE
+# ✅ SAFE ADAPTER: import existing handler and alias it locally
+from app.handlers.galitos_order_handler import handle as handle_order  # EXISTING, STABLE
 
 logger = logging.getLogger("module.orders")
 
@@ -56,4 +57,4 @@ def handle(
             sender,
             business_msisdn,
         )
-        return True  # swallow to protect webhook
+        return True  # protect webhook
