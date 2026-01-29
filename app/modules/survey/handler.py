@@ -24,9 +24,6 @@ from sqlalchemy.orm import Session
 
 from app.handlers.admin_surveys import handle_admin_surveys
 
-# ✅ FIXED IMPORT (actual location)
-from app.handlers.client_commands import is_admin_message
-
 # ---- Survey services (MODULE-LEVEL) ----
 from app.modules.survey.service import (
     get_active_survey,
@@ -35,11 +32,22 @@ from app.modules.survey.service import (
 
 from app.modules.survey.constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 from app.messaging.client_messenger import send_message
-
 from app.profiles.client_profile import get_client_profile
 
 logger = logging.getLogger("module.survey")
 
+
+# -------------------------------------------------
+# Local helpers (NO legacy imports)
+# -------------------------------------------------
+
+def _is_admin(sender: str, admin_allowlist: set[str]) -> bool:
+    return sender in admin_allowlist
+
+
+# -------------------------------------------------
+# Module entry point
+# -------------------------------------------------
 
 def handle(
     *,
@@ -67,7 +75,7 @@ def handle(
         if not body:
             return False
 
-        if is_admin_message(sender, admin_allowlist):
+        if _is_admin(sender, admin_allowlist):
             handled = handle_admin_surveys(
                 db=db,
                 sender_number=sender,
@@ -94,7 +102,7 @@ def handle(
                 "SURVEY_RESPONSE_IGNORED | no active survey | sender=%s",
                 sender,
             )
-            return True
+            return True  # swallow silently
 
         recorded = record_response(
             db=db,
