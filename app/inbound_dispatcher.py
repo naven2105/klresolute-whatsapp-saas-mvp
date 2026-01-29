@@ -21,7 +21,9 @@ from sqlalchemy.orm import Session
 from app.clients.magen import config as magen_config
 from app.clients.galitos import config as galitos_config
 
+# ---- Modules ----
 from app.modules.inspection import handler as inspection_handler
+from app.modules.survey import handler as survey_handler
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -30,8 +32,8 @@ logger = logging.getLogger("inbound.dispatcher")
 # ----------------------------------
 
 CLIENTS = {
-    "27631016099": magen_config,    # MAGEN bot number
-    "GALITOS_MSISDN": galitos_config,  # replace when known
+    "27631016099": magen_config,        # MAGEN bot number
+    "GALITOS_MSISDN": galitos_config,   # replace when known
 }
 
 
@@ -59,16 +61,31 @@ def dispatch(
     # Module dispatch (ordered)
     # ----------------------------------
     for module_name in client.ENABLED_MODULES:
+
         if module_name == "inspection":
             handled = inspection_handler.handle(
                 db=db,
                 msg=msg,
                 sender=sender,
-                profile_code=client.INSPECTION_PROFILES["default"],
+                business_msisdn=business_msisdn,
             )
             if handled:
                 logger.info(
                     "MODULE_HANDLED | module=inspection | client=%s",
+                    client.CLIENT_CODE,
+                )
+                return True
+
+        if module_name == "survey":
+            handled = survey_handler.handle(
+                db=db,
+                msg=msg,
+                sender=sender,
+                business_msisdn=business_msisdn,
+            )
+            if handled:
+                logger.info(
+                    "MODULE_HANDLED | module=survey | client=%s",
                     client.CLIENT_CODE,
                 )
                 return True
