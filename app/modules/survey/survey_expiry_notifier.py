@@ -32,7 +32,7 @@ from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
 
-# ---- Survey module imports (UPDATED ONLY) ----
+# ---- Survey module imports (UNCHANGED) ----
 from app.modules.survey.close_survey import close_survey_and_notify as close_survey
 from app.modules.survey.summary import build_survey_summary_text
 
@@ -137,7 +137,8 @@ async def _run_forever() -> None:
                     )
 
                     try:
-                        from app.modules.survey.models import Survey  # type: ignore
+                        # ---- FIXED IMPORT ONLY ----
+                        from app.modules.survey.survey_models import Survey  # type: ignore
 
                         obj: Optional[Survey] = db.get(Survey, survey_id)  # type: ignore[attr-defined]
                         if not obj:

@@ -11,8 +11,8 @@ Build admin-facing survey summaries with counts + percentages.
 
 from sqlalchemy.orm import Session
 
-# ---- Survey module imports (UPDATED) ----
-from app.modules.survey.models import Survey, SurveyResponse
+# ---- Survey module imports (FIXED) ----
+from app.modules.survey.survey_models import Survey, SurveyResponse
 
 
 def build_survey_summary_text(db: Session, survey: Survey) -> str:

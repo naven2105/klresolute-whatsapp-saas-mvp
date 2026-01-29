@@ -13,7 +13,8 @@ and notify admin exactly once.
 from datetime import datetime
 from sqlalchemy.orm import Session
 
-from app.modules.survey.models import Survey
+# ---- Survey module import (FIXED) ----
+from app.modules.survey.survey_models import Survey
 from app.modules.survey.summary import build_survey_summary_text
 from app.outbound.factory import get_meta_client
 
