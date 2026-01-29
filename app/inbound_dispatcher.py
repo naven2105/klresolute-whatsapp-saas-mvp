@@ -7,7 +7,7 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Generic inbound dispatcher.
-Routes inbound messages to enabled modules per client config.
+Routes inbound messages to enabled modules per client profile.
 
 Rules (LOCKED):
 - No business logic
@@ -18,23 +18,16 @@ Rules (LOCKED):
 import logging
 from sqlalchemy.orm import Session
 
-from app.clients.magen import config as magen_config
-from app.clients.galitos import config as galitos_config
+from app.profiles.client_profile import get_client_profile
 
 # ---- Modules ----
 from app.modules.inspection import handler as inspection_handler
+from app.modules.vehicle_inspection import handler as vehicle_inspection_handler
 from app.modules.survey import handler as survey_handler
+from app.modules.broadcast import handler as broadcast_handler
+from app.modules.orders import handler as orders_handler
 
 logger = logging.getLogger("inbound.dispatcher")
-
-# ----------------------------------
-# Client registry (explicit, MVP-safe)
-# ----------------------------------
-
-CLIENTS = {
-    "27631016099": magen_config,        # MAGEN bot number
-    "GALITOS_MSISDN": galitos_config,   # replace when known
-}
 
 
 def dispatch(
@@ -48,51 +41,73 @@ def dispatch(
     Dispatch inbound message to enabled modules for the client.
     """
 
-    client = CLIENTS.get(business_msisdn)
-    if not client:
+    profile = get_client_profile(business_msisdn)
+    if not profile:
         logger.warning(
-            "DISPATCH_NO_CLIENT | business=%s | sender=%s",
+            "DISPATCH_NO_PROFILE | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
         return False
 
     # ----------------------------------
-    # Module dispatch (ordered)
+    # Module dispatch (ORDER MATTERS)
     # ----------------------------------
-    for module_name in client.ENABLED_MODULES:
+    for module in profile.enabled_modules:
 
-        if module_name == "inspection":
-            handled = inspection_handler.handle(
+        if module == "orders":
+            if orders_handler.handle(
                 db=db,
                 msg=msg,
                 sender=sender,
                 business_msisdn=business_msisdn,
-            )
-            if handled:
-                logger.info(
-                    "MODULE_HANDLED | module=inspection | client=%s",
-                    client.CLIENT_CODE,
-                )
+            ):
+                logger.info("MODULE_HANDLED | orders | %s", profile.client_code)
                 return True
 
-        if module_name == "survey":
-            handled = survey_handler.handle(
+        if module == "inspection":
+            if inspection_handler.handle(
                 db=db,
                 msg=msg,
                 sender=sender,
                 business_msisdn=business_msisdn,
-            )
-            if handled:
-                logger.info(
-                    "MODULE_HANDLED | module=survey | client=%s",
-                    client.CLIENT_CODE,
-                )
+            ):
+                logger.info("MODULE_HANDLED | inspection | %s", profile.client_code)
+                return True
+
+        if module == "vehicle_inspection":
+            if vehicle_inspection_handler.handle(
+                db=db,
+                msg=msg,
+                sender=sender,
+                business_msisdn=business_msisdn,
+            ):
+                logger.info("MODULE_HANDLED | vehicle_inspection | %s", profile.client_code)
+                return True
+
+        if module == "survey":
+            if survey_handler.handle(
+                db=db,
+                msg=msg,
+                sender=sender,
+                business_msisdn=business_msisdn,
+            ):
+                logger.info("MODULE_HANDLED | survey | %s", profile.client_code)
+                return True
+
+        if module == "broadcast":
+            if broadcast_handler.handle(
+                db=db,
+                msg=msg,
+                sender=sender,
+                business_msisdn=business_msisdn,
+            ):
+                logger.info("MODULE_HANDLED | broadcast | %s", profile.client_code)
                 return True
 
     logger.info(
         "NO_MODULE_HANDLED | client=%s | sender=%s",
-        client.CLIENT_CODE,
+        profile.client_code,
         sender,
     )
     return True
