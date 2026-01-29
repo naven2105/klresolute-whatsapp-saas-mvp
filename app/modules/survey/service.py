@@ -22,8 +22,8 @@ from app/survey → app/modules/survey.
 
 from sqlalchemy.orm import Session
 
-# ---- Legacy survey models (authoritative DB schema) ----
-from app.survey.survey_models import Survey, SurveyResponse
+# ---- survey models (authoritative DB schema) ----
+from app.modules.survey.models import Survey, SurveyResponse
 
 # ---- Legacy constants (authoritative definitions) ----
 from app.survey.survey_constants import SURVEY_BUTTON_SETS
