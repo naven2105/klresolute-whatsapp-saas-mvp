@@ -7,12 +7,11 @@ Project: KLResolute WhatsApp SaaS MVP
 PURPOSE:
 Minimal WhatsApp webhook dispatcher.
 
-RESPONSIBILITIES (LOCKED):
-- Parse inbound payload
-- Extract sender + business MSISDN + message
-- Prevent duplicate message handling (Meta retries)
-- Dispatch to generic inbound dispatcher
-- NO business logic
+LOCKED:
+- Parse inbound payload safely
+- Ignore non-message events
+- Dispatch ONLY real user messages
+- Prevent duplicate processing using provider_message_id (NOT UUID)
 """
 
 import logging
@@ -32,7 +31,7 @@ logger = logging.getLogger("webhooks")
 
 
 # -------------------------------------------------
-# Helpers (parsing only)
+# Helpers
 # -------------------------------------------------
 
 def _normalise_msisdn(raw: str | None) -> Optional[str]:
@@ -47,30 +46,40 @@ def _normalise_msisdn(raw: str | None) -> Optional[str]:
 
 
 def _extract_message(payload: dict):
+    """
+    Returns (msg, sender_msisdn, business_msisdn, provider_message_id)
+    or (None, None, None, None) if this is NOT a user message.
+    """
     try:
         entry = payload["entry"][0]["changes"][0]["value"]
-        msg = entry.get("messages", [None])[0]
-        sender = msg.get("from") if msg else None
+
+        messages = entry.get("messages")
+        if not messages:
+            return None, None, None, None  # NOT a user message
+
+        msg = messages[0]
+        sender = msg.get("from")
+        provider_message_id = msg.get("id")
+
         business_raw = entry.get("metadata", {}).get("display_phone_number")
-        message_id = msg.get("id") if msg else None
 
         return (
             msg,
-            message_id,
             _normalise_msisdn(sender),
             _normalise_msisdn(business_raw),
+            provider_message_id,
         )
+
     except Exception:
         logger.exception("PAYLOAD_PARSE_FAILED")
         return None, None, None, None
 
 
-# -------------------------------------------------
-# Duplicate guard (PROVIDER message id only)
-# -------------------------------------------------
+def _is_duplicate_provider_message(db: Session, provider_message_id: str) -> bool:
+    if not provider_message_id:
+        return False
 
-def _is_duplicate_message(db: Session, provider_message_id: str) -> bool:
-    exists = db.execute(
+    row = db.execute(
         text(
             """
             SELECT 1
@@ -81,7 +90,8 @@ def _is_duplicate_message(db: Session, provider_message_id: str) -> bool:
         ),
         {"pid": provider_message_id},
     ).first()
-    return bool(exists)
+
+    return bool(row)
 
 
 # -------------------------------------------------
@@ -101,9 +111,15 @@ async def whatsapp_webhook(
         logger.warning("INVALID_JSON")
         return Response(status_code=200)
 
-    msg, provider_message_id, sender, business_msisdn = _extract_message(payload)
+    msg, sender, business_msisdn, provider_message_id = _extract_message(payload)
 
-    if not msg or not sender or not business_msisdn:
+    # -------------------------------------------------
+    # Ignore non-message events SILENTLY
+    # -------------------------------------------------
+    if not msg:
+        return Response(status_code=200)
+
+    if not sender or not business_msisdn:
         logger.warning(
             "INVALID_MESSAGE | sender=%s | business=%s",
             sender,
@@ -112,22 +128,17 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------------------------
-    # Duplicate protection (Meta retries)
+    # Duplicate protection (SAFE)
     # -------------------------------------------------
-    if provider_message_id:
-        try:
-            if _is_duplicate_message(db, provider_message_id):
-                logger.info(
-                    "DUPLICATE_MESSAGE_IGNORED | provider_id=%s",
-                    provider_message_id,
-                )
-                return Response(status_code=200)
-        except Exception:
-            logger.exception("DUPLICATE_CHECK_FAIL")
-            return Response(status_code=200)
+    if _is_duplicate_provider_message(db, provider_message_id):
+        logger.info(
+            "DUPLICATE_MESSAGE_IGNORED | provider_id=%s",
+            provider_message_id,
+        )
+        return Response(status_code=200)
 
     # -------------------------------------------------
-    # SAFE background maintenance
+    # Background maintenance (safe)
     # -------------------------------------------------
     try:
         auto_close_expired_inspections(db)
@@ -146,11 +157,7 @@ async def whatsapp_webhook(
         )
 
         if handled:
-            logger.info(
-                "MESSAGE_HANDLED | business=%s",
-                business_msisdn,
-            )
-            return Response(status_code=200)
+            logger.info("MESSAGE_HANDLED | business=%s", business_msisdn)
 
     except Exception:
         logger.exception(
