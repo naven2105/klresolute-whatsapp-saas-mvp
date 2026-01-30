@@ -7,14 +7,11 @@ Project: KLResolute WhatsApp SaaS MVP
 PURPOSE:
 Minimal WhatsApp webhook dispatcher.
 
-RESPONSIBILITIES (LOCKED):
-- Parse inbound payload
-- Extract sender + business MSISDN + message
-- Dispatch to generic inbound dispatcher
-- Stop at first module that claims the message
-- Log and ignore non-message payloads (statuses, receipts, etc.)
-
-NO BUSINESS LOGIC HERE.
+LOCKED RESPONSIBILITIES:
+- Accept ONLY real inbound user messages
+- Ignore status / delivery / read callbacks
+- Never dispatch malformed payloads
+- Never reply to Meta status events
 """
 
 import logging
@@ -30,60 +27,60 @@ from app.clients.magen.auto_close import auto_close_expired_inspections
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
-logging.basicConfig(level=logging.INFO)
 
 
 # -------------------------------------------------
-# Helpers (pure parsing only)
+# Helpers
 # -------------------------------------------------
 
 def _normalise_msisdn(raw: str | None) -> Optional[str]:
     if not raw:
         return None
-
     digits = re.sub(r"\D", "", raw)
     if digits.startswith("0"):
         digits = "27" + digits[1:]
-
     if digits.startswith("27") and len(digits) >= 11:
         return digits
-
     return None
 
 
 def _extract_message(payload: dict):
     """
-    Extract ONLY real inbound user messages.
-    Logs full payload if structure is unexpected.
+    Returns (msg, sender, business_msisdn)
+    OR (None, None, None) if NOT a user message.
     """
+
     try:
         entry = payload["entry"][0]["changes"][0]["value"]
 
-        # ---- HARD FILTER: ignore statuses / receipts ----
+        # ---- HARD STOP: status callbacks ----
         if "messages" not in entry:
             logger.warning(
-                "WEBHOOK_NON_MESSAGE_PAYLOAD | keys=%s | payload=%s",
+                "WEBHOOK_NON_MESSAGE_PAYLOAD | keys=%s",
                 list(entry.keys()),
-                payload,
             )
             return None, None, None
 
         msg = entry["messages"][0]
-        sender = msg.get("from")
 
-        business_raw = entry.get("metadata", {}).get("display_phone_number")
-
-        return (
-            msg,
-            _normalise_msisdn(sender),
-            _normalise_msisdn(business_raw),
+        sender = _normalise_msisdn(msg.get("from"))
+        business = _normalise_msisdn(
+            entry.get("metadata", {}).get("display_phone_number")
         )
 
-    except Exception:
-        logger.exception(
-            "PAYLOAD_PARSE_FATAL | payload=%s",
-            payload,
-        )
+        if not sender or not business:
+            logger.error(
+                "WEBHOOK_BAD_MESSAGE | sender=%s | business=%s | msg=%s",
+                sender,
+                business,
+                msg,
+            )
+            return None, None, None
+
+        return msg, sender, business
+
+    except Exception as exc:
+        logger.exception("WEBHOOK_PARSE_FAILED | error=%s", exc)
         return None, None, None
 
 
@@ -106,29 +103,17 @@ async def whatsapp_webhook(
 
     msg, sender, business_msisdn = _extract_message(payload)
 
-    # -------------------------------------------------
-    # LOG WHY WE DROPPED IT
-    # -------------------------------------------------
-    if not msg or not sender or not business_msisdn:
-        logger.error(
-            "WEBHOOK_DROP | reason=missing_fields | sender=%s | business=%s | payload=%s",
-            sender,
-            business_msisdn,
-            payload,
-        )
+    # ---- FINAL HARD STOP ----
+    if msg is None:
         return Response(status_code=200)
 
-    # -------------------------------------------------
-    # SAFE BACKGROUND MAINTENANCE
-    # -------------------------------------------------
+    # ---- SAFE background maintenance ----
     try:
         auto_close_expired_inspections(db)
     except Exception:
         logger.exception("MAGEN_AUTO_CLOSE_FAILED")
 
-    # -------------------------------------------------
-    # Dispatch
-    # -------------------------------------------------
+    # ---- Dispatch ----
     try:
         handled = dispatch(
             db=db,
@@ -143,7 +128,6 @@ async def whatsapp_webhook(
                 sender,
                 business_msisdn,
             )
-            return Response(status_code=200)
 
     except Exception:
         logger.exception(
@@ -151,12 +135,5 @@ async def whatsapp_webhook(
             sender,
             business_msisdn,
         )
-        return Response(status_code=200)
-
-    logger.warning(
-        "NO_HANDLER_MATCH | sender=%s | business=%s",
-        sender,
-        business_msisdn,
-    )
 
     return Response(status_code=200)
