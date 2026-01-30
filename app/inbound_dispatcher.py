@@ -33,6 +33,56 @@ from app.modules.orders import handler as orders_handler
 logger = logging.getLogger("inbound.dispatcher")
 
 
+# -------------------------------------------------
+# Client resolution (FIX)
+# -------------------------------------------------
+
+def _resolve_client_profile(db: Session, business_msisdn: str):
+    """
+    Resolve client profile via whatsapp_numbers → clients.
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT c.client_code
+                    FROM whatsapp_numbers w
+                    JOIN clients c ON c.client_id = w.client_id
+                    WHERE w.destination_number = :business
+                      AND w.status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_msisdn},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row:
+            logger.error(
+                "DISPATCH_NO_CLIENT | business=%s",
+                business_msisdn,
+            )
+            return None
+
+        return get_client_profile(row["client_code"])
+
+    except Exception as exc:
+        logger.error(
+            "DISPATCH_CLIENT_LOOKUP_FAIL | business=%s | error=%s",
+            business_msisdn,
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+# -------------------------------------------------
+# Message helpers
+# -------------------------------------------------
+
 def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None:
     row = (
         db.execute(
@@ -40,8 +90,8 @@ def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None
                 """
                 SELECT cm.message_text
                 FROM client_messages cm
-                JOIN clients c ON c.client_id = cm.client_id
-                WHERE c.client_number = :business
+                JOIN whatsapp_numbers w ON w.client_id = cm.client_id
+                WHERE w.destination_number = :business
                   AND cm.message_key = 'unknown_sender'
                   AND cm.is_active = TRUE
                 LIMIT 1
@@ -68,8 +118,8 @@ def _send_magen_staff_auto_response(
                 """
                 SELECT cm.message_text
                 FROM client_messages cm
-                JOIN clients c ON c.client_id = cm.client_id
-                WHERE c.client_number = :business
+                JOIN whatsapp_numbers w ON w.client_id = cm.client_id
+                WHERE w.destination_number = :business
                   AND cm.message_key = 'staff_unknown'
                   AND cm.is_active = TRUE
                 LIMIT 1
@@ -108,8 +158,8 @@ def _send_menu(
                 """
                 SELECT m.menu_json
                 FROM client_menus m
-                JOIN clients c ON c.client_id = m.client_id
-                WHERE c.client_number = :business
+                JOIN whatsapp_numbers w ON w.client_id = m.client_id
+                WHERE w.destination_number = :business
                   AND m.menu_key = :menu_key
                   AND m.is_active = TRUE
                 LIMIT 1
@@ -129,6 +179,10 @@ def _send_menu(
     )
 
 
+# -------------------------------------------------
+# Dispatcher
+# -------------------------------------------------
+
 def dispatch(
     *,
     db: Session,
@@ -137,10 +191,10 @@ def dispatch(
     business_msisdn: str,
 ) -> bool:
 
-    profile = get_client_profile(business_msisdn)
+    profile = _resolve_client_profile(db, business_msisdn)
 
     # ----------------------------------
-    # Unknown number
+    # Unknown / unconfigured bot number
     # ----------------------------------
     if not profile:
         _send_unknown_sender(db, sender, business_msisdn)
@@ -172,7 +226,7 @@ def dispatch(
             return True
 
     # ----------------------------------
-    # STEP 4: MAGEN strict staff handling
+    # MAGEN strict handling
     # ----------------------------------
     if profile.client_code == "MAGEN":
         if is_admin_message(
@@ -214,5 +268,3 @@ def dispatch(
         menu_key="customer_menu",
     )
     return True
-
-
