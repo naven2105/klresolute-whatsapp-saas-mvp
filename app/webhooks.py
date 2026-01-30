@@ -10,11 +10,8 @@ Minimal WhatsApp webhook dispatcher.
 RESPONSIBILITIES (LOCKED):
 - Parse inbound payload
 - Extract sender + business MSISDN + message
-- De-duplicate inbound messages (Meta retries)
-- Dispatch to generic inbound dispatcher
-- Stop at first module that claims the message
-
-NO BUSINESS LOGIC HERE.
+- Prevent duplicate processing (string message_id)
+- Dispatch to inbound dispatcher
 """
 
 import logging
@@ -31,11 +28,10 @@ from app.clients.magen.auto_close import auto_close_expired_inspections
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
-logging.basicConfig(level=logging.INFO)
 
 
 # -------------------------------------------------
-# Helpers (pure parsing only)
+# Helpers
 # -------------------------------------------------
 
 def _normalise_msisdn(raw: str | None) -> Optional[str]:
@@ -53,13 +49,9 @@ def _extract_message(payload: dict):
     try:
         entry = payload["entry"][0]["changes"][0]["value"]
         msg = entry.get("messages", [None])[0]
-
-        if not msg:
-            return None, None, None, None
-
-        sender = msg.get("from")
+        sender = msg.get("from") if msg else None
         business_raw = entry.get("metadata", {}).get("display_phone_number")
-        message_id = msg.get("id")
+        message_id = msg.get("id") if msg else None
 
         return (
             msg,
@@ -74,6 +66,9 @@ def _extract_message(payload: dict):
 
 
 def _is_duplicate_message(db: Session, message_id: str) -> bool:
+    if not message_id:
+        return False
+
     exists = db.execute(
         text(
             """
@@ -86,20 +81,7 @@ def _is_duplicate_message(db: Session, message_id: str) -> bool:
         {"message_id": message_id},
     ).first()
 
-    if exists:
-        return True
-
-    db.execute(
-        text(
-            """
-            INSERT INTO messages (message_id, created_at)
-            VALUES (:message_id, now())
-            """
-        ),
-        {"message_id": message_id},
-    )
-    db.commit()
-    return False
+    return exists is not None
 
 
 # -------------------------------------------------
@@ -121,7 +103,7 @@ async def whatsapp_webhook(
 
     msg, message_id, sender, business_msisdn = _extract_message(payload)
 
-    if not msg or not sender or not business_msisdn or not message_id:
+    if not msg or not sender or not business_msisdn:
         logger.warning(
             "INVALID_MESSAGE | sender=%s | business=%s",
             sender,
@@ -129,27 +111,24 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
-    # -------------------------------------------------
-    # De-duplication (Meta retries)
-    # -------------------------------------------------
+    # ----------------------------------
+    # DUPLICATE PROTECTION (STRING SAFE)
+    # ----------------------------------
     if _is_duplicate_message(db, message_id):
-        logger.info(
-            "DUPLICATE_MESSAGE_DROPPED | message_id=%s",
-            message_id,
-        )
+        logger.info("DUPLICATE_MESSAGE_IGNORED | message_id=%s", message_id)
         return Response(status_code=200)
 
-    # -------------------------------------------------
+    # ----------------------------------
     # SAFE BACKGROUND MAINTENANCE
-    # -------------------------------------------------
+    # ----------------------------------
     try:
         auto_close_expired_inspections(db)
     except Exception:
         logger.exception("MAGEN_AUTO_CLOSE_FAILED")
 
-    # -------------------------------------------------
-    # Dispatch
-    # -------------------------------------------------
+    # ----------------------------------
+    # DISPATCH
+    # ----------------------------------
     try:
         handled = dispatch(
             db=db,
@@ -159,16 +138,17 @@ async def whatsapp_webhook(
         )
 
         if handled:
-            logger.info(
-                "MESSAGE_HANDLED | business=%s",
-                business_msisdn,
-            )
+            logger.info("MESSAGE_HANDLED | business=%s", business_msisdn)
             return Response(status_code=200)
 
     except Exception:
-        logger.exception(
-            "DISPATCH_FAILURE | business=%s",
-            business_msisdn,
-        )
+        logger.exception("DISPATCH_FAILURE | business=%s", business_msisdn)
+        return Response(status_code=200)
+
+    logger.warning(
+        "NO_HANDLER_MATCH | sender=%s | business=%s",
+        sender,
+        business_msisdn,
+    )
 
     return Response(status_code=200)
