@@ -48,19 +48,19 @@ def _normalise_msisdn(raw: str | None) -> Optional[str]:
 def _extract_message(payload: dict):
     """
     Returns (msg, sender_msisdn, business_msisdn, provider_message_id)
-    or (None, None, None, None) if this is NOT a user message.
+    or (None, None, None, None) if NOT a user message.
     """
     try:
         entry = payload["entry"][0]["changes"][0]["value"]
 
         messages = entry.get("messages")
         if not messages:
-            return None, None, None, None  # NOT a user message
+            logger.debug("WEBHOOK_NO_MESSAGES_EVENT")
+            return None, None, None, None
 
         msg = messages[0]
         sender = msg.get("from")
         provider_message_id = msg.get("id")
-
         business_raw = entry.get("metadata", {}).get("display_phone_number")
 
         return (
@@ -70,28 +70,44 @@ def _extract_message(payload: dict):
             provider_message_id,
         )
 
-    except Exception:
-        logger.exception("PAYLOAD_PARSE_FAILED")
+    except Exception as exc:
+        logger.error(
+            "PAYLOAD_PARSE_FAILED | error=%s | payload_keys=%s",
+            exc,
+            list(payload.keys()) if isinstance(payload, dict) else None,
+            exc_info=True,
+        )
         return None, None, None, None
 
 
 def _is_duplicate_provider_message(db: Session, provider_message_id: str) -> bool:
     if not provider_message_id:
+        logger.warning("DUPLICATE_CHECK_NO_PROVIDER_ID")
         return False
 
-    row = db.execute(
-        text(
-            """
-            SELECT 1
-            FROM messages
-            WHERE provider_message_id = :pid
-            LIMIT 1
-            """
-        ),
-        {"pid": provider_message_id},
-    ).first()
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM messages
+                WHERE provider_message_id = :pid
+                LIMIT 1
+                """
+            ),
+            {"pid": provider_message_id},
+        ).first()
 
-    return bool(row)
+        return bool(row)
+
+    except Exception as exc:
+        logger.error(
+            "DUPLICATE_CHECK_FAILED | provider_id=%s | error=%s",
+            provider_message_id,
+            exc,
+            exc_info=True,
+        )
+        return False  # fail-open to avoid blocking messages
 
 
 # -------------------------------------------------
@@ -107,43 +123,49 @@ async def whatsapp_webhook(
 
     try:
         payload = await request.json()
-    except Exception:
-        logger.warning("INVALID_JSON")
+    except Exception as exc:
+        logger.error("INVALID_JSON | error=%s", exc, exc_info=True)
         return Response(status_code=200)
 
     msg, sender, business_msisdn, provider_message_id = _extract_message(payload)
 
     # -------------------------------------------------
-    # Ignore non-message events SILENTLY
+    # Ignore non-message events silently
     # -------------------------------------------------
     if not msg:
         return Response(status_code=200)
 
     if not sender or not business_msisdn:
         logger.warning(
-            "INVALID_MESSAGE | sender=%s | business=%s",
+            "INVALID_MESSAGE | sender=%s | business=%s | provider_id=%s",
             sender,
             business_msisdn,
-        )
-        return Response(status_code=200)
-
-    # -------------------------------------------------
-    # Duplicate protection (SAFE)
-    # -------------------------------------------------
-    if _is_duplicate_provider_message(db, provider_message_id):
-        logger.info(
-            "DUPLICATE_MESSAGE_IGNORED | provider_id=%s",
             provider_message_id,
         )
         return Response(status_code=200)
 
     # -------------------------------------------------
-    # Background maintenance (safe)
+    # Duplicate protection
+    # -------------------------------------------------
+    if _is_duplicate_provider_message(db, provider_message_id):
+        logger.info(
+            "DUPLICATE_MESSAGE_IGNORED | provider_id=%s | sender=%s",
+            provider_message_id,
+            sender,
+        )
+        return Response(status_code=200)
+
+    # -------------------------------------------------
+    # Background maintenance
     # -------------------------------------------------
     try:
         auto_close_expired_inspections(db)
-    except Exception:
-        logger.exception("MAGEN_AUTO_CLOSE_FAILED")
+    except Exception as exc:
+        logger.error(
+            "MAGEN_AUTO_CLOSE_FAILED | error=%s",
+            exc,
+            exc_info=True,
+        )
 
     # -------------------------------------------------
     # Dispatch
@@ -156,13 +178,20 @@ async def whatsapp_webhook(
             business_msisdn=business_msisdn,
         )
 
-        if handled:
-            logger.info("MESSAGE_HANDLED | business=%s", business_msisdn)
-
-    except Exception:
-        logger.exception(
-            "DISPATCH_FAILURE | business=%s",
+        logger.info(
+            "DISPATCH_RESULT | handled=%s | sender=%s | business=%s",
+            handled,
+            sender,
             business_msisdn,
+        )
+
+    except Exception as exc:
+        logger.error(
+            "DISPATCH_FAILURE | sender=%s | business=%s | error=%s",
+            sender,
+            business_msisdn,
+            exc,
+            exc_info=True,
         )
 
     return Response(status_code=200)
