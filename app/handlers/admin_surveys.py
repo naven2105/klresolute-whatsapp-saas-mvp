@@ -38,6 +38,9 @@ from app.modules.survey.survey_constants import (
     SURVEY_BUTTON_SETS,
 )
 
+from app.utils.admin import is_admin_message
+from sqlalchemy import text
+
 # -------------------------------------------------
 # Logging
 # -------------------------------------------------
@@ -86,7 +89,7 @@ def handle_admin_surveys(
     db: Session,
     sender_number: str,
     message_text: str,
-    admin_allowlist: set[str],
+    business_msisdn: str,
 ) -> bool:
     """
     Returns True if a survey command was handled.
@@ -94,14 +97,20 @@ def handle_admin_surveys(
 
     logger.info("SURVEY_ENTER | sender=%s | raw=%r", sender_number, message_text)
 
-    if sender_number not in admin_allowlist:
+    if not is_admin_message(
+        db=db,
+        sender=sender_number,
+        business_msisdn=business_msisdn,
+    ):
         logger.info("SURVEY_REJECT | not admin")
         return False
 
     meta = get_meta_client()
     text_clean = (message_text or "").strip()
     upper = text_clean.upper()
-    business_number = sender_number
+
+    business_number = business_msisdn
+    
 
     logger.info("SURVEY_CLEAN | clean=%r | upper=%r", text_clean, upper)
 
@@ -216,11 +225,28 @@ def handle_admin_surveys(
     # Send to customers
     # -------------------------------------------------
     buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
+
+    admin_numbers = {
+        row[0]
+        for row in db.execute(
+            text(
+                """
+                SELECT msisdn
+                FROM client_admins
+                WHERE client_code = :client
+                AND is_active = TRUE
+                """
+            ),
+            {"client": business_msisdn},
+        ).all()
+    }
+
     contacts = (
         db.query(Contact)
-        .filter(~Contact.contact_number.in_(admin_allowlist))
+        .filter(~Contact.contact_number.in_(admin_numbers))
         .all()
     )
+
 
     logger.info(
         "SURVEY_SEND_BEGIN | survey_id=%s | recipients=%s",

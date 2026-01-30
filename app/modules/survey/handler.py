@@ -32,7 +32,6 @@ from app.modules.survey.service import (
 )
 from app.modules.survey.constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 
-# ✅ shared helper (no legacy imports)
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("module.survey")
@@ -53,28 +52,30 @@ def handle(
     if not profile or "survey" not in profile.enabled_modules:
         return False
 
-    admin_allowlist = set(profile.admin_numbers)
     msg_type = msg.get("type")
 
     # ----------------------------------
-    # ADMIN COMMANDS
+    # ADMIN SURVEY COMMANDS (TEXT)
     # ----------------------------------
     if msg_type == "text":
         body = msg.get("text", {}).get("body", "").strip()
         if not body:
             return False
 
-        if is_admin_message(sender, admin_allowlist):
-            handled = handle_admin_surveys(
+        if is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        ):
+            return handle_admin_surveys(
                 db=db,
                 sender_number=sender,
                 message_text=body,
-                admin_allowlist=admin_allowlist,
+                business_msisdn=business_msisdn,
             )
-            return handled
 
     # ----------------------------------
-    # CUSTOMER SURVEY RESPONSE
+    # CUSTOMER SURVEY RESPONSE (BUTTON)
     # ----------------------------------
     if msg_type == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")

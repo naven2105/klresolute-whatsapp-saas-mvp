@@ -22,8 +22,12 @@ Rules:
 import logging
 from sqlalchemy.orm import Session
 
+from sqlalchemy import text
+
 from app.models import Contact
 from app.outbound.factory import get_meta_client
+
+from app.utils.admin import is_admin_message
 
 # -------------------------------------------------
 # Logging
@@ -41,7 +45,7 @@ def handle_admin_messaging(
     db: Session,
     sender_number: str,
     message_text: str,
-    admin_allowlist: set[str],
+    business_msisdn: str,
 ) -> bool:
     """
     Handles admin messaging commands.
@@ -57,12 +61,17 @@ def handle_admin_messaging(
         message_text,
     )
 
-    if sender_number not in admin_allowlist:
+    
+    if not is_admin_message(
+        db=db,
+        sender=sender_number,
+        business_msisdn=business_msisdn,
+    ):
         logger.info(
             "ADMIN_MSG_REJECT | sender not admin | sender=%s",
             sender_number,
         )
-        return False
+        return False    
 
     meta = get_meta_client()
     text = (message_text or "").strip()
@@ -168,11 +177,27 @@ def handle_admin_messaging(
             )
             return True
 
+        admin_numbers = {
+            row[0]
+            for row in db.execute(
+                text(
+                    """
+                    SELECT msisdn
+                    FROM client_admins
+                    WHERE client_code = :client
+                    AND is_active = TRUE
+                    """
+                ),
+                {"client": business_msisdn},
+            ).all()
+        }
+
         contacts = (
             db.query(Contact)
-            .filter(~Contact.contact_number.in_(admin_allowlist))
+            .filter(~Contact.contact_number.in_(admin_numbers))
             .all()
         )
+
 
         logger.info(
             "ADMIN_MSG_BROADCAST_BEGIN | recipients=%s",

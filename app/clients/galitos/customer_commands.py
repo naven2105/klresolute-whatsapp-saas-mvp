@@ -23,6 +23,7 @@ from app.outbound.factory import get_meta_client
 from app.menus.customers.galitos_customer_menu import GALITOS_CUSTOMER_MENU
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
+from app.utils.admin import is_admin_message
 
 def _render_menu(menu: dict) -> str:
     lines = [menu["title"], ""]
@@ -121,8 +122,8 @@ def handle_client_command(
     db: Session,
     sender: str,
     msg: dict,
-    admin_allowlist: set[str],
     client_id: str,
+    business_msisdn: str,
 ) -> bool:
     msg_type = msg.get("type")
 
@@ -194,7 +195,14 @@ def handle_client_command(
     # ----------------------------------
     # RESUME
     # ----------------------------------
-    if text_upper == "RESUME" and sender not in admin_allowlist:
+    if (
+        text_upper == "RESUME"
+        and not is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        )
+    ):
         existing = (
             db.query(Contact)
             .filter(Contact.contact_number == sender)

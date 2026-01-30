@@ -37,6 +37,8 @@ logger = logging.getLogger("admin_menu")
 from app.menus.admin.galitos_admin_menu import GALITOS_ADMIN_MENU
 from app.menus.admin.magen_admin_menu import MAGEN_ADMIN_MENU
 
+from app.utils.admin import is_admin_message
+
 
 # -------------------------------------------------
 # Helpers
@@ -75,7 +77,7 @@ def handle_admin_menu(
     db: Session,
     sender_number: str,
     message_text: str,
-    admin_allowlist: set[str],
+    business_msisdn: str,
     client_id: int | None = None,
 ) -> bool:
     """
@@ -93,7 +95,11 @@ def handle_admin_menu(
         client_id,
     )
 
-    if sender_number not in admin_allowlist:
+    if not is_admin_message(
+        db=db,
+        sender=sender_number,
+        business_msisdn=business_msisdn,
+    ):
         logger.info(
             "ADMIN_MENU_REJECT | sender not admin | sender=%s",
             sender_number,

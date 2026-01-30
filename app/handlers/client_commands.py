@@ -6,21 +6,8 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Tier 1 Client & Admin Handler
-
-LOCKED RULES:
-- This file must NOT render customer menus (no CLIENT_MENU_TEXT here)
-- Customer menus + FOOD flow are handled in app/client/commands.py
-- This file remains responsible for:
-  - Survey button replies
-  - Admin MENU (admin-only)
-  - JOIN / STOP / ABOUT / HOURS / SPECIALS (customer utilities)
-  - Delegating all other customer text to app/client/commands.py
-
-Logging:
-- Adds explicit error logs around delegation and unexpected failures.
 """
 
-import os
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -30,6 +17,8 @@ from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
 from app.models import WhatsAppNumber
+
+from app.utils.admin import is_admin_message
 
 # =========================
 # Logging
@@ -50,40 +39,29 @@ from app.survey.survey_constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 # =========================
 # Delegate customer handler
 # =========================
-from app.clients.galitos.customer_commands import handle_client_command as handle_customer_commands
+from app.clients.galitos.customer_commands import (
+    handle_client_command as handle_customer_commands
+)
 
 # =========================
-# Admin menu ONLY (kept)
+# Admin menu ONLY (legacy, kept)
 # =========================
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
-    "📊 Surveys (button-based)\n"
-    "SURVEY SENTIMENT: <question> – Sentiment (👍 Yes / 😐 Okay / 👎 No)\n"
-    "SURVEY FREQUENCY: <question> – Frequency (Weekly / Occasionally / First time)\n"
-    "SURVEY HELPFULNESS: <question> – Helpfulness (Very helpful / Somewhat / Not helpful)\n"
-    "END SURVEY – Close active survey\n\n"
-    "👥 Clients\n"
-    "ADD CLIENT: <number>\n"
-    "REMOVE CLIENT: <number>\n"
-    "COUNT – Active clients\n\n"
+    "📊 Surveys\n"
+    "SURVEY SENTIMENT: <question>\n"
+    "SURVEY FREQUENCY: <question>\n"
+    "SURVEY HELPFULNESS: <question>\n"
+    "END SURVEY\n\n"
     "✉️ Messaging\n"
     "SEND: <number> <message>\n"
-    "BROADCAST: <message>  (text only)\n\n"
-    "🖼️ Specials\n"
-    "Send image + caption – Updates specials (push + replay)\n\n"
+    "BROADCAST: <message>\n\n"
     "⚙️ System\n"
-    "PAUSE – Stop outbound messages\n"
-    "RESUME – Resume outbound messages"
+    "PAUSE\n"
+    "RESUME"
 )
 
-ADMIN_ALLOWLIST = {
-    n.strip()
-    for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
-    if n.strip()
-}
-
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
-
 
 # =========================
 # Helpers
@@ -91,10 +69,7 @@ _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 def _send_text(to_number: str, text: str) -> None:
     logger.info("SEND_TEXT | to=%s | text=%r", to_number, text)
-    _meta_client.send_session_message(
-        to_msisdn=to_number,
-        text=text,
-    )
+    _meta_client.send_session_message(to_msisdn=to_number, text=text)
 
 
 def _send_latest_special(db: Session, to_number: str, client_id) -> None:
@@ -145,7 +120,7 @@ def _resolve_store_context_fallback(db: Session):
 
 def handle_client_command(
     *,
-    db,
+    db: Session,
     sender_number: str,
     message_text: str,
     msg: dict | None = None,
@@ -153,20 +128,21 @@ def handle_client_command(
     resolved_business_number: str | None = None,
     resolved_phone_number_id: str | None = None,
 ) -> bool:
-    """
-    Returns:
-        True  -> message handled here or delegated successfully
-        False -> not handled (should be rare)
-    """
-
     try:
-        is_admin = sender_number in ADMIN_ALLOWLIST
-
         client_id = resolved_client_id
         business_number = resolved_business_number
 
         if not client_id or not business_number:
             client_id, business_number = _resolve_store_context_fallback(db)
+
+        is_admin = (
+            business_number
+            and is_admin_message(
+                db=db,
+                sender=sender_number,
+                business_msisdn=business_number,
+            )
+        )
 
         # ----------------------------------
         # Auto-close surveys
@@ -176,8 +152,22 @@ def handle_client_command(
                 closed = auto_close_expired_surveys(db, business_number)
                 if closed:
                     summary = build_survey_summary_text(db, closed)
-                    for admin in ADMIN_ALLOWLIST:
+
+                    admins = db.execute(
+                        text(
+                            """
+                            SELECT msisdn
+                            FROM client_admins
+                            WHERE client_code = :client
+                              AND is_active = TRUE
+                            """
+                        ),
+                        {"client": business_number},
+                    ).scalars().all()
+
+                    for admin in admins:
                         _send_text(admin, summary)
+
             except Exception as e:
                 logger.exception(
                     "SURVEY_AUTO_CLOSE_FAIL | business=%s | err=%s",
@@ -188,40 +178,31 @@ def handle_client_command(
         # ----------------------------------
         # Survey button replies
         # ----------------------------------
-        if msg and msg.get("type") == "interactive":
+        if msg and msg.get("type") == "interactive" and business_number:
             button_reply = (
                 msg.get("interactive", {})
                 .get("button_reply", {})
                 .get("id")
             )
 
-            if button_reply and business_number:
-                try:
-                    active = get_active_survey(db, business_number)
-                    if active:
-                        ok = record_response(
-                            db=db,
-                            survey=active,
-                            client_number=sender_number,
-                            button_id=button_reply,
-                        )
-                        if ok:
-                            _send_text(sender_number, CUSTOMER_SURVEY_THANK_YOU_TEMPLATE)
-                    return True
-                except Exception as e:
-                    logger.exception(
-                        "SURVEY_INTERACTIVE_FAIL | sender=%s | business=%s | button=%s | err=%s",
-                        sender_number,
-                        business_number,
-                        button_reply,
-                        str(e),
+            if button_reply:
+                active = get_active_survey(db, business_number)
+                if active:
+                    ok = record_response(
+                        db=db,
+                        survey=active,
+                        client_number=sender_number,
+                        button_id=button_reply,
                     )
-                    return True
-
-            return True
+                    if ok:
+                        _send_text(
+                            sender_number,
+                            CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
+                        )
+                return True
 
         # ----------------------------------
-        # Text commands (ADMIN + utilities)
+        # Text commands
         # ----------------------------------
         upper = (message_text or "").strip().upper()
 
@@ -262,37 +243,24 @@ def handle_client_command(
             return True
 
         # ----------------------------------
-        # Delegate all other customer text
+        # Delegate customer text
         # ----------------------------------
         if not is_admin:
-            try:
-                handled = handle_customer_commands(
-                    db=db,
-                    sender=sender_number,
-                    msg=msg or {"type": "text", "text": {"body": message_text or ""}},
-                    admin_allowlist=ADMIN_ALLOWLIST,
-                    client_id=str(client_id) if client_id is not None else "",
-                )
-                logger.info(
-                    "CUSTOMER_DELEGATE | sender=%s | upper=%s | handled=%s",
-                    sender_number,
-                    upper,
-                    handled,
-                )
-                return bool(handled)
-            except Exception as e:
-                logger.exception(
-                    "CUSTOMER_DELEGATE_FAIL | sender=%s | upper=%s | err=%s",
-                    sender_number,
-                    upper,
-                    str(e),
-                )
-                # We handled the webhook; don't crash the whole pipeline.
-                return True
+            handled = handle_customer_commands(
+                db=db,
+                sender=sender_number,
+                msg=msg or {"type": "text", "text": {"body": message_text or ""}},
+                client_id=str(client_id) if client_id else "",
+                business_msisdn=business_number,
+            )
+            return bool(handled)
 
-        # Admin text not handled here
         return False
 
     except Exception as e:
-        logger.exception("CLIENT_COMMANDS_FATAL | sender=%s | err=%s", sender_number, str(e))
+        logger.exception(
+            "CLIENT_COMMANDS_FATAL | sender=%s | err=%s",
+            sender_number,
+            str(e),
+        )
         return True

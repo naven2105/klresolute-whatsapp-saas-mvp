@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.handlers.admin_surveys import handle_admin_surveys
 from app.handlers.admin_messaging import handle_admin_messaging
 from app.handlers.admin_menu import handle_admin_menu
+from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("admin_commands")
 
@@ -76,7 +77,7 @@ def handle_admin_command(
     db: Session,
     sender_number: str,
     message_text: str,
-    admin_allowlist: set[str],
+    business_msisdn: str,
 ) -> bool:
     """
     Entry point for ALL admin commands.
@@ -88,7 +89,14 @@ def handle_admin_command(
         message_text,
     )
 
-    if sender_number not in admin_allowlist:
+    # --------------------------------------------------------------
+    # Admin check (DB-driven, FAIL CLOSED)
+    # --------------------------------------------------------------
+    if not is_admin_message(
+        db=db,
+        sender=sender_number,
+        business_msisdn=business_msisdn,
+    ):
         logger.info(
             "ADMIN_ROUTER_REJECT | not admin | sender=%s",
             sender_number,
@@ -125,7 +133,7 @@ def handle_admin_command(
             db=db,
             sender_number=sender_number,
             message_text=clean_text,
-            admin_allowlist=admin_allowlist,
+            business_msisdn=business_msisdn,
         ):
             logger.info("ADMIN_ROUTER_HANDLED | handler=surveys")
             return True
@@ -142,7 +150,7 @@ def handle_admin_command(
             db=db,
             sender_number=sender_number,
             message_text=clean_text,
-            admin_allowlist=admin_allowlist,
+            business_msisdn=business_msisdn,
         ):
             logger.info("ADMIN_ROUTER_HANDLED | handler=messaging")
             return True
@@ -159,7 +167,7 @@ def handle_admin_command(
             sender_number=sender_number,
             message_text=message_text,
             db=db,
-            admin_allowlist=admin_allowlist,            
+            business_msisdn=business_msisdn,
         ):
             logger.info("ADMIN_ROUTER_HANDLED | handler=menu")
             return True

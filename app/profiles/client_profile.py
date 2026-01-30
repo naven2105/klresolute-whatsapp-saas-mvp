@@ -6,80 +6,71 @@ Path: app/profiles/client_profile.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Client profile definitions and resolution.
+Client profile definitions.
 
-Rules:
-- Profiles define enabled modules
-- Profiles define admin MSISDNs
-- No business logic here
+Rules (LOCKED):
+- Clients are configuration, not code forks
+- Admin allowlists are client-specific
+- Used by dispatcher, broadcast, inspections, jobs
 """
 
 from dataclasses import dataclass
-from typing import Optional
-import os
+from typing import List
 
 
+# -------------------------------------------------------------------
+# Client Profile Model
+# -------------------------------------------------------------------
 @dataclass(frozen=True)
 class ClientProfile:
     client_code: str
     business_msisdn: str
-    admin_numbers: list[str]
     enabled_modules: list[str]
+    admin_numbers: list[str]
 
 
-# -------------------------------------------------
-# Admin allowlist (shared for MVP)
-# -------------------------------------------------
+# -------------------------------------------------------------------
+# ADMIN ALLOWLISTS (CLIENT-SPECIFIC)
+# -------------------------------------------------------------------
 
-_ADMIN_ALLOWLIST = [
-    n.strip()
-    for n in os.getenv("OUTBOUND_TEST_ALLOWLIST", "").split(",")
-    if n.strip()
+_MAGEN_ADMIN_NUMBERS = [
+    "27627597357",
+]
+
+_GALITOS_ADMIN_NUMBERS = [
+    "27627597357",
 ]
 
 
-# -------------------------------------------------
-# Client profiles (FROZEN)
-# -------------------------------------------------
-
-_PROFILES: dict[str, ClientProfile] = {
-    # -------------------------------
-    # MAGEN
-    # -------------------------------
-    "27631016099": ClientProfile(
+# -------------------------------------------------------------------
+# CLIENT REGISTRY
+# -------------------------------------------------------------------
+_CLIENT_PROFILES: dict[str, ClientProfile] = {
+    "MAGEN": ClientProfile(
         client_code="MAGEN",
-        business_msisdn="27631016099",
-        admin_numbers=_ADMIN_ALLOWLIST,
+        business_msisdn="MAGEN",
         enabled_modules=[
             "inspection",
-            "vehicle_inspection",
         ],
+        admin_numbers=_MAGEN_ADMIN_NUMBERS,
     ),
-
-    # -------------------------------
-    # GALITOS
-    # -------------------------------
-    "27735534607": ClientProfile(
+    "GALITOS": ClientProfile(
         client_code="GALITOS",
-        business_msisdn="27735534607",
-        admin_numbers=_ADMIN_ALLOWLIST,
+        business_msisdn="GALITOS",
         enabled_modules=[
             "orders",
             "inspection",
-            "survey",
-            "feedback",
-            "broadcast",
         ],
+        admin_numbers=_GALITOS_ADMIN_NUMBERS,
     ),
 }
 
 
-# -------------------------------------------------
-# Public resolver
-# -------------------------------------------------
-
-def get_client_profile(business_msisdn: str) -> Optional[ClientProfile]:
+# -------------------------------------------------------------------
+# Public lookup
+# -------------------------------------------------------------------
+def get_client_profile(business_msisdn: str) -> ClientProfile | None:
     """
-    Resolve client profile by business MSISDN.
+    Resolve client profile by business WhatsApp number.
     """
-    return _PROFILES.get(business_msisdn)
+    return _CLIENT_PROFILES.get(business_msisdn)

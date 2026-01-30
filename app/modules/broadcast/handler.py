@@ -10,7 +10,7 @@ Inbound entry point for Broadcast module.
 
 Responsibilities (LOCKED):
 - Decide if inbound message is a broadcast command
-- Validate admin permission
+- Validate admin permission (DB-driven)
 - Persist broadcast intent
 - Delegate delivery to service layer
 - Return True if message was handled
@@ -27,7 +27,6 @@ from app.modules.broadcast.service import (
     handle_image_broadcast,
 )
 
-# ✅ DO NOT import app.handlers.client_commands (too many legacy dependencies)
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("module.broadcast")
@@ -39,16 +38,19 @@ def handle(
     msg: dict,
     sender: str,
     business_msisdn: str,
-    admin_allowlist: set[str],
 ) -> bool:
     """
     Entry point for Broadcast module.
     """
 
     # ----------------------------------
-    # Admin check
+    # Admin check (DB-driven, fail-closed)
     # ----------------------------------
-    if not is_admin_message(sender, admin_allowlist):
+    if not is_admin_message(
+        db=db,
+        sender=sender,
+        business_msisdn=business_msisdn,
+    ):
         return False
 
     msg_type = msg.get("type")

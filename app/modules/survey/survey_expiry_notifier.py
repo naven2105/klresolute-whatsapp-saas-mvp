@@ -8,19 +8,10 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Background notifier that auto-closes expired ACTIVE surveys and notifies admins.
 
-Why:
-Without this job, surveys only auto-close when an inbound message arrives.
-This job closes surveys even when nobody messages the bot.
-
 Rules:
-- Uses existing DB + survey helpers.
-- Uses Meta template (generic_business_update) for admin notifications.
-- Heavy logging for Render debugging.
-
-Env flags:
-- SURVEY_EXPIRY_NOTIFIER_ENABLED: "1" (default) or "0"
-- SURVEY_EXPIRY_NOTIFIER_INTERVAL_SECONDS: default 300 (5 minutes)
-- OUTBOUND_TEST_ALLOWLIST: comma-separated admin MSISDNs
+- Uses existing DB + survey helpers
+- Uses Meta template (generic_business_update) for admin notifications
+- Admins resolved via client_admins table (DB-driven)
 """
 
 import asyncio
@@ -47,27 +38,12 @@ def _env_flag(name: str, default: str = "1") -> bool:
 def _get_interval_seconds() -> int:
     raw = (os.getenv("SURVEY_EXPIRY_NOTIFIER_INTERVAL_SECONDS", "300") or "").strip()
     try:
-        n = int(raw)
-        return max(30, n)  # never faster than 30s
+        return max(30, int(raw))
     except Exception:
         return 300
 
 
-def _get_admin_allowlist() -> set[str]:
-    return {
-        n.strip()
-        for n in (os.getenv("OUTBOUND_TEST_ALLOWLIST", "") or "").split(",")
-        if n.strip()
-    }
-
-
 async def _run_forever() -> None:
-    """
-    Runs forever in the background:
-    - Find expired ACTIVE surveys
-    - Close each
-    - Send summary to admins
-    """
     enabled = _env_flag("SURVEY_EXPIRY_NOTIFIER_ENABLED", "1")
     interval = _get_interval_seconds()
 
@@ -91,17 +67,13 @@ async def _run_forever() -> None:
 
     while True:
         try:
-            admin_allowlist = _get_admin_allowlist()
-            if not admin_allowlist:
-                logger.warning("EXPIRY_NOTIFIER_NO_ADMINS | OUTBOUND_TEST_ALLOWLIST empty")
-
             db = SessionLocal()
             try:
                 rows = (
                     db.execute(
                         text(
                             """
-                            SELECT id
+                            SELECT id, business_number
                             FROM surveys
                             WHERE status = 'ACTIVE'
                               AND ends_at <= now()
@@ -118,26 +90,12 @@ async def _run_forever() -> None:
 
                 for r in rows:
                     survey_id = r.get("id")
-                    if not survey_id:
+                    business_number = r.get("business_number")
+
+                    if not survey_id or not business_number:
                         continue
 
-                    survey = (
-                        db.execute(
-                            text(
-                                """
-                                SELECT *
-                                FROM surveys
-                                WHERE id = :id
-                                """
-                            ),
-                            {"id": survey_id},
-                        )
-                        .mappings()
-                        .first()
-                    )
-
                     try:
-                        # ---- FIXED IMPORT ONLY ----
                         from app.modules.survey.survey_models import Survey  # type: ignore
 
                         obj: Optional[Survey] = db.get(Survey, survey_id)  # type: ignore[attr-defined]
@@ -148,7 +106,7 @@ async def _run_forever() -> None:
                         logger.info(
                             "EXPIRY_CLOSE_BEGIN | survey_id=%s | business=%s",
                             obj.id,
-                            getattr(obj, "business_number", None),
+                            business_number,
                         )
 
                         close_survey(db=db, survey=obj, closed_by="auto")
@@ -157,13 +115,27 @@ async def _run_forever() -> None:
                         summary = build_survey_summary_text(db, obj)
                         summary_single = " ".join((summary or "").split())
 
-                        for admin in admin_allowlist:
+                        # ----------------------------------
+                        # Resolve admins for this business
+                        # ----------------------------------
+                        admins = (
+                            db.execute(
+                                text(
+                                    """
+                                    SELECT msisdn
+                                    FROM client_admins
+                                    WHERE client_code = :client
+                                      AND is_active = TRUE
+                                    """
+                                ),
+                                {"client": business_number},
+                            )
+                            .scalars()
+                            .all()
+                        )
+
+                        for admin in admins:
                             try:
-                                logger.info(
-                                    "EXPIRY_NOTIFY_ADMIN | to=%s | survey_id=%s",
-                                    admin,
-                                    obj.id,
-                                )
                                 meta.send_generic_business_update_template(
                                     to_msisdn=admin,
                                     blob_text=summary_single,
@@ -184,44 +156,11 @@ async def _run_forever() -> None:
 
                     except Exception as exc:
                         logger.error(
-                            "EXPIRY_CLOSE_ORM_FAIL | survey_id=%s | error=%s",
+                            "EXPIRY_CLOSE_FAIL | survey_id=%s | error=%s",
                             survey_id,
                             exc,
                             exc_info=True,
                         )
-                        try:
-                            db.execute(
-                                text(
-                                    """
-                                    UPDATE surveys
-                                    SET status = 'CLOSED'
-                                    WHERE id = :id
-                                      AND status = 'ACTIVE'
-                                    """
-                                ),
-                                {"id": survey_id},
-                            )
-                            db.commit()
-                            logger.info("EXPIRY_CLOSED_SQL | survey_id=%s", survey_id)
-
-                            msg = f"Survey auto-closed (expired). Survey ID: {survey_id}"
-                            msg_single = " ".join(msg.split())
-
-                            for admin in admin_allowlist:
-                                try:
-                                    meta.send_generic_business_update_template(
-                                        to_msisdn=admin,
-                                        blob_text=msg_single,
-                                    )
-                                except Exception:
-                                    pass
-                        except Exception as exc2:
-                            logger.error(
-                                "EXPIRY_CLOSE_SQL_FAIL | survey_id=%s | error=%s",
-                                survey_id,
-                                exc2,
-                                exc_info=True,
-                            )
 
             finally:
                 try:

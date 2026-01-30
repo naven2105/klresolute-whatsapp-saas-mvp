@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from app.models import Contact
 from app.outbound.factory import get_meta_client
+from app.utils.admin import is_admin_message
 
 # -------------------------------------------------
 # Logging
@@ -35,8 +36,8 @@ def handle_media_message(
     db: Session,
     sender: str,
     msg: dict,
-    admin_allowlist: set[str],
     client_id,
+    business_msisdn: str,
 ) -> bool:
     """
     Returns True if message was handled.
@@ -58,14 +59,18 @@ def handle_media_message(
         return False
 
     # -------------------------------------------------
-    # Admin-only rule
+    # Admin-only rule (DB-driven)
     # -------------------------------------------------
-    if sender not in admin_allowlist:
+    if not is_admin_message(
+        db=db,
+        sender=sender,
+        business_msisdn=business_msisdn,
+    ):
         logger.warning(
             "MEDIA_HANDLER_REJECT | non-admin sender=%s",
             sender,
         )
-        return True  # explicitly consumed but ignored
+        return True  # consumed but ignored
 
     meta = get_meta_client()
 
@@ -107,11 +112,13 @@ def handle_media_message(
             },
         )
         db.commit()
+
         logger.info(
             "MEDIA_HANDLER_DB_OK | client_id=%s | media_id=%s",
             client_id,
             media_id,
         )
+
     except Exception as exc:
         logger.error(
             "MEDIA_HANDLER_DB_FAIL | client_id=%s | media_id=%s | error=%s",
@@ -120,7 +127,25 @@ def handle_media_message(
             exc,
             exc_info=True,
         )
-        return True  # stop further processing safely
+        return True
+
+    # -------------------------------------------------
+    # Resolve admins (exclude from recipients)
+    # -------------------------------------------------
+    admin_numbers = {
+        row[0]
+        for row in db.execute(
+            text(
+                """
+                SELECT msisdn
+                FROM client_admins
+                WHERE client_code = :client
+                  AND is_active = TRUE
+                """
+            ),
+            {"client": business_msisdn},
+        ).all()
+    }
 
     # -------------------------------------------------
     # Push SPECIAL to all customers
@@ -128,13 +153,15 @@ def handle_media_message(
     try:
         contacts = (
             db.query(Contact)
-            .filter(~Contact.contact_number.in_(admin_allowlist))
+            .filter(~Contact.contact_number.in_(admin_numbers))
             .all()
         )
+
         logger.info(
             "MEDIA_HANDLER_BROADCAST_BEGIN | recipients=%s",
             len(contacts),
         )
+
     except Exception as exc:
         logger.error(
             "MEDIA_HANDLER_CONTACT_FETCH_FAIL | error=%s",
@@ -175,7 +202,10 @@ def handle_media_message(
     try:
         meta.send_generic_business_update_template(
             to_msisdn=sender,
-            blob_text=f"Special sent to customers. Delivered: {sent}. Failed: {failed}.",
+            blob_text=(
+                f"Special sent to customers. "
+                f"Delivered: {sent}. Failed: {failed}."
+            ),
         )
         logger.info(
             "MEDIA_HANDLER_ADMIN_CONFIRM_OK | sender=%s",
