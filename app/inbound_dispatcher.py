@@ -4,16 +4,9 @@ from __future__ import annotations
 File: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Step 4:
-- MAGEN staff:
-    - Unknown command → strict auto-response
-    - NO menus
-- MAGEN admin:
-    - Unknown command → admin menu
-
 LOCKED:
 - No DB writes
-- No behaviour changes for other clients
+- No behaviour changes
 """
 
 import logging
@@ -24,7 +17,6 @@ from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
 from app.utils.admin import is_admin_message
 
-# ---- Modules ----
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 from app.modules.broadcast import handler as broadcast_handler
@@ -34,58 +26,26 @@ logger = logging.getLogger("inbound.dispatcher")
 
 
 # -------------------------------------------------
-# Client resolution (FIX)
+# Helpers
 # -------------------------------------------------
 
-def _resolve_client_profile(db: Session, business_msisdn: str):
+def _safe_execute(db: Session, stmt, params):
     """
-    Resolve client profile via whatsapp_numbers → clients.
+    Guardrail:
+    - If session is in failed state, rollback first
     """
     try:
-        row = (
-            db.execute(
-                text(
-                    """
-                    SELECT c.client_code
-                    FROM whatsapp_numbers w
-                    JOIN clients c ON c.client_id = w.client_id
-                    WHERE w.destination_number = :business
-                      AND w.status = 'active'
-                    LIMIT 1
-                    """
-                ),
-                {"business": business_msisdn},
-            )
-            .mappings()
-            .first()
-        )
+        return db.execute(stmt, params)
+    except Exception:
+        logger.error("DISPATCH_DB_EXEC_FAILED | forcing rollback", exc_info=True)
+        db.rollback()
+        raise
 
-        if not row:
-            logger.error(
-                "DISPATCH_NO_CLIENT | business=%s",
-                business_msisdn,
-            )
-            return None
-
-        return get_client_profile(row["client_code"])
-
-    except Exception as exc:
-        logger.error(
-            "DISPATCH_CLIENT_LOOKUP_FAIL | business=%s | error=%s",
-            business_msisdn,
-            exc,
-            exc_info=True,
-        )
-        return None
-
-
-# -------------------------------------------------
-# Message helpers
-# -------------------------------------------------
 
 def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None:
     row = (
-        db.execute(
+        _safe_execute(
+            db,
             text(
                 """
                 SELECT cm.message_text
@@ -109,11 +69,10 @@ def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None
     )
 
 
-def _send_magen_staff_auto_response(
-    db: Session, sender: str, business_msisdn: str
-) -> None:
+def _send_magen_staff_auto_response(db: Session, sender: str, business_msisdn: str) -> None:
     row = (
-        db.execute(
+        _safe_execute(
+            db,
             text(
                 """
                 SELECT cm.message_text
@@ -149,11 +108,10 @@ def _render_menu(menu: dict) -> str:
     return "\n".join(lines).strip()
 
 
-def _send_menu(
-    *, db: Session, sender: str, business_msisdn: str, menu_key: str
-) -> None:
+def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str) -> None:
     row = (
-        db.execute(
+        _safe_execute(
+            db,
             text(
                 """
                 SELECT m.menu_json
@@ -173,9 +131,7 @@ def _send_menu(
 
     send_message(
         to_number=sender,
-        text=_render_menu(row["menu_json"])
-        if row
-        else "Menu unavailable.",
+        text=_render_menu(row["menu_json"]) if row else "Menu unavailable.",
     )
 
 
@@ -183,26 +139,20 @@ def _send_menu(
 # Dispatcher
 # -------------------------------------------------
 
-def dispatch(
-    *,
-    db: Session,
-    msg: dict,
-    sender: str,
-    business_msisdn: str,
-) -> bool:
+def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
+    # 🚨 CRITICAL GUARDRAIL
+    # Reset session in case an earlier handler failed
+    try:
+        db.rollback()
+    except Exception:
+        pass
 
-    profile = _resolve_client_profile(db, business_msisdn)
+    profile = get_client_profile(business_msisdn)
 
-    # ----------------------------------
-    # Unknown / unconfigured bot number
-    # ----------------------------------
     if not profile:
         _send_unknown_sender(db, sender, business_msisdn)
         return True
 
-    # ----------------------------------
-    # Try enabled modules
-    # ----------------------------------
     for module in profile.enabled_modules:
 
         if module == "orders" and orders_handler.handle(
@@ -225,15 +175,8 @@ def dispatch(
         ):
             return True
 
-    # ----------------------------------
-    # MAGEN strict handling
-    # ----------------------------------
     if profile.client_code == "MAGEN":
-        if is_admin_message(
-            db=db,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        ):
+        if is_admin_message(db=db, sender=sender, business_msisdn=business_msisdn):
             _send_menu(
                 db=db,
                 sender=sender,
@@ -245,14 +188,7 @@ def dispatch(
         _send_magen_staff_auto_response(db, sender, business_msisdn)
         return True
 
-    # ----------------------------------
-    # Default fallback (non-MAGEN)
-    # ----------------------------------
-    if is_admin_message(
-        db=db,
-        sender=sender,
-        business_msisdn=business_msisdn,
-    ):
+    if is_admin_message(db=db, sender=sender, business_msisdn=business_msisdn):
         _send_menu(
             db=db,
             sender=sender,
