@@ -6,16 +6,20 @@ Path: app/profiles/client_profile.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Client profile definitions.
+Client profile resolution.
 
 Rules (LOCKED):
-- Clients are configuration, not code forks
-- Admin allowlists are client-specific
+- Client identity is DB-driven
+- WhatsApp numbers are stored in DB, not code
+- Admin allowlists are DB-driven
 - Used by dispatcher, broadcast, inspections, jobs
 """
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
+
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 
 # -------------------------------------------------------------------
@@ -23,54 +27,99 @@ from typing import List
 # -------------------------------------------------------------------
 @dataclass(frozen=True)
 class ClientProfile:
+    client_id: str
     client_code: str
-    business_msisdn: str
-    enabled_modules: list[str]
-    admin_numbers: list[str]
-
-
-# -------------------------------------------------------------------
-# ADMIN ALLOWLISTS (CLIENT-SPECIFIC)
-# -------------------------------------------------------------------
-
-_MAGEN_ADMIN_NUMBERS = [
-    "27627597357",
-]
-
-_GALITOS_ADMIN_NUMBERS = [
-    "27627597357",
-]
-
-
-# -------------------------------------------------------------------
-# CLIENT REGISTRY
-# -------------------------------------------------------------------
-_CLIENT_PROFILES: dict[str, ClientProfile] = {
-    "MAGEN": ClientProfile(
-        client_code="MAGEN",
-        business_msisdn="MAGEN",
-        enabled_modules=[
-            "inspection",
-        ],
-        admin_numbers=_MAGEN_ADMIN_NUMBERS,
-    ),
-    "GALITOS": ClientProfile(
-        client_code="GALITOS",
-        business_msisdn="GALITOS",
-        enabled_modules=[
-            "orders",
-            "inspection",
-        ],
-        admin_numbers=_GALITOS_ADMIN_NUMBERS,
-    ),
-}
+    enabled_modules: List[str]
+    admin_numbers: List[str]
 
 
 # -------------------------------------------------------------------
 # Public lookup
 # -------------------------------------------------------------------
-def get_client_profile(business_msisdn: str) -> ClientProfile | None:
+def get_client_profile(
+    business_msisdn: str,
+    *,
+    db: Optional[Session] = None,
+) -> ClientProfile | None:
     """
-    Resolve client profile by business WhatsApp number.
+    Resolve client profile by business WhatsApp number (DB-driven).
     """
-    return _CLIENT_PROFILES.get(business_msisdn)
+    if not db:
+        return None
+
+    try:
+        # ----------------------------------
+        # Resolve client
+        # ----------------------------------
+        client_row = (
+            db.execute(
+                text(
+                    """
+                    SELECT c.client_id, c.client_name
+                    FROM clients c
+                    JOIN whatsapp_numbers w ON w.client_id = c.client_id
+                    WHERE w.destination_number = :business
+                      AND w.status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_msisdn},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not client_row:
+            return None
+
+        client_id = client_row["client_id"]
+        client_code = client_row["client_name"].upper()
+
+        # ----------------------------------
+        # Enabled modules
+        # ----------------------------------
+        modules = (
+            db.execute(
+                text(
+                    """
+                    SELECT m.module_code
+                    FROM client_modules cm
+                    JOIN modules m ON m.id = cm.module_id
+                    WHERE cm.client_id = :client_id
+                      AND cm.is_enabled = TRUE
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            .scalars()
+            .all()
+        )
+
+        # ----------------------------------
+        # Admin numbers
+        # ----------------------------------
+        admins = (
+            db.execute(
+                text(
+                    """
+                    SELECT admin_number
+                    FROM client_admins
+                    WHERE client_id = :client_id
+                      AND is_active = TRUE
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            .scalars()
+            .all()
+        )
+
+        return ClientProfile(
+            client_id=client_id,
+            client_code=client_code,
+            enabled_modules=modules,
+            admin_numbers=admins,
+        )
+
+    except Exception:
+        return None
