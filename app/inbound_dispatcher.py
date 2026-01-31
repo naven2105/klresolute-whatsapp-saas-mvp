@@ -17,7 +17,7 @@ from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
 from app.utils.admin import is_admin_message
 
-from app.modules.join import handler as join_handler 
+from app.modules.join import handler as join_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 from app.modules.broadcast import handler as broadcast_handler
@@ -64,6 +64,12 @@ def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None
         .first()
     )
 
+    if not row:
+        logger.error(
+            "UNKNOWN_SENDER_MESSAGE_MISSING | business=%s",
+            business_msisdn,
+        )
+
     send_message(
         to_number=sender,
         text=row["message_text"] if row else "Access restricted.",
@@ -90,6 +96,12 @@ def _send_magen_staff_auto_response(db: Session, sender: str, business_msisdn: s
         .mappings()
         .first()
     )
+
+    if not row:
+        logger.error(
+            "MAGEN_STAFF_MESSAGE_MISSING | business=%s",
+            business_msisdn,
+        )
 
     send_message(
         to_number=sender,
@@ -130,6 +142,13 @@ def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str)
         .first()
     )
 
+    if not row:
+        logger.error(
+            "MENU_MISSING | business=%s | menu_key=%s",
+            business_msisdn,
+            menu_key,
+        )
+
     send_message(
         to_number=sender,
         text=_render_menu(row["menu_json"]) if row else "Menu unavailable.",
@@ -145,35 +164,46 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     try:
         db.rollback()
     except Exception:
-        pass
+        logger.warning("DISPATCH_ROLLBACK_FAILED", exc_info=True)
 
     profile = get_client_profile(business_msisdn)
 
     if not profile:
+        logger.warning(
+            "PROFILE_NOT_FOUND | sender=%s | business=%s",
+            sender,
+            business_msisdn,
+        )
         _send_unknown_sender(db, sender, business_msisdn)
         return True
-    
-    # JOIN handling (early)
-    if join_handler.handle(  
-        
-        db=db,
-        msg=msg,
-        sender=sender,
-        business_msisdn=business_msisdn,
-    ):
-        return True
 
     # -------------------------------------------------
-    # JOIN handling (EARLY EXIT)   <-- ADDED (2)
+    # JOIN handling (early, single path)
     # -------------------------------------------------
-    if join_handle(
-        db=db,
-        msg=msg,
-        sender=sender,
-        business_msisdn=business_msisdn,
-    ):
-        return True
+    try:
+        if join_handler.handle(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        ):
+            logger.info(
+                "JOIN_HANDLED_EARLY | sender=%s | business=%s",
+                sender,
+                business_msisdn,
+            )
+            return True
+    except Exception:
+        logger.error(
+            "JOIN_HANDLER_FAILED | sender=%s | business=%s",
+            sender,
+            business_msisdn,
+            exc_info=True,
+        )
 
+    # -------------------------------------------------
+    # Workflow modules
+    # -------------------------------------------------
     for module in profile.enabled_modules:
 
         if module == "orders" and orders_handler.handle(
@@ -196,6 +226,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         ):
             return True
 
+    # -------------------------------------------------
+    # Fallbacks
+    # -------------------------------------------------
     if profile.client_code == "MAGEN":
         if is_admin_message(db=db, sender=sender, business_msisdn=business_msisdn):
             _send_menu(
