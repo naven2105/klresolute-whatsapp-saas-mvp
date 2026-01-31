@@ -17,6 +17,7 @@ from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
 from app.utils.admin import is_admin_message
 
+from app.modules.join.handler import handle as join_handle   # <-- ADDED (1)
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 from app.modules.broadcast import handler as broadcast_handler
@@ -141,7 +142,6 @@ def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str)
 
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
     # 🚨 CRITICAL GUARDRAIL
-    # Reset session in case an earlier handler failed
     try:
         db.rollback()
     except Exception:
@@ -151,6 +151,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     if not profile:
         _send_unknown_sender(db, sender, business_msisdn)
+        return True
+
+    # -------------------------------------------------
+    # JOIN handling (EARLY EXIT)   <-- ADDED (2)
+    # -------------------------------------------------
+    if join_handle(
+        db=db,
+        msg=msg,
+        sender=sender,
+        business_msisdn=business_msisdn,
+    ):
         return True
 
     for module in profile.enabled_modules:
