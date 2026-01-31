@@ -16,7 +16,7 @@ from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 from app.profiles.client_profile import ABOUT_TEXT
 from app.services.contacts_service import add_contact, remove_contact
-from app.models import WhatsAppNumber
+from app.models import WhatsAppNumber, Contact
 
 from app.utils.admin import is_admin_message
 
@@ -73,45 +73,59 @@ def _send_text(to_number: str, text: str) -> None:
 
 
 def _send_latest_special(db: Session, to_number: str, client_id) -> None:
-    row = (
-        db.execute(
-            text(
-                """
-                SELECT media_id, caption
-                FROM specials
-                WHERE client_id = :client_id
-                ORDER BY created_at DESC
-                LIMIT 1
-                """
-            ),
-            {"client_id": client_id},
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT media_id, caption
+                    FROM specials
+                    WHERE client_id = :client_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            .mappings()
+            .first()
         )
-        .mappings()
-        .first()
-    )
 
-    if not row:
-        _send_text(to_number, "No specials are available right now.")
-        return
+        if not row:
+            _send_text(to_number, "No specials are available right now.")
+            return
 
-    _meta_client.send_image_message(
-        to_msisdn=to_number,
-        media_id=row["media_id"],
-        caption=row["caption"],
-    )
+        _meta_client.send_image_message(
+            to_msisdn=to_number,
+            media_id=row["media_id"],
+            caption=row["caption"],
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "SEND_SPECIAL_FAIL | to=%s | client_id=%s | err=%s",
+            to_number,
+            client_id,
+            exc,
+        )
 
 
 def _resolve_store_context_fallback(db: Session):
-    wa = (
-        db.query(WhatsAppNumber)
-        .filter(WhatsAppNumber.status == "active")
-        .first()
-    )
-    if not wa:
-        logger.error("NO_ACTIVE_WHATSAPP_NUMBER | fallback_store_context")
-        return None, None
+    try:
+        wa = (
+            db.query(WhatsAppNumber)
+            .filter(WhatsAppNumber.status == "active")
+            .first()
+        )
+        if not wa:
+            logger.error("NO_ACTIVE_WHATSAPP_NUMBER | fallback_store_context")
+            return None, None
 
-    return wa.client_id, wa.destination_number
+        return wa.client_id, wa.destination_number
+
+    except Exception as exc:
+        logger.exception("STORE_CONTEXT_RESOLVE_FAIL | err=%s", exc)
+        return None, None
 
 
 # =========================
@@ -168,37 +182,46 @@ def handle_client_command(
                     for admin in admins:
                         _send_text(admin, summary)
 
-            except Exception as e:
+            except Exception as exc:
                 logger.exception(
                     "SURVEY_AUTO_CLOSE_FAIL | business=%s | err=%s",
                     business_number,
-                    str(e),
+                    exc,
                 )
 
         # ----------------------------------
         # Survey button replies
         # ----------------------------------
         if msg and msg.get("type") == "interactive" and business_number:
-            button_reply = (
-                msg.get("interactive", {})
-                .get("button_reply", {})
-                .get("id")
-            )
+            try:
+                button_reply = (
+                    msg.get("interactive", {})
+                    .get("button_reply", {})
+                    .get("id")
+                )
 
-            if button_reply:
-                active = get_active_survey(db, business_number)
-                if active:
-                    ok = record_response(
-                        db=db,
-                        survey=active,
-                        client_number=sender_number,
-                        button_id=button_reply,
-                    )
-                    if ok:
-                        _send_text(
-                            sender_number,
-                            CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
+                if button_reply:
+                    active = get_active_survey(db, business_number)
+                    if active:
+                        ok = record_response(
+                            db=db,
+                            survey=active,
+                            client_number=sender_number,
+                            button_id=button_reply,
                         )
+                        if ok:
+                            _send_text(
+                                sender_number,
+                                CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
+                            )
+                return True
+
+            except Exception as exc:
+                logger.exception(
+                    "SURVEY_RESPONSE_FAIL | sender=%s | err=%s",
+                    sender_number,
+                    exc,
+                )
                 return True
 
         # ----------------------------------
@@ -210,15 +233,38 @@ def handle_client_command(
             _send_text(sender_number, ADMIN_MENU_TEXT)
             return True
 
+        # ----------------------------------
+        # JOIN (GUARD RAIL FIX)
+        # ----------------------------------
         if upper == "JOIN" and not is_admin:
-            added = add_contact(db, msisdn=sender_number)
-            _send_text(
-                sender_number,
-                "You’ll now receive updates from us."
-                if added
-                else "You’re already receiving updates.",
-            )
-            return True
+            try:
+                existing = (
+                    db.query(Contact)
+                    .filter(Contact.contact_number == sender_number)
+                    .one_or_none()
+                )
+
+                if existing:
+                    _send_text(
+                        sender_number,
+                        "✅ You’re already subscribed to Galitos updates.",
+                    )
+                    return True
+
+                added = add_contact(db, msisdn=sender_number)
+                _send_text(
+                    sender_number,
+                    "🎉 Welcome to Galitos! You’ll now receive specials, prices, and can place orders.",
+                )
+                return True
+
+            except Exception as exc:
+                logger.exception(
+                    "JOIN_FAIL | sender=%s | err=%s",
+                    sender_number,
+                    exc,
+                )
+                return True
 
         if upper == "STOP" and not is_admin:
             removed = remove_contact(db, msisdn=sender_number)
@@ -257,10 +303,10 @@ def handle_client_command(
 
         return False
 
-    except Exception as e:
+    except Exception as exc:
         logger.exception(
             "CLIENT_COMMANDS_FATAL | sender=%s | err=%s",
             sender_number,
-            str(e),
+            exc,
         )
         return True
