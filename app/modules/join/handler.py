@@ -28,14 +28,22 @@ logger = logging.getLogger("module.join")
 
 
 def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
+    logger.info(
+        "JOIN_HANDLER_ENTERED | sender=%s | business=%s",
+        sender,
+        business_msisdn,
+    )
+
     # ----------------------------------
     # Message validation
     # ----------------------------------
     if msg.get("type") != "text":
+        logger.debug("JOIN_SKIPPED_NON_TEXT | sender=%s", sender)
         return False
 
     body = msg.get("text", {}).get("body", "").strip()
     if body.upper() != "JOIN":
+        logger.debug("JOIN_SKIPPED_NON_JOIN | sender=%s | body=%s", sender, body)
         return False
 
     # ----------------------------------
