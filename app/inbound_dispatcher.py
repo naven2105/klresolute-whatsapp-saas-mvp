@@ -39,11 +39,27 @@ def _safe_execute(db: Session, stmt, params):
         return db.execute(stmt, params)
     except Exception:
         logger.error("DISPATCH_DB_EXEC_FAILED | forcing rollback", exc_info=True)
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            pass
         raise
 
 
+def _reset_session(db: Session) -> None:
+    """
+    Guardrail:
+    - Ensure DB session is usable before read-only fallback queries
+    """
+    try:
+        db.rollback()
+    except Exception:
+        pass
+
+
 def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None:
+    _reset_session(db)
+
     row = (
         _safe_execute(
             db,
@@ -77,6 +93,8 @@ def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None
 
 
 def _send_magen_staff_auto_response(db: Session, sender: str, business_msisdn: str) -> None:
+    _reset_session(db)
+
     row = (
         _safe_execute(
             db,
@@ -122,6 +140,8 @@ def _render_menu(menu: dict) -> str:
 
 
 def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str) -> None:
+    _reset_session(db)
+
     row = (
         _safe_execute(
             db,
