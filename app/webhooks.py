@@ -77,15 +77,20 @@ def _extract_message(payload: dict):
         return None, None, None, None
 
 
-def _lock_provider_message(db: Session, provider_message_id: str) -> bool:
+def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
+    """
+    Returns True if this message should be processed (lock acquired),
+    False if it is a duplicate (already seen).
+    """
     if not provider_message_id:
-        return True
+        logger.warning("MISSING_PROVIDER_MESSAGE_ID")
+        return True  # fail-open
 
     try:
-        db.execute(
+        result = db.execute(
             text(
                 """
-                INSERT INTO messages (provider_message_id)
+                INSERT INTO inbound_message_dedupe (provider_message_id)
                 VALUES (:pid)
                 ON CONFLICT (provider_message_id) DO NOTHING
                 """
@@ -94,19 +99,13 @@ def _lock_provider_message(db: Session, provider_message_id: str) -> bool:
         )
         db.commit()
 
-        row = db.execute(
-            text(
-                """
-                SELECT 1
-                FROM messages
-                WHERE provider_message_id = :pid
-                LIMIT 1
-                """
-            ),
-            {"pid": provider_message_id},
-        ).first()
+        inserted = bool(getattr(result, "rowcount", 0) == 1)
+        if inserted:
+            logger.info("MESSAGE_LOCK_ACQUIRED | provider_id=%s", provider_message_id)
+            return True
 
-        return bool(row)
+        logger.info("DUPLICATE_MESSAGE_IGNORED | provider_id=%s", provider_message_id)
+        return False
 
     except Exception as exc:
         db.rollback()
@@ -116,7 +115,7 @@ def _lock_provider_message(db: Session, provider_message_id: str) -> bool:
             exc,
             exc_info=True,
         )
-        return True
+        return True  # fail-open
 
 
 # -------------------------------------------------
@@ -171,11 +170,7 @@ async def whatsapp_webhook(
     # -------------------------------------------------
     # Duplicate protection (EARLY LOCK)
     # -------------------------------------------------
-    if not _lock_provider_message(db, provider_message_id):
-        logger.info(
-            "DUPLICATE_MESSAGE_IGNORED | provider_id=%s",
-            provider_message_id,
-        )
+    if not _try_lock_provider_message(db, provider_message_id):
         return Response(status_code=200)
 
     # -------------------------------------------------
