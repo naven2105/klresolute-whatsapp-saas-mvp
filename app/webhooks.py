@@ -9,9 +9,10 @@ Minimal WhatsApp webhook dispatcher.
 
 LOCKED:
 - Parse inbound payload safely
-- Ignore non-message events (statuses, receipts, etc.)
+- Ignore non-message events
 - Dispatch ONLY real user messages
-- Prevent duplicate processing using provider_message_id (NOT UUID)
+- Prevent duplicate processing using provider_message_id
+- Tier-0 degraded messaging ONLY if DB is unavailable
 """
 
 import logging
@@ -21,14 +22,15 @@ from typing import Optional
 from fastapi import APIRouter, Request, Response, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.db import get_db
 from app.inbound_dispatcher import dispatch
 from app.clients.magen.auto_close import auto_close_expired_inspections
+from app.messaging.client_messenger import send_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
-
 
 # -------------------------------------------------
 # Helpers
@@ -46,27 +48,12 @@ def _normalise_msisdn(raw: str | None) -> Optional[str]:
 
 
 def _extract_message(payload: dict):
-    """
-    Returns (msg, sender_msisdn, business_msisdn, provider_message_id)
-    or (None, None, None, None) if NOT a user message.
-    """
     try:
         entry = payload["entry"][0]["changes"][0]["value"]
 
-        # ---- GUARDRAIL: STATUS / DELIVERY CALLBACKS ----
-        if "statuses" in entry:
-            logger.warning(
-                "WEBHOOK_STATUS_EVENT_IGNORED | keys=%s",
-                list(entry.keys()),
-            )
-            return None, None, None, None
-
         messages = entry.get("messages")
         if not messages:
-            logger.warning(
-                "WEBHOOK_NON_MESSAGE_PAYLOAD | keys=%s",
-                list(entry.keys()),
-            )
+            logger.debug("WEBHOOK_NON_MESSAGE_EVENT")
             return None, None, None, None
 
         msg = messages[0]
@@ -83,9 +70,8 @@ def _extract_message(payload: dict):
 
     except Exception as exc:
         logger.error(
-            "PAYLOAD_PARSE_FAILED | error=%s | payload_keys=%s",
+            "PAYLOAD_PARSE_FAILED | error=%s",
             exc,
-            list(payload.keys()) if isinstance(payload, dict) else None,
             exc_info=True,
         )
         return None, None, None, None
@@ -93,7 +79,6 @@ def _extract_message(payload: dict):
 
 def _is_duplicate_provider_message(db: Session, provider_message_id: str) -> bool:
     if not provider_message_id:
-        logger.warning("DUPLICATE_CHECK_NO_PROVIDER_ID")
         return False
 
     try:
@@ -113,7 +98,7 @@ def _is_duplicate_provider_message(db: Session, provider_message_id: str) -> boo
 
     except Exception as exc:
         logger.error(
-            "DUPLICATE_CHECK_FAILED | provider_id=%s | error=%s",
+            "DUPLICATE_CHECK_FAILED | provider_id=%s | err=%s",
             provider_message_id,
             exc,
             exc_info=True,
@@ -135,24 +120,38 @@ async def whatsapp_webhook(
     try:
         payload = await request.json()
     except Exception as exc:
-        logger.error("INVALID_JSON | error=%s", exc, exc_info=True)
+        logger.error("INVALID_JSON | err=%s", exc, exc_info=True)
         return Response(status_code=200)
 
     msg, sender, business_msisdn, provider_message_id = _extract_message(payload)
 
-    # -------------------------------------------------
-    # Ignore non-user messages
-    # -------------------------------------------------
+    # Ignore non-user events
     if not msg:
-        logger.info("WEBHOOK_IGNORED | reason=non_user_message")
         return Response(status_code=200)
 
     if not sender or not business_msisdn:
-        logger.error(
-            "INVALID_MESSAGE | sender=%s | business=%s | provider_id=%s",
+        logger.warning(
+            "INVALID_MESSAGE | sender=%s | business=%s",
             sender,
             business_msisdn,
-            provider_message_id,
+        )
+        return Response(status_code=200)
+
+    # -------------------------------------------------
+    # DB availability guard (Tier-0)
+    # -------------------------------------------------
+    try:
+        db.execute(text("SELECT 1"))
+    except OperationalError as exc:
+        logger.critical(
+            "SYSTEM_DEGRADED_MODE | DB_UNAVAILABLE | err=%s",
+            exc,
+            exc_info=True,
+        )
+
+        send_message(
+            to_number=sender,
+            text="⚠️ Service temporarily unavailable. Please try again shortly.",
         )
         return Response(status_code=200)
 
@@ -161,9 +160,8 @@ async def whatsapp_webhook(
     # -------------------------------------------------
     if _is_duplicate_provider_message(db, provider_message_id):
         logger.info(
-            "DUPLICATE_MESSAGE_IGNORED | provider_id=%s | sender=%s",
+            "DUPLICATE_MESSAGE_IGNORED | provider_id=%s",
             provider_message_id,
-            sender,
         )
         return Response(status_code=200)
 
@@ -174,7 +172,7 @@ async def whatsapp_webhook(
         auto_close_expired_inspections(db)
     except Exception as exc:
         logger.error(
-            "MAGEN_AUTO_CLOSE_FAILED | error=%s",
+            "MAGEN_AUTO_CLOSE_FAILED | err=%s",
             exc,
             exc_info=True,
         )
@@ -199,7 +197,7 @@ async def whatsapp_webhook(
 
     except Exception as exc:
         logger.error(
-            "DISPATCH_FAILURE | sender=%s | business=%s | error=%s",
+            "DISPATCH_FAILURE | sender=%s | business=%s | err=%s",
             sender,
             business_msisdn,
             exc,
