@@ -154,7 +154,8 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
     
     # JOIN handling (early)
-    if join_handler.handle(
+    if join_handler.handle(  
+        
         db=db,
         msg=msg,
         sender=sender,
