@@ -15,11 +15,14 @@ Rules (LOCKED):
 - Used by dispatcher, broadcast, inspections, jobs
 """
 
+import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
+logger = logging.getLogger("profiles.client_profile")
 
 
 # -------------------------------------------------------------------
@@ -45,19 +48,26 @@ def get_client_profile(
     Resolve client profile by business WhatsApp number (DB-driven).
     """
     if not db:
+        logger.error("PROFILE_DB_NOT_PROVIDED | business=%s", business_msisdn)
         return None
 
     try:
+        # Guardrail: ensure session is usable for reads
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
         # ----------------------------------
-        # Resolve client
+        # Resolve client by whatsapp_numbers
         # ----------------------------------
         client_row = (
             db.execute(
                 text(
                     """
                     SELECT c.client_id, c.client_name
-                    FROM clients c
-                    JOIN whatsapp_numbers w ON w.client_id = c.client_id
+                    FROM whatsapp_numbers w
+                    JOIN clients c ON c.client_id = w.client_id
                     WHERE w.destination_number = :business
                       AND w.status = 'active'
                     LIMIT 1
@@ -70,10 +80,11 @@ def get_client_profile(
         )
 
         if not client_row:
+            logger.warning("PROFILE_CLIENT_NOT_FOUND | business=%s", business_msisdn)
             return None
 
-        client_id = client_row["client_id"]
-        client_code = client_row["client_name"].upper()
+        client_id = str(client_row["client_id"])
+        client_code = str(client_row["client_name"]).upper()
 
         # ----------------------------------
         # Enabled modules
@@ -87,6 +98,8 @@ def get_client_profile(
                     JOIN modules m ON m.id = cm.module_id
                     WHERE cm.client_id = :client_id
                       AND cm.is_enabled = TRUE
+                      AND m.is_active = TRUE
+                    ORDER BY m.module_code
                     """
                 ),
                 {"client_id": client_id},
@@ -106,12 +119,21 @@ def get_client_profile(
                     FROM client_admins
                     WHERE client_id = :client_id
                       AND is_active = TRUE
+                    ORDER BY admin_number
                     """
                 ),
                 {"client_id": client_id},
             )
             .scalars()
             .all()
+        )
+
+        logger.info(
+            "PROFILE_RESOLVED | business=%s | client_id=%s | client=%s | modules=%s",
+            business_msisdn,
+            client_id,
+            client_code,
+            ",".join(modules) if modules else "-",
         )
 
         return ClientProfile(
@@ -122,4 +144,14 @@ def get_client_profile(
         )
 
     except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+        logger.error(
+            "PROFILE_RESOLUTION_FAILED | business=%s",
+            business_msisdn,
+            exc_info=True,
+        )
         return None
