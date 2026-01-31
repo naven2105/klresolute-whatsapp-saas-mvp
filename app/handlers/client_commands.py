@@ -72,6 +72,43 @@ def _send_text(to_number: str, text: str) -> None:
     _meta_client.send_session_message(to_msisdn=to_number, text=text)
 
 
+def _get_client_message(
+    db: Session,
+    *,
+    business_number: str,
+    message_key: str,
+) -> str | None:
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT cm.message_text
+                    FROM client_messages cm
+                    JOIN whatsapp_numbers w ON w.client_id = cm.client_id
+                    WHERE w.destination_number = :business
+                      AND cm.message_key = :key
+                      AND cm.is_active = TRUE
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_number, "key": message_key},
+            )
+            .mappings()
+            .first()
+        )
+        return row["message_text"] if row else None
+
+    except Exception as exc:
+        logger.exception(
+            "CLIENT_MESSAGE_FETCH_FAIL | business=%s | key=%s | err=%s",
+            business_number,
+            message_key,
+            exc,
+        )
+        return None
+
+
 def _send_latest_special(db: Session, to_number: str, client_id) -> None:
     try:
         row = (
@@ -172,11 +209,9 @@ def handle_client_command(
                             """
                             SELECT msisdn
                             FROM client_admins
-                            WHERE client_code = :client
-                              AND is_active = TRUE
+                            WHERE is_active = TRUE
                             """
-                        ),
-                        {"client": business_number},
+                        )
                     ).scalars().all()
 
                     for admin in admins:
@@ -234,7 +269,7 @@ def handle_client_command(
             return True
 
         # ----------------------------------
-        # JOIN (GUARD RAIL FIX)
+        # JOIN (DB-DRIVEN, GUARDED)
         # ----------------------------------
         if upper == "JOIN" and not is_admin:
             try:
@@ -245,17 +280,24 @@ def handle_client_command(
                 )
 
                 if existing:
-                    _send_text(
-                        sender_number,
-                        "✅ You’re already subscribed to Galitos updates.",
+                    msg_text = _get_client_message(
+                        db,
+                        business_number=business_number,
+                        message_key="join_exists",
                     )
+                    if msg_text:
+                        _send_text(sender_number, msg_text)
                     return True
 
-                added = add_contact(db, msisdn=sender_number)
-                _send_text(
-                    sender_number,
-                    "🎉 Welcome to Galitos! You’ll now receive specials, prices, and can place orders.",
+                add_contact(db, msisdn=sender_number)
+
+                msg_text = _get_client_message(
+                    db,
+                    business_number=business_number,
+                    message_key="join_success",
                 )
+                if msg_text:
+                    _send_text(sender_number, msg_text)
                 return True
 
             except Exception as exc:
@@ -267,13 +309,7 @@ def handle_client_command(
                 return True
 
         if upper == "STOP" and not is_admin:
-            removed = remove_contact(db, msisdn=sender_number)
-            _send_text(
-                sender_number,
-                "You’ve been opted out."
-                if removed
-                else "You were not subscribed.",
-            )
+            remove_contact(db, msisdn=sender_number)
             return True
 
         if upper == "ABOUT" and not is_admin:
