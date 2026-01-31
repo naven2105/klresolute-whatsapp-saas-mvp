@@ -77,11 +77,23 @@ def _extract_message(payload: dict):
         return None, None, None, None
 
 
-def _is_duplicate_provider_message(db: Session, provider_message_id: str) -> bool:
+def _lock_provider_message(db: Session, provider_message_id: str) -> bool:
     if not provider_message_id:
-        return False
+        return True
 
     try:
+        db.execute(
+            text(
+                """
+                INSERT INTO messages (provider_message_id)
+                VALUES (:pid)
+                ON CONFLICT (provider_message_id) DO NOTHING
+                """
+            ),
+            {"pid": provider_message_id},
+        )
+        db.commit()
+
         row = db.execute(
             text(
                 """
@@ -97,13 +109,14 @@ def _is_duplicate_provider_message(db: Session, provider_message_id: str) -> boo
         return bool(row)
 
     except Exception as exc:
+        db.rollback()
         logger.error(
-            "DUPLICATE_CHECK_FAILED | provider_id=%s | err=%s",
+            "MESSAGE_LOCK_FAILED | provider_id=%s | err=%s",
             provider_message_id,
             exc,
             exc_info=True,
         )
-        return False  # fail-open
+        return True
 
 
 # -------------------------------------------------
@@ -156,9 +169,9 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------------------------
-    # Duplicate protection
+    # Duplicate protection (EARLY LOCK)
     # -------------------------------------------------
-    if _is_duplicate_provider_message(db, provider_message_id):
+    if not _lock_provider_message(db, provider_message_id):
         logger.info(
             "DUPLICATE_MESSAGE_IGNORED | provider_id=%s",
             provider_message_id,
@@ -202,6 +215,6 @@ async def whatsapp_webhook(
             business_msisdn,
             exc,
             exc_info=True,
-        )  
+        )
 
     return Response(status_code=200)
