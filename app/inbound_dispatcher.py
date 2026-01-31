@@ -166,7 +166,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     except Exception:
         logger.warning("DISPATCH_ROLLBACK_FAILED", exc_info=True)
 
-    profile = get_client_profile(business_msisdn)
+    profile = get_client_profile(business_msisdn, db=db)
 
     if not profile:
         logger.warning(
