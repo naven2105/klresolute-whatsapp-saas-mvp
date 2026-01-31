@@ -202,6 +202,6 @@ async def whatsapp_webhook(
             business_msisdn,
             exc,
             exc_info=True,
-        )
+        )  
 
     return Response(status_code=200)
