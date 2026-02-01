@@ -44,22 +44,19 @@ def get_client_profile(
     *,
     db: Optional[Session] = None,
 ) -> ClientProfile | None:
-    """
-    Resolve client profile by business WhatsApp number (DB-driven).
-    """
     if not db:
         logger.error("PROFILE_DB_NOT_PROVIDED | business=%s", business_msisdn)
         return None
 
     try:
-        # Guardrail: ensure session is usable for reads
+        # Ensure clean session before reads
         try:
             db.rollback()
         except Exception:
             pass
 
         # ----------------------------------
-        # Resolve client by whatsapp_numbers
+        # Resolve client via whatsapp_numbers
         # ----------------------------------
         client_row = (
             db.execute(
@@ -80,7 +77,10 @@ def get_client_profile(
         )
 
         if not client_row:
-            logger.warning("PROFILE_CLIENT_NOT_FOUND | business=%s", business_msisdn)
+            logger.warning(
+                "PROFILE_CLIENT_NOT_FOUND | business=%s",
+                business_msisdn,
+            )
             return None
 
         client_id = str(client_row["client_id"])
@@ -109,20 +109,20 @@ def get_client_profile(
         )
 
         # ----------------------------------
-        # Admin numbers
+        # Admin numbers (client_admins)
         # ----------------------------------
         admins = (
             db.execute(
                 text(
                     """
-                    SELECT admin_number
+                    SELECT msisdn
                     FROM client_admins
-                    WHERE client_id = :client_id
+                    WHERE client_code = :client_code
                       AND is_active = TRUE
-                    ORDER BY admin_number
+                    ORDER BY msisdn
                     """
                 ),
-                {"client_id": client_id},
+                {"client_code": client_code},
             )
             .scalars()
             .all()
