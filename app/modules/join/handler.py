@@ -10,7 +10,7 @@ Handle client opt-in (JOIN) logic.
 Responsibilities:
 - Detect JOIN command
 - Create contact if new
-- Respond using client_messages
+- Do NOT send any message
 - Return True if handled
 
 Scope:
@@ -21,8 +21,6 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-
-from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("module.join")
 
@@ -38,12 +36,10 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
     # Message validation
     # ----------------------------------
     if msg.get("type") != "text":
-        logger.debug("JOIN_SKIPPED_NON_TEXT | sender=%s", sender)
         return False
 
     body = msg.get("text", {}).get("body", "").strip()
     if body.upper() != "JOIN":
-        logger.debug("JOIN_SKIPPED_NON_JOIN | sender=%s | body=%s", sender, body)
         return False
 
     # ----------------------------------
@@ -81,8 +77,6 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
         )
         return True
 
-    client_id = client_row["client_id"]
-
     # ----------------------------------
     # Contact lookup / creation
     # ----------------------------------
@@ -91,7 +85,7 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             db.execute(
                 text(
                     """
-                    SELECT contact_id
+                    SELECT 1
                     FROM contacts
                     WHERE contact_number = :sender
                     LIMIT 1
@@ -102,9 +96,7 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             .first()
         )
 
-        if contact:
-            key = "join_exists"
-        else:
+        if not contact:
             db.execute(
                 text(
                     """
@@ -115,7 +107,6 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
                 {"sender": sender},
             )
             db.commit()
-            key = "join_success"
 
     except IntegrityError:
         db.rollback()
@@ -123,7 +114,6 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             "JOIN_CONTACT_RACE_CONDITION | sender=%s",
             sender,
         )
-        key = "join_exists"
 
     except Exception:
         db.rollback()
@@ -132,51 +122,9 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             sender,
             exc_info=True,
         )
-        return True
-
-    # ----------------------------------
-    # Message response
-    # ----------------------------------
-    try:
-        msg_row = (
-            db.execute(
-                text(
-                    """
-                    SELECT cm.message_text
-                    FROM client_messages cm
-                    WHERE cm.client_id = :client_id
-                      AND cm.message_key = :key
-                      AND cm.is_active = TRUE
-                    LIMIT 1
-                    """
-                ),
-                {"client_id": client_id, "key": key},
-            )
-            .mappings()
-            .first()
-        )
-
-        if msg_row:
-            send_message(to_number=sender, text=msg_row["message_text"])
-        else:
-            logger.error(
-                "JOIN_MESSAGE_MISSING | client_id=%s | key=%s",
-                client_id,
-                key,
-            )
-
-    except Exception:
-        logger.error(
-            "JOIN_RESPONSE_FAILED | sender=%s | client_id=%s",
-            sender,
-            client_id,
-            exc_info=True,
-        )
 
     logger.info(
-        "JOIN_HANDLED | sender=%s | client_id=%s | result=%s",
+        "JOIN_COMPLETED | sender=%s",
         sender,
-        client_id,
-        key,
     )
     return True
