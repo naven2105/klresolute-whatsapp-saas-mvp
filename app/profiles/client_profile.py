@@ -154,4 +154,4 @@ def get_client_profile(
             business_msisdn,
             exc_info=True,
         )
-        return None
+        return None    
