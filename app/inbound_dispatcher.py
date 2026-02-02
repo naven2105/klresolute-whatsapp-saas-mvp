@@ -1,4 +1,4 @@
-from __future__ import annotations
+    from __future__ import annotations
 
 """
 File: app/inbound_dispatcher.py
@@ -16,10 +16,10 @@ from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
 
 from app.modules.join import handler as join_handler
+from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 from app.modules.broadcast import handler as broadcast_handler
-from app.modules.orders import handler as orders_handler
 
 from app.ui import emoji
 
@@ -94,7 +94,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         body = msg.get("text", {}).get("body", "").strip().upper()
 
     # ----------------------------------
-    # ORDER → force food flow entry
+    # ORDER keyword → show food menu
     # ----------------------------------
     if body == "ORDER":
         send_message(
@@ -110,11 +110,10 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # Active workflows
+    # ORDERS HANDLER (MUST RUN BEFORE MENU)
     # ----------------------------------
-    for module in profile.enabled_modules:
-
-        if module == "orders" and orders_handler.handle(
+    if "orders" in profile.enabled_modules:
+        if orders_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
@@ -122,23 +121,26 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         ):
             return True
 
-        if module == "inspection" and inspection_handler.handle(
-            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-        ):
-            return True
+    # ----------------------------------
+    # Other modules
+    # ----------------------------------
+    if "inspection" in profile.enabled_modules and inspection_handler.handle(
+        db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+    ):
+        return True
 
-        if module == "survey" and survey_handler.handle(
-            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-        ):
-            return True
+    if "survey" in profile.enabled_modules and survey_handler.handle(
+        db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+    ):
+        return True
 
-        if module == "broadcast" and broadcast_handler.handle(
-            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-        ):
-            return True
+    if "broadcast" in profile.enabled_modules and broadcast_handler.handle(
+        db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+    ):
+        return True
 
     # ----------------------------------
-    # MENU / unknown → customer menu
+    # FINAL fallback → customer menu
     # ----------------------------------
     _send_customer_menu(sender)
     return True
