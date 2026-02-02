@@ -38,9 +38,6 @@ def _reset_session(db: Session) -> None:
 
 
 def _render_customer_menu() -> str:
-    # IMPORTANT:
-    # - Use only emojis that are guaranteed to exist in emoji.py
-    # - Any additional emojis are literal strings here (safe in Python source)
     return "\n".join(
         [
             "🍗 Welcome to Galitos!",
@@ -53,8 +50,7 @@ def _render_customer_menu() -> str:
             f"{emoji.ABOUT} About (hours, address, contact)",
             f"{emoji.FEEDBACK} Send feedback",
             "",
-            "Just type one of these:",
-            "MENU",
+            "Just type:",
             "ORDER",
             "SPECIALS",
             "ABOUT",
@@ -64,10 +60,7 @@ def _render_customer_menu() -> str:
 
 
 def _send_customer_menu(sender: str) -> None:
-    send_message(
-        to_number=sender,
-        text=_render_customer_menu(),
-    )
+    send_message(to_number=sender, text=_render_customer_menu())
 
 
 # -------------------------------------------------
@@ -94,17 +87,34 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # Text normalisation for routing
+    # TEXT NORMALISATION
     # ----------------------------------
     body = ""
     if msg.get("type") == "text":
         body = msg.get("text", {}).get("body", "").strip().upper()
 
     # ----------------------------------
-    # ORDER → order flow (food menu)
+    # ORDER → force food flow entry
     # ----------------------------------
     if body == "ORDER":
-        if orders_handler.handle(
+        send_message(
+            to_number=sender,
+            text=(
+                "🍗 Galitos Food Menu\n\n"
+                "1️⃣ 1/2 Chicken – R89\n"
+                "2️⃣ Hot Box 3 Piece + Chips – R79\n"
+                "3️⃣ Full Chicken – R159\n\n"
+                "Reply with the number."
+            ),
+        )
+        return True
+
+    # ----------------------------------
+    # Active workflows
+    # ----------------------------------
+    for module in profile.enabled_modules:
+
+        if module == "orders" and orders_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
@@ -112,10 +122,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         ):
             return True
 
-    # ----------------------------------
-    # Other enabled modules (excluding orders which is routed above)
-    # ----------------------------------
-    for module in profile.enabled_modules:
         if module == "inspection" and inspection_handler.handle(
             db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
         ):
@@ -132,7 +138,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
-    # MENU / HELP / unknown → customer menu
+    # MENU / unknown → customer menu
     # ----------------------------------
     _send_customer_menu(sender)
     return True
