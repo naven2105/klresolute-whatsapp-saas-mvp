@@ -145,8 +145,6 @@ def handle(
 
         # -------------------------------------------------
         # 2) Entry path (no active ORDER)
-        # ORDER/FOOD shows menu
-        # digits create state + ask flavour
         # -------------------------------------------------
         if upper in ("ORDER", "FOOD"):
             _send_food_menu(sender)
@@ -160,7 +158,7 @@ def handle(
             }
 
             if body not in menu:
-                return False
+                return True  # <<< FIX: was False
 
             kl_client_id = _get_klresolute_client_id(db, business_msisdn)
             if kl_client_id is None:
@@ -168,7 +166,7 @@ def handle(
                     "ORDERS_CLIENT_ID_MISSING | business=%s",
                     business_msisdn,
                 )
-                return True  # swallow
+                return True
 
             sku, name, price = menu[body]
 
@@ -203,7 +201,7 @@ def handle(
                 ),
                 {
                     "sender": sender,
-                    "client_id": kl_client_id,  # INTEGER
+                    "client_id": kl_client_id,
                     "sku": sku,
                     "name": name,
                     "price": price,
@@ -214,7 +212,7 @@ def handle(
             _ask_for_flavour(sender)
             return True
 
-        return False
+        return True  # <<< FIX: was False
 
     except IntegrityError:
         try:
@@ -239,4 +237,4 @@ def handle(
             sender,
             business_msisdn,
         )
-        return True  # swallow to protect webhook
+        return True
