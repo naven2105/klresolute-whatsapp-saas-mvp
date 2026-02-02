@@ -83,8 +83,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         sender=sender,
         business_msisdn=business_msisdn,
     ):
-        _send_customer_menu(sender)
-        return True
+        return True   # ⬅️ menu REMOVED here
 
     # ----------------------------------
     # ORDERS HANDLER (FIRST REAL WORKFLOW)
