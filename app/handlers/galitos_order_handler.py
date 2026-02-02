@@ -29,6 +29,7 @@ _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 # =================================================
 
 def _send_text(to_number: str, text: str) -> None:
+    logger.info("SEND_TEXT | to=%s | text=%r", to_number, text)
     _meta_client.send_session_message(
         to_msisdn=to_number,
         text=text,
@@ -42,7 +43,7 @@ def _send_text(to_number: str, text: str) -> None:
 def _notify_galitos_staff(
     db: Session,
     *,
-    client_id: int,   # ⚠️ MUST be INTEGER
+    client_id: int,   # MUST be INTEGER
     message: str,
 ) -> None:
     """
@@ -50,17 +51,36 @@ def _notify_galitos_staff(
     Uses galitos_staff.klresolute_client_id (INTEGER).
     """
 
-    rows = db.execute(
-        text(
-            """
-            SELECT msisdn
-            FROM galitos_staff
-            WHERE klresolute_client_id = :client_id
-              AND is_active = true
-            """
-        ),
-        {"client_id": client_id},
-    ).fetchall()
+    logger.info(
+        "STAFF_NOTIFY_ENTER | client_id=%s | message=%r",
+        client_id,
+        message,
+    )
+
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT msisdn
+                FROM galitos_staff
+                WHERE klresolute_client_id = :client_id
+                  AND is_active = true
+                """
+            ),
+            {"client_id": client_id},
+        ).fetchall()
+    except Exception:
+        logger.exception(
+            "STAFF_NOTIFY_QUERY_FAIL | client_id=%s",
+            client_id,
+        )
+        return
+
+    logger.info(
+        "STAFF_NOTIFY_ROWS | client_id=%s | count=%s",
+        client_id,
+        len(rows),
+    )
 
     if not rows:
         logger.warning(
@@ -71,6 +91,11 @@ def _notify_galitos_staff(
 
     for r in rows:
         try:
+            logger.info(
+                "STAFF_NOTIFY_SEND | client_id=%s | msisdn=%s",
+                client_id,
+                r.msisdn,
+            )
             _meta_client.send_generic_business_update_template(
                 to_msisdn=r.msisdn,
                 blob_text=message,
@@ -93,51 +118,78 @@ def _notify_galitos_staff(
 # =================================================
 
 def _get_active_order_state(db: Session, sender_msisdn: str) -> dict | None:
-    row = db.execute(
-        text(
-            """
-            SELECT *
-            FROM conversation_state
-            WHERE sender_msisdn = :sender
-              AND active = true
-              AND state_type = 'ORDER'
-            ORDER BY started_at DESC
-            LIMIT 1
-            """
-        ),
-        {"sender": sender_msisdn},
-    ).mappings().first()
-
-    return dict(row) if row else None
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT *
+                FROM conversation_state
+                WHERE sender_msisdn = :sender
+                  AND active = true
+                  AND state_type = 'ORDER'
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ),
+            {"sender": sender_msisdn},
+        ).mappings().first()
+        return dict(row) if row else None
+    except Exception:
+        logger.exception(
+            "ORDER_STATE_FETCH_FAIL | sender=%s",
+            sender_msisdn,
+        )
+        return None
 
 
 def _close_order_state(db: Session, state_id: str) -> None:
-    db.execute(
-        text(
-            """
-            UPDATE conversation_state
-            SET active = false,
-                completed_at = now()
-            WHERE id = :id
-            """
-        ),
-        {"id": state_id},
-    )
-    db.commit()
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE conversation_state
+                SET active = false,
+                    completed_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": state_id},
+        )
+        db.commit()
+        logger.info("ORDER_STATE_CLOSED | state_id=%s", state_id)
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "ORDER_STATE_CLOSE_FAIL | state_id=%s",
+            state_id,
+        )
 
 
 def _set_flavour(db: Session, state_id: str, flavour: str) -> None:
-    db.execute(
-        text(
-            """
-            UPDATE conversation_state
-            SET flavour = :flavour
-            WHERE id = :id
-            """
-        ),
-        {"id": state_id, "flavour": flavour},
-    )
-    db.commit()
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE conversation_state
+                SET flavour = :flavour
+                WHERE id = :id
+                """
+            ),
+            {"id": state_id, "flavour": flavour},
+        )
+        db.commit()
+        logger.info(
+            "ORDER_FLAVOUR_SET | state_id=%s | flavour=%s",
+            state_id,
+            flavour,
+        )
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "ORDER_FLAVOUR_SET_FAIL | state_id=%s | flavour=%s",
+            state_id,
+            flavour,
+        )
 
 
 # =================================================
@@ -152,8 +204,18 @@ def handle_order_message(
     context: Dict[str, Any],
 ) -> bool:
 
+    logger.info(
+        "ORDER_HANDLER_ENTER | sender=%s | text=%r",
+        from_number,
+        text,
+    )
+
     state = _get_active_order_state(db, from_number)
     if not state:
+        logger.info(
+            "ORDER_HANDLER_NO_ACTIVE_STATE | sender=%s",
+            from_number,
+        )
         return False
 
     normalized = (text or "").strip().upper()
@@ -203,20 +265,40 @@ def handle_order_message(
     # CONFIRM ORDER
     # -------------------------------
     if normalized == "YES":
-        order = OrderCreate(
-            client_id=state["client_id"],  # INTEGER ✅
-            customer_msisdn=from_number,
-            item_sku=state["item_sku"],
-            item_name=state["item_name"],
-            flavour=state["flavour"],
-            base_price=state["base_price"],
-            drink_addon=state["drink_addon"],
-            addon_price=state["addon_price"],
-            total_amount=state["total_amount"],
-            confirmed_at=datetime.utcnow(),
+        logger.info(
+            "ORDER_CONFIRM_ENTER | sender=%s | state_id=%s",
+            from_number,
+            state["id"],
         )
 
-        create_order(db, order)
+        try:
+            order = OrderCreate(
+                client_id=state["client_id"],
+                customer_msisdn=from_number,
+                item_sku=state["item_sku"],
+                item_name=state["item_name"],
+                flavour=state["flavour"],
+                base_price=state["base_price"],
+                drink_addon=state["drink_addon"],
+                addon_price=state["addon_price"],
+                total_amount=state["total_amount"],
+                confirmed_at=datetime.utcnow(),
+            )
+
+            create_order(db, order)
+            logger.info(
+                "ORDER_PERSISTED | sender=%s | client_id=%s",
+                from_number,
+                state["client_id"],
+            )
+        except Exception:
+            logger.exception(
+                "ORDER_CREATE_FAIL | sender=%s | client_id=%s",
+                from_number,
+                state.get("client_id"),
+            )
+            return True
+
         _close_order_state(db, state["id"])
 
         staff_message = (
@@ -229,7 +311,7 @@ def handle_order_message(
 
         _notify_galitos_staff(
             db,
-            client_id=state["client_id"],  # INTEGER ✅ FIX
+            client_id=state["client_id"],
             message=staff_message,
         )
 
@@ -249,4 +331,4 @@ def handle_order_message(
         return True
 
     _send_text(from_number, "Reply YES to confirm or NO to cancel.")
-    return True  
+    return True
