@@ -7,9 +7,10 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Tier 1 Router (Client + Admin entry point)
 
-GUARD RAILS:
-- MUST NOT interfere with active ORDER flows
-- MUST NOT break frozen Galitos order logic
+GUARD RAILS (LOCKED):
+- MUST NOT handle order flow
+- MUST NOT intercept YES / NO
+- MUST NOT require profile DB for orders
 """
 
 import logging
@@ -18,14 +19,8 @@ from sqlalchemy import text
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
-from app.services.contacts_service import add_contact, remove_contact
-from app.models import WhatsAppNumber, Contact
 from app.utils.admin import is_admin_message
 
-# ---- ORDER HANDLER (state check via handler, not state module) ----
-from app.modules.orders import handler as orders_handler
-
-# ---- Survey (disabled / safe stubs) ----
 from app.survey import (
     auto_close_expired_surveys,
     get_active_survey,
@@ -33,7 +28,6 @@ from app.survey import (
     build_survey_summary_text,
 )
 
-# ---- Delegate customer handler ----
 from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands
 )
@@ -139,6 +133,17 @@ def handle_client_command(
 ) -> bool:
     try:
         business_number = resolved_business_number
+        upper = (message_text or "").strip().upper()
+
+        # -------------------------------------------------
+        # HARD ORDER GUARD — NEVER TOUCH ORDER CONFIRMATION
+        # -------------------------------------------------
+        if upper in ("YES", "NO"):
+            logger.info(
+                "ORDER_CONFIRMATION_BYPASS_TIER1 | sender=%s",
+                sender_number,
+            )
+            return False
 
         is_admin = (
             business_number
@@ -149,30 +154,9 @@ def handle_client_command(
             )
         )
 
-        # =================================================
-        # HARD GUARD — NEVER INTERCEPT ACTIVE ORDERS
-        # =================================================
-        if not is_admin:
-            try:
-                # Delegate YES/NO handling to order handler first
-                if orders_handler.handle(
-                    db=db,
-                    msg=msg or {"type": "text", "text": {"body": message_text or ""}},
-                    sender=sender_number,
-                    business_msisdn=business_number,
-                ):
-                    return True
-            except Exception as exc:
-                logger.exception(
-                    "ORDER_HANDLER_GUARD_FAIL | sender=%s | err=%s",
-                    sender_number,
-                    exc,
-                )
-                return False
-
-        # =================================================
-        # Survey auto-close
-        # =================================================
+        # -------------------------------------------------
+        # Survey auto-close (safe)
+        # -------------------------------------------------
         if business_number:
             try:
                 closed = auto_close_expired_surveys(db, business_number)
@@ -187,9 +171,9 @@ def handle_client_command(
                     exc,
                 )
 
-        # =================================================
+        # -------------------------------------------------
         # Survey button replies
-        # =================================================
+        # -------------------------------------------------
         if msg and msg.get("type") == "interactive" and business_number:
             try:
                 button_reply = (
@@ -215,18 +199,16 @@ def handle_client_command(
                 )
                 return True
 
-        upper = (message_text or "").strip().upper()
-
-        # =================================================
+        # -------------------------------------------------
         # Admin menu
-        # =================================================
+        # -------------------------------------------------
         if is_admin and upper == "MENU":
             _send_text(sender_number, ADMIN_MENU_TEXT)
             return True
 
-        # =================================================
+        # -------------------------------------------------
         # ABOUT / HOURS
-        # =================================================
+        # -------------------------------------------------
         if not is_admin and business_number and upper in ("ABOUT", "HOURS"):
             msg_text = _get_client_message(
                 db,
@@ -237,9 +219,9 @@ def handle_client_command(
                 _send_text(sender_number, msg_text)
             return True
 
-        # =================================================
+        # -------------------------------------------------
         # FEEDBACK
-        # =================================================
+        # -------------------------------------------------
         if not is_admin and upper.startswith("FEEDBACK"):
             if ":" in message_text:
                 feedback = message_text.split(":", 1)[1].strip()
@@ -255,9 +237,9 @@ def handle_client_command(
                         )
             return True
 
-        # =================================================
-        # Delegate remaining customer commands
-        # =================================================
+        # -------------------------------------------------
+        # Delegate non-order customer commands
+        # -------------------------------------------------
         if not is_admin:
             return bool(
                 handle_customer_commands(
