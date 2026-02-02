@@ -11,7 +11,7 @@ Orders module adapter + Galitos order entry point.
 Rules (LOCKED):
 - Delegate continuation (flavour / YES / NO) to existing galitos_order_handler
 - Start orders here (ORDER/FOOD + item selection) by creating conversation_state
-- No new business logic beyond wiring + safe guardrails
+- Ensure staff notification happens on CONFIRMED
 - Return True if message was handled
 """
 
@@ -74,6 +74,47 @@ def _get_klresolute_client_id(db: Session, business_msisdn: str) -> int | None:
     return row.get("klresolute_client_id")
 
 
+def _get_latest_confirmed_order(db: Session, sender: str) -> dict | None:
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT *
+                FROM orders
+                WHERE customer_msisdn = :sender
+                  AND status = 'CONFIRMED'
+                ORDER BY confirmed_at DESC
+                LIMIT 1
+                """
+            ),
+            {"sender": sender},
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None
+
+
+def _get_active_staff_numbers(db: Session) -> list[str]:
+    try:
+        return (
+            db.execute(
+                text(
+                    """
+                    SELECT msisdn
+                    FROM galitos_staff
+                    WHERE is_active = true
+                    """
+                )
+            )
+            .scalars()
+            .all()
+        )
+    except Exception as exc:
+        logger.exception("ORDERS_STAFF_LOOKUP_FAIL | err=%s", exc)
+        return []
+
+
 # -------------------------------------------------
 # Messaging
 # -------------------------------------------------
@@ -103,6 +144,30 @@ def _ask_for_flavour(sender: str) -> None:
     )
 
 
+def _notify_staff(db: Session, order: dict) -> None:
+    staff = _get_active_staff_numbers(db)
+    if not staff:
+        logger.error("ORDERS_NO_ACTIVE_STAFF | order_id=%s", order.get("id"))
+        return
+
+    msg = (
+        "📢 New Galitos Order\n\n"
+        f"Item: {order.get('item_name')}\n"
+        f"Flavour: {order.get('flavour')}\n"
+        f"Total: R{order.get('total_amount')}\n"
+        f"Customer: {order.get('customer_msisdn')}\n"
+    )
+
+    for msisdn in staff:
+        send_message(to_number=msisdn, text=msg)
+
+    logger.info(
+        "ORDERS_STAFF_NOTIFIED | order_id=%s | staff_count=%s",
+        order.get("id"),
+        len(staff),
+    )
+
+
 # -------------------------------------------------
 # Main handler
 # -------------------------------------------------
@@ -116,13 +181,11 @@ def handle(
 ) -> bool:
     # Guard: text only
     if not msg or msg.get("type") != "text":
-        logger.debug("ORDERS_SKIP_NON_TEXT | sender=%s", sender)
         return False
 
     body_raw = (msg.get("text", {}) or {}).get("body", "")
     body = (body_raw or "").strip()
     if not body:
-        logger.debug("ORDERS_SKIP_EMPTY | sender=%s", sender)
         return False
 
     upper = body.upper()
@@ -140,12 +203,7 @@ def handle(
         # -------------------------------------------------
         active = _get_active_order_state(db, sender)
         if active:
-            logger.info(
-                "ORDERS_CONTINUE | sender=%s | state_id=%s | text=%s",
-                sender,
-                active.get("id"),
-                upper,
-            )
+            handled = False
 
             if hasattr(galitos_orders, "handle_order_message"):
                 handled = galitos_orders.handle_order_message(
@@ -154,27 +212,24 @@ def handle(
                     text=body,
                     context={"business_msisdn": business_msisdn},
                 )
-                logger.info(
-                    "ORDERS_CONTINUE_RESULT | sender=%s | handled=%s",
-                    sender,
-                    bool(handled),
-                )
-                return bool(handled)
 
-            logger.error("GALITOS_HANDLER_MISSING_handle_order_message")
-            return True  # swallow
+            if handled:
+                if upper == "YES":
+                    order = _get_latest_confirmed_order(db, sender)
+                    if order:
+                        _notify_staff(db, order)
+                return True
+
+            return False
 
         # -------------------------------------------------
         # 2) Entry path (no active ORDER)
         # -------------------------------------------------
         if upper in ("ORDER", "FOOD"):
-            logger.info("ORDERS_START_MENU | sender=%s | text=%s", sender, upper)
             _send_food_menu(sender)
             return True
 
         if body.isdigit():
-            logger.info("ORDERS_DIGIT_PICK | sender=%s | choice=%s", sender, body)
-
             menu = {
                 "1": ("HALF_CHICKEN", "1/2 Chicken", 89),
                 "2": ("HB_3_CHIPS", "Hot Box 3 Piece + Chips", 79),
@@ -182,7 +237,6 @@ def handle(
             }
 
             if body not in menu:
-                logger.info("ORDERS_DIGIT_INVALID | sender=%s | choice=%s", sender, body)
                 return False
 
             kl_client_id = _get_klresolute_client_id(db, business_msisdn)
@@ -191,7 +245,7 @@ def handle(
                     "ORDERS_CLIENT_ID_MISSING | business=%s",
                     business_msisdn,
                 )
-                return True  # swallow
+                return True
 
             sku, name, price = menu[body]
 
@@ -226,7 +280,7 @@ def handle(
                 ),
                 {
                     "sender": sender,
-                    "client_id": kl_client_id,  # INTEGER
+                    "client_id": kl_client_id,
                     "sku": sku,
                     "name": name,
                     "price": price,
@@ -234,17 +288,9 @@ def handle(
             )
             db.commit()
 
-            logger.info(
-                "ORDERS_STATE_CREATED | sender=%s | client_id=%s | sku=%s",
-                sender,
-                kl_client_id,
-                sku,
-            )
-
             _ask_for_flavour(sender)
             return True
 
-        logger.debug("ORDERS_NOT_HANDLED | sender=%s | text=%s", sender, upper)
         return False
 
     except IntegrityError:
@@ -252,11 +298,6 @@ def handle(
             db.rollback()
         except Exception:
             pass
-        logger.warning(
-            "ORDERS_STATE_RACE | sender=%s | business=%s",
-            sender,
-            business_msisdn,
-        )
         _ask_for_flavour(sender)
         return True
 
@@ -270,4 +311,4 @@ def handle(
             sender,
             business_msisdn,
         )
-        return True  # swallow to protect webhook
+        return True
