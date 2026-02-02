@@ -38,16 +38,19 @@ def _reset_session(db: Session) -> None:
 
 
 def _render_customer_menu() -> str:
+    # IMPORTANT:
+    # - Use only emojis that are guaranteed to exist in emoji.py
+    # - Any additional emojis are literal strings here (safe in Python source)
     return "\n".join(
         [
             "🍗 Welcome to Galitos!",
             "",
             "You can:",
-            f"{emoji.MENU} View this menu",
+            "📋 View this menu",
             f"{emoji.ORDER} Order a single item",
-            "☎️ For multiple items, please call the store",
+            "☎️ For multiple items, please call the store directly",
             f"{emoji.SPECIALS} View specials",
-            f"{emoji.ABOUT} See trading hours",
+            f"{emoji.ABOUT} About (hours, address, contact)",
             f"{emoji.FEEDBACK} Send feedback",
             "",
             "Just type one of these:",
@@ -91,12 +94,15 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # ORDER → food order flow
+    # Text normalisation for routing
     # ----------------------------------
     body = ""
     if msg.get("type") == "text":
         body = msg.get("text", {}).get("body", "").strip().upper()
 
+    # ----------------------------------
+    # ORDER → order flow (food menu)
+    # ----------------------------------
     if body == "ORDER":
         if orders_handler.handle(
             db=db,
@@ -107,7 +113,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
-    # Other enabled modules
+    # Other enabled modules (excluding orders which is routed above)
     # ----------------------------------
     for module in profile.enabled_modules:
         if module == "inspection" and inspection_handler.handle(
@@ -126,7 +132,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
-    # Fallback → customer menu
+    # MENU / HELP / unknown → customer menu
     # ----------------------------------
     _send_customer_menu(sender)
     return True
