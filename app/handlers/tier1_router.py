@@ -10,12 +10,9 @@ Tier 1 Router (Client + Admin entry point)
 GUARD RAILS:
 - MUST NOT interfere with active ORDER flows
 - MUST NOT break frozen Galitos order logic
-- MUST fail safely and log clearly
 """
 
 import logging
-from typing import Any
-
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -25,10 +22,10 @@ from app.services.contacts_service import add_contact, remove_contact
 from app.models import WhatsAppNumber, Contact
 from app.utils.admin import is_admin_message
 
-# ---- ORDER STATE GUARD (CRITICAL) ----
-from app.modules.orders.state import has_active_order_state
+# ---- ORDER HANDLER (state check via handler, not state module) ----
+from app.modules.orders import handler as orders_handler
 
-# ---- Survey (disabled / no-op safe) ----
+# ---- Survey (disabled / safe stubs) ----
 from app.survey import (
     auto_close_expired_surveys,
     get_active_survey,
@@ -95,15 +92,7 @@ def _get_client_message(
             .mappings()
             .first()
         )
-        if not row:
-            logger.warning(
-                "CLIENT_MESSAGE_MISSING | business=%s | key=%s",
-                business_number,
-                message_key,
-            )
-            return None
-        return row["message_text"]
-
+        return row["message_text"] if row else None
     except Exception as exc:
         logger.exception(
             "CLIENT_MESSAGE_FETCH_FAIL | business=%s | key=%s | err=%s",
@@ -165,25 +154,24 @@ def handle_client_command(
         # =================================================
         if not is_admin:
             try:
-                if has_active_order_state(
+                # Delegate YES/NO handling to order handler first
+                if orders_handler.handle(
                     db=db,
-                    sender_number=sender_number,
+                    msg=msg or {"type": "text", "text": {"body": message_text or ""}},
+                    sender=sender_number,
+                    business_msisdn=business_number,
                 ):
-                    logger.info(
-                        "ACTIVE_ORDER_BYPASS_TIER1 | sender=%s",
-                        sender_number,
-                    )
-                    return False
+                    return True
             except Exception as exc:
                 logger.exception(
-                    "ORDER_STATE_CHECK_FAIL | sender=%s | err=%s",
+                    "ORDER_HANDLER_GUARD_FAIL | sender=%s | err=%s",
                     sender_number,
                     exc,
                 )
                 return False
 
         # =================================================
-        # Survey auto-close (safe, background)
+        # Survey auto-close
         # =================================================
         if business_number:
             try:
@@ -250,7 +238,7 @@ def handle_client_command(
             return True
 
         # =================================================
-        # FEEDBACK (stateless)
+        # FEEDBACK
         # =================================================
         if not is_admin and upper.startswith("FEEDBACK"):
             if ":" in message_text:
@@ -268,7 +256,7 @@ def handle_client_command(
             return True
 
         # =================================================
-        # Delegate customer commands (menus, etc.)
+        # Delegate remaining customer commands
         # =================================================
         if not is_admin:
             return bool(
