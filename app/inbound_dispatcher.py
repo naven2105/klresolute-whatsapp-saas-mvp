@@ -86,9 +86,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # ORDERS HANDLER
+    # ORDERS (Galitos only)
     # ----------------------------------
-    if "orders" in profile.enabled_modules:
+    if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
         if orders_handler.handle(
             db=db,
             msg=msg,
@@ -98,14 +98,14 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
-    # INSPECTION (signature requires profile_code)
+    # INSPECTION (non-Galitos only)
     # ----------------------------------
-    if "inspection" in profile.enabled_modules:
+    if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         if inspection_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
-            profile_code=profile.client_code,  # REQUIRED by inspection handler
+            profile_code=profile.client_code,
         ):
             return True
 
@@ -113,17 +113,25 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # Other modules
     # ----------------------------------
     if "survey" in profile.enabled_modules and survey_handler.handle(
-        db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        db=db,
+        msg=msg,
+        sender=sender,
+        business_msisdn=business_msisdn,
     ):
         return True
 
     if "broadcast" in profile.enabled_modules and broadcast_handler.handle(
-        db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        db=db,
+        msg=msg,
+        sender=sender,
+        business_msisdn=business_msisdn,
     ):
         return True
 
     # ----------------------------------
-    # FINAL fallback → customer menu
+    # FINAL fallback → customer menu (Galitos only)
     # ----------------------------------
-    _send_customer_menu(sender)
+    if profile.client_code == "GALITOS":
+        _send_customer_menu(sender)
+
     return True
