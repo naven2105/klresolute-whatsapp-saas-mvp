@@ -1,4 +1,4 @@
-    from __future__ import annotations
+from __future__ import annotations
 
 """
 File: app/inbound_dispatcher.py
@@ -94,7 +94,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         body = msg.get("text", {}).get("body", "").strip().upper()
 
     # ----------------------------------
-    # ORDER keyword → show food menu
+    # ORDER → food menu
     # ----------------------------------
     if body == "ORDER":
         send_message(
@@ -110,7 +110,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # ORDERS HANDLER (MUST RUN BEFORE MENU)
+    # Orders handler (must see numeric input)
     # ----------------------------------
     if "orders" in profile.enabled_modules:
         if orders_handler.handle(
@@ -140,7 +140,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # FINAL fallback → customer menu
+    # Final fallback
     # ----------------------------------
     _send_customer_menu(sender)
     return True
