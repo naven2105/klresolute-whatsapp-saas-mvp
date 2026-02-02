@@ -12,7 +12,6 @@ LOCKED:
 import logging
 from sqlalchemy.orm import Session
 
-from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
 
 from app.modules.join import handler as join_handler
@@ -20,8 +19,6 @@ from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 from app.modules.broadcast import handler as broadcast_handler
-
-from app.ui import emoji
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -35,32 +32,6 @@ def _reset_session(db: Session) -> None:
         db.rollback()
     except Exception:
         pass
-
-
-def _render_customer_menu() -> str:
-    return "\n".join(
-        [
-            "🍗 Welcome to Galitos!",
-            "",
-            "You can:",
-            "📋 View this menu",
-            f"{emoji.ORDER} Order a single item",
-            "☎️ For multiple items, please call the store directly",
-            f"{emoji.SPECIALS} View specials",
-            f"{emoji.ABOUT} About (hours, address, contact)",
-            f"{emoji.FEEDBACK} Send feedback",
-            "",
-            "Just type:",
-            "ORDER",
-            "SPECIALS",
-            "ABOUT",
-            "FEEDBACK: food was cold",
-        ]
-    )
-
-
-def _send_customer_menu(sender: str) -> None:
-    send_message(to_number=sender, text=_render_customer_menu())
 
 
 # -------------------------------------------------
@@ -128,10 +99,5 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     ):
         return True
 
-    # ----------------------------------
-    # FINAL fallback → customer menu (Galitos only)
-    # ----------------------------------
-    if profile.client_code == "GALITOS":
-        _send_customer_menu(sender)
-
-    return True
+    # Final fallback handled by Tier-1 router
+    return False
