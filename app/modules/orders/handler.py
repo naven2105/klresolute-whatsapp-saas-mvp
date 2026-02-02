@@ -116,14 +116,23 @@ def handle(
 ) -> bool:
     # Guard: text only
     if not msg or msg.get("type") != "text":
+        logger.debug("ORDERS_SKIP_NON_TEXT | sender=%s", sender)
         return False
 
     body_raw = (msg.get("text", {}) or {}).get("body", "")
     body = (body_raw or "").strip()
     if not body:
+        logger.debug("ORDERS_SKIP_EMPTY | sender=%s", sender)
         return False
 
     upper = body.upper()
+
+    logger.info(
+        "ORDERS_ENTER | sender=%s | business=%s | text=%s",
+        sender,
+        business_msisdn,
+        upper,
+    )
 
     try:
         # -------------------------------------------------
@@ -131,12 +140,24 @@ def handle(
         # -------------------------------------------------
         active = _get_active_order_state(db, sender)
         if active:
+            logger.info(
+                "ORDERS_CONTINUE | sender=%s | state_id=%s | text=%s",
+                sender,
+                active.get("id"),
+                upper,
+            )
+
             if hasattr(galitos_orders, "handle_order_message"):
                 handled = galitos_orders.handle_order_message(
                     db=db,
                     from_number=sender,
                     text=body,
                     context={"business_msisdn": business_msisdn},
+                )
+                logger.info(
+                    "ORDERS_CONTINUE_RESULT | sender=%s | handled=%s",
+                    sender,
+                    bool(handled),
                 )
                 return bool(handled)
 
@@ -147,10 +168,13 @@ def handle(
         # 2) Entry path (no active ORDER)
         # -------------------------------------------------
         if upper in ("ORDER", "FOOD"):
+            logger.info("ORDERS_START_MENU | sender=%s | text=%s", sender, upper)
             _send_food_menu(sender)
             return True
 
         if body.isdigit():
+            logger.info("ORDERS_DIGIT_PICK | sender=%s | choice=%s", sender, body)
+
             menu = {
                 "1": ("HALF_CHICKEN", "1/2 Chicken", 89),
                 "2": ("HB_3_CHIPS", "Hot Box 3 Piece + Chips", 79),
@@ -158,7 +182,8 @@ def handle(
             }
 
             if body not in menu:
-                return True  # <<< FIX: was False
+                logger.info("ORDERS_DIGIT_INVALID | sender=%s | choice=%s", sender, body)
+                return False
 
             kl_client_id = _get_klresolute_client_id(db, business_msisdn)
             if kl_client_id is None:
@@ -166,7 +191,7 @@ def handle(
                     "ORDERS_CLIENT_ID_MISSING | business=%s",
                     business_msisdn,
                 )
-                return True
+                return True  # swallow
 
             sku, name, price = menu[body]
 
@@ -201,7 +226,7 @@ def handle(
                 ),
                 {
                     "sender": sender,
-                    "client_id": kl_client_id,
+                    "client_id": kl_client_id,  # INTEGER
                     "sku": sku,
                     "name": name,
                     "price": price,
@@ -209,10 +234,18 @@ def handle(
             )
             db.commit()
 
+            logger.info(
+                "ORDERS_STATE_CREATED | sender=%s | client_id=%s | sku=%s",
+                sender,
+                kl_client_id,
+                sku,
+            )
+
             _ask_for_flavour(sender)
             return True
 
-        return True  # <<< FIX: was False
+        logger.debug("ORDERS_NOT_HANDLED | sender=%s | text=%s", sender, upper)
+        return False
 
     except IntegrityError:
         try:
@@ -237,4 +270,4 @@ def handle(
             sender,
             business_msisdn,
         )
-        return True
+        return True  # swallow to protect webhook
