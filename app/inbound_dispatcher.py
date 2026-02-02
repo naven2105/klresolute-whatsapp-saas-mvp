@@ -6,7 +6,7 @@ Project: KLResolute WhatsApp SaaS MVP
 
 LOCKED:
 - No DB writes
-- Behaviour aligned to business rules
+- Behaviour defined by DB + handlers
 """
 
 import logging
@@ -23,12 +23,26 @@ from app.modules.survey import handler as survey_handler
 from app.modules.broadcast import handler as broadcast_handler
 from app.modules.orders import handler as orders_handler
 
+from app.ui import emoji
+
 logger = logging.getLogger("inbound.dispatcher")
 
 
 # -------------------------------------------------
 # Helpers
 # -------------------------------------------------
+
+def _safe_execute(db: Session, stmt, params):
+    try:
+        return db.execute(stmt, params)
+    except Exception:
+        logger.error("DISPATCH_DB_EXEC_FAILED | forcing rollback", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
+
 
 def _reset_session(db: Session) -> None:
     try:
@@ -37,28 +51,12 @@ def _reset_session(db: Session) -> None:
         pass
 
 
-def _is_customer(db: Session, sender: str) -> bool:
-    _reset_session(db)
-    return bool(
-        db.execute(
-            text(
-                """
-                SELECT 1
-                FROM contacts
-                WHERE contact_number = :sender
-                LIMIT 1
-                """
-            ),
-            {"sender": sender},
-        ).first()
-    )
-
-
 def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None:
     _reset_session(db)
 
     row = (
-        db.execute(
+        _safe_execute(
+            db,
             text(
                 """
                 SELECT cm.message_text
@@ -83,32 +81,45 @@ def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None
 
 
 def _render_menu(menu: dict) -> str:
-    lines = [menu.get("title", ""), ""]
+    title = f"{emoji.MENU_TITLE} {menu.get('title', '')} {emoji.MENU_TITLE}".strip()
+    lines = [title, ""]
+
+    emoji_map = {
+        "ORDER": emoji.ORDER,
+        "SPECIALS": emoji.SPECIALS,
+        "ABOUT": emoji.ABOUT,
+        "FEEDBACK": emoji.FEEDBACK,
+    }
+
     for section in menu.get("sections", []):
         lines.append(section.get("title", ""))
         for cmd in section.get("commands", []):
-            lines.append(cmd)
+            key = cmd.upper()
+            prefix = emoji_map.get(key, "")
+            lines.append(f"{prefix} {cmd}".strip())
         lines.append("")
+
     return "\n".join(lines).strip()
 
 
-def _send_menu(*, db: Session, sender: str, business_msisdn: str) -> None:
+def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str) -> None:
     _reset_session(db)
 
     row = (
-        db.execute(
+        _safe_execute(
+            db,
             text(
                 """
                 SELECT m.menu_json
                 FROM client_menus m
                 JOIN whatsapp_numbers w ON w.client_id = m.client_id
                 WHERE w.destination_number = :business
-                  AND m.menu_key = 'customer_menu'
+                  AND m.menu_key = :menu_key
                   AND m.is_active = TRUE
                 LIMIT 1
                 """
             ),
-            {"business": business_msisdn},
+            {"business": business_msisdn, "menu_key": menu_key},
         )
         .mappings()
         .first()
@@ -125,50 +136,57 @@ def _send_menu(*, db: Session, sender: str, business_msisdn: str) -> None:
 # -------------------------------------------------
 
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
-    _reset_session(db)
+    try:
+        db.rollback()
+    except Exception:
+        pass
 
     profile = get_client_profile(business_msisdn, db=db)
 
-    # ----------------------------------
-    # JOIN handling (non-customer only)
-    # ----------------------------------
-    if not _is_customer(db, sender):
-        if join_handler.handle(
-            db=db,
-            msg=msg,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        ):
-            _send_menu(db=db, sender=sender, business_msisdn=business_msisdn)
-            return True
-
-    # ----------------------------------
-    # Known customer flow
-    # ----------------------------------
-    if _is_customer(db, sender):
-        for module in profile.enabled_modules:
-            if module == "orders" and orders_handler.handle(
-                db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-            ):
-                return True
-            if module == "inspection" and inspection_handler.handle(
-                db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-            ):
-                return True
-            if module == "survey" and survey_handler.handle(
-                db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-            ):
-                return True
-            if module == "broadcast" and broadcast_handler.handle(
-                db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
-            ):
-                return True
-
-        _send_menu(db=db, sender=sender, business_msisdn=business_msisdn)
+    if not profile:
+        _send_unknown_sender(db, sender, business_msisdn)
         return True
 
-    # ----------------------------------
-    # Non-customer fallback
-    # ----------------------------------
-    _send_unknown_sender(db, sender, business_msisdn)
+    if join_handler.handle(
+        db=db,
+        msg=msg,
+        sender=sender,
+        business_msisdn=business_msisdn,
+    ):
+        _send_menu(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            menu_key="customer_menu",
+        )
+        return True
+
+    for module in profile.enabled_modules:
+
+        if module == "orders" and orders_handler.handle(
+            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        ):
+            return True
+
+        if module == "inspection" and inspection_handler.handle(
+            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        ):
+            return True
+
+        if module == "survey" and survey_handler.handle(
+            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        ):
+            return True
+
+        if module == "broadcast" and broadcast_handler.handle(
+            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        ):
+            return True
+
+    _send_menu(
+        db=db,
+        sender=sender,
+        business_msisdn=business_msisdn,
+        menu_key="customer_menu",
+    )
     return True
