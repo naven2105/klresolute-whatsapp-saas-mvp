@@ -33,8 +33,18 @@ def handle(
     Orders module entry point.
     """
 
+    # -----------------------------
+    # Guard: only text messages
+    # -----------------------------
+    if not msg or msg.get("type") != "text":
+        return False
+
     try:
-        # 🔒 Delegate to the existing handler's public entry point
+        handled = False
+
+        # ----------------------------------
+        # Delegate to legacy Galitos handler
+        # ----------------------------------
         if hasattr(galitos_orders, "handle_order"):
             handled = galitos_orders.handle_order(
                 db=db,
@@ -42,6 +52,7 @@ def handle(
                 msg=msg,
                 business_msisdn=business_msisdn,
             )
+
         elif hasattr(galitos_orders, "handle"):
             handled = galitos_orders.handle(
                 db=db,
@@ -49,8 +60,11 @@ def handle(
                 msg=msg,
                 business_msisdn=business_msisdn,
             )
+
         else:
-            logger.error("GALITOS_HANDLER_NO_ENTRYPOINT")
+            logger.error(
+                "ORDERS_DELEGATE_MISSING | module=galitos_order_handler"
+            )
             return False
 
         if handled:
@@ -62,10 +76,19 @@ def handle(
 
         return bool(handled)
 
-    except Exception:
+    except Exception as exc:
+        # ----------------------------------
+        # Guard: never break webhook
+        # ----------------------------------
         logger.exception(
-            "ORDERS_HANDLER_FAIL | sender=%s | business=%s",
+            "ORDERS_HANDLER_FAIL | sender=%s | business=%s | err=%s",
             sender,
             business_msisdn,
+            exc,
         )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
         return True  # swallow to protect webhook
