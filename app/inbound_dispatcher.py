@@ -48,61 +48,33 @@ def _safe_execute(db: Session, stmt, params):
         raise
 
 
-def _render_customer_menu(menu: dict) -> str:
-    """
-    Friendly Galitos customer menu.
-    Presentation only – no logic.
-    """
-
-    lines = [
-        f"{emoji.CHICKEN} *Welcome to Galitos!*",
-        "",
-        "Here’s what you can do:",
-        f"{emoji.MENU} View this menu",
-        f"{emoji.ORDER} Order a single item",
-        f"{emoji.SPECIALS} View today’s specials",
-        f"{emoji.ABOUT} Trading hours & contact info",
-        f"{emoji.FEEDBACK} Send feedback",
-        "",
-        "Just type one of these:",
-        "FOOD  → order one item",
-        "SPECIALS",
-        "ABOUT",
-        "FEEDBACK: food was cold",
-        "",
-        "For multiple items or large orders,",
-        "please contact the store directly 📞",
-    ]
-
-    return "\n".join(lines)
-
-
-def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str) -> None:
-    _reset_session(db)
-
-    row = (
-        _safe_execute(
-            db,
-            text(
-                """
-                SELECT m.menu_json
-                FROM client_menus m
-                JOIN whatsapp_numbers w ON w.client_id = m.client_id
-                WHERE w.destination_number = :business
-                  AND m.menu_key = :menu_key
-                  AND m.is_active = TRUE
-                LIMIT 1
-                """
-            ),
-            {"business": business_msisdn, "menu_key": menu_key},
-        )
-        .mappings()
-        .first()
+def _render_customer_menu() -> str:
+    return "\n".join(
+        [
+            f"{emoji.CHICKEN} Welcome to Galitos!",
+            "",
+            "You can:",
+            f"{emoji.MENU} View this menu",
+            f"{emoji.ORDER} Order a single item",
+            "☎️ For multiple items, please call the store",
+            f"{emoji.SPECIALS} View specials",
+            f"{emoji.ABOUT} See trading hours",
+            f"{emoji.FEEDBACK} Send feedback",
+            "",
+            "Just type one of these:",
+            "MENU",
+            "ORDER",
+            "SPECIALS",
+            "ABOUT",
+            "FEEDBACK: food was cold",
+        ]
     )
 
+
+def _send_customer_menu(sender: str) -> None:
     send_message(
         to_number=sender,
-        text=_render_customer_menu(row["menu_json"]) if row else "Menu unavailable.",
+        text=_render_customer_menu(),
     )
 
 
@@ -117,28 +89,38 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     if not profile:
         return True
 
+    # ----------------------------------
     # JOIN (early)
+    # ----------------------------------
     if join_handler.handle(
         db=db,
         msg=msg,
         sender=sender,
         business_msisdn=business_msisdn,
     ):
-        _send_menu(
-            db=db,
-            sender=sender,
-            business_msisdn=business_msisdn,
-            menu_key="customer_menu",
-        )
+        _send_customer_menu(sender)
         return True
 
-    # Modules
-    for module in profile.enabled_modules:
-        if module == "orders" and orders_handler.handle(
-            db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+    # ----------------------------------
+    # ORDER must reach order flow
+    # ----------------------------------
+    body = ""
+    if msg.get("type") == "text":
+        body = msg.get("text", {}).get("body", "").strip().upper()
+
+    if body == "ORDER":
+        if orders_handler.handle(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
         ):
             return True
 
+    # ----------------------------------
+    # Other enabled modules
+    # ----------------------------------
+    for module in profile.enabled_modules:
         if module == "inspection" and inspection_handler.handle(
             db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
         ):
@@ -154,11 +136,8 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         ):
             return True
 
-    # Fallback → customer menu
-    _send_menu(
-        db=db,
-        sender=sender,
-        business_msisdn=business_msisdn,
-        menu_key="customer_menu",
-    )
+    # ----------------------------------
+    # Default fallback → customer menu
+    # ----------------------------------
+    _send_customer_menu(sender)
     return True
