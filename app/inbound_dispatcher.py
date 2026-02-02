@@ -50,26 +50,28 @@ def _safe_execute(db: Session, stmt, params):
 
 def _render_customer_menu(menu: dict) -> str:
     """
-    Render Galitos-style friendly customer menu.
-    DB provides structure; presentation is code-driven.
+    Friendly Galitos customer menu.
+    Presentation only – no logic.
     """
 
-    title = f"{emoji.SPECIALS} Welcome to Galitos!"
     lines = [
-        title,
+        f"{emoji.CHICKEN} *Welcome to Galitos!*",
         "",
-        "You can:",
-        f"{emoji.SPECIALS} View our menu",
-        f"{emoji.ORDER} Place an order",
-        f"{emoji.SPECIALS} View specials",
-        f"{emoji.ABOUT} See trading hours",
+        "Here’s what you can do:",
+        f"{emoji.MENU} View this menu",
+        f"{emoji.ORDER} Order a single item",
+        f"{emoji.SPECIALS} View today’s specials",
+        f"{emoji.ABOUT} Trading hours & contact info",
         f"{emoji.FEEDBACK} Send feedback",
         "",
-        "Just type what you’d like, for example:",
-        "MENU",
+        "Just type one of these:",
+        "FOOD  → order one item",
         "SPECIALS",
-        "ORDER",
+        "ABOUT",
         "FEEDBACK: food was cold",
+        "",
+        "For multiple items or large orders,",
+        "please contact the store directly 📞",
     ]
 
     return "\n".join(lines)
@@ -98,13 +100,9 @@ def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str)
         .first()
     )
 
-    if not row:
-        send_message(to_number=sender, text="Menu unavailable.")
-        return
-
     send_message(
         to_number=sender,
-        text=_render_customer_menu(row["menu_json"]),
+        text=_render_customer_menu(row["menu_json"]) if row else "Menu unavailable.",
     )
 
 
@@ -116,10 +114,10 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     _reset_session(db)
 
     profile = get_client_profile(business_msisdn, db=db)
-
     if not profile:
         return True
 
+    # JOIN (early)
     if join_handler.handle(
         db=db,
         msg=msg,
@@ -134,6 +132,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
         return True
 
+    # Modules
     for module in profile.enabled_modules:
         if module == "orders" and orders_handler.handle(
             db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
@@ -155,6 +154,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         ):
             return True
 
+    # Fallback → customer menu
     _send_menu(
         db=db,
         sender=sender,
