@@ -3,16 +3,6 @@ from __future__ import annotations
 """
 File: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
-
-PURPOSE:
-Minimal WhatsApp webhook dispatcher.
-
-LOCKED:
-- Parse inbound payload safely
-- Ignore non-message events
-- Dispatch ONLY real user messages
-- Prevent duplicate processing using provider_message_id
-- Tier-0 degraded messaging ONLY if DB is unavailable
 """
 
 import logging
@@ -26,11 +16,13 @@ from sqlalchemy.exc import OperationalError
 
 from app.db import get_db
 from app.inbound_dispatcher import dispatch
+from app.handlers.tier1_router import handle_client_command
 from app.clients.magen.auto_close import auto_close_expired_inspections
 from app.messaging.client_messenger import send_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
+
 
 # -------------------------------------------------
 # Helpers
@@ -53,7 +45,6 @@ def _extract_message(payload: dict):
 
         messages = entry.get("messages")
         if not messages:
-            logger.debug("WEBHOOK_NON_MESSAGE_EVENT")
             return None, None, None, None
 
         msg = messages[0]
@@ -68,23 +59,13 @@ def _extract_message(payload: dict):
             provider_message_id,
         )
 
-    except Exception as exc:
-        logger.error(
-            "PAYLOAD_PARSE_FAILED | error=%s",
-            exc,
-            exc_info=True,
-        )
+    except Exception:
         return None, None, None, None
 
 
 def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
-    """
-    Returns True if this message should be processed (lock acquired),
-    False if it is a duplicate (already seen).
-    """
     if not provider_message_id:
-        logger.warning("MISSING_PROVIDER_MESSAGE_ID")
-        return True  # fail-open
+        return True
 
     try:
         result = db.execute(
@@ -98,24 +79,11 @@ def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
             {"pid": provider_message_id},
         )
         db.commit()
+        return bool(getattr(result, "rowcount", 0) == 1)
 
-        inserted = bool(getattr(result, "rowcount", 0) == 1)
-        if inserted:
-            logger.info("MESSAGE_LOCK_ACQUIRED | provider_id=%s", provider_message_id)
-            return True
-
-        logger.info("DUPLICATE_MESSAGE_IGNORED | provider_id=%s", provider_message_id)
-        return False
-
-    except Exception as exc:
+    except Exception:
         db.rollback()
-        logger.error(
-            "MESSAGE_LOCK_FAILED | provider_id=%s | err=%s",
-            provider_message_id,
-            exc,
-            exc_info=True,
-        )
-        return True  # fail-open
+        return True
 
 
 # -------------------------------------------------
@@ -127,89 +95,52 @@ async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    logger.info("WEBHOOK_ENTER")
-
-    try:
-        payload = await request.json()
-    except Exception as exc:
-        logger.error("INVALID_JSON | err=%s", exc, exc_info=True)
-        return Response(status_code=200)
-
+    payload = await request.json()
     msg, sender, business_msisdn, provider_message_id = _extract_message(payload)
 
-    # Ignore non-user events
-    if not msg:
+    if not msg or not sender or not business_msisdn:
         return Response(status_code=200)
 
-    if not sender or not business_msisdn:
-        logger.warning(
-            "INVALID_MESSAGE | sender=%s | business=%s",
-            sender,
-            business_msisdn,
-        )
-        return Response(status_code=200)
-
-    # -------------------------------------------------
-    # DB availability guard (Tier-0)
-    # -------------------------------------------------
+    # DB guard
     try:
         db.execute(text("SELECT 1"))
-    except OperationalError as exc:
-        logger.critical(
-            "SYSTEM_DEGRADED_MODE | DB_UNAVAILABLE | err=%s",
-            exc,
-            exc_info=True,
-        )
-
+    except OperationalError:
         send_message(
             to_number=sender,
             text="⚠️ Service temporarily unavailable. Please try again shortly.",
         )
         return Response(status_code=200)
 
-    # -------------------------------------------------
-    # Duplicate protection (EARLY LOCK)
-    # -------------------------------------------------
     if not _try_lock_provider_message(db, provider_message_id):
         return Response(status_code=200)
 
-    # -------------------------------------------------
-    # Background maintenance (safe)
-    # -------------------------------------------------
     try:
         auto_close_expired_inspections(db)
-    except Exception as exc:
-        logger.error(
-            "MAGEN_AUTO_CLOSE_FAILED | err=%s",
-            exc,
-            exc_info=True,
-        )
+    except Exception:
+        pass
 
-    # -------------------------------------------------
-    # Dispatch
-    # -------------------------------------------------
-    try:
-        handled = dispatch(
+    # -----------------------------
+    # Dispatch (modules)
+    # -----------------------------
+    handled = dispatch(
+        db=db,
+        msg=msg,
+        sender=sender,
+        business_msisdn=business_msisdn,
+    )
+
+    # -----------------------------
+    # Tier-1 fallback (CRITICAL)
+    # -----------------------------
+    if not handled:
+        handle_client_command(
             db=db,
+            sender_number=sender,
+            message_text=(
+                msg.get("text", {}).get("body") if msg.get("type") == "text" else ""
+            ),
             msg=msg,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        )
-
-        logger.info(
-            "DISPATCH_RESULT | handled=%s | sender=%s | business=%s",
-            handled,
-            sender,
-            business_msisdn,
-        )
-
-    except Exception as exc:
-        logger.error(
-            "DISPATCH_FAILURE | sender=%s | business=%s | err=%s",
-            sender,
-            business_msisdn,
-            exc,
-            exc_info=True,
+            resolved_business_number=business_msisdn,
         )
 
     return Response(status_code=200)
