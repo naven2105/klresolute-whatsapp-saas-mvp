@@ -83,10 +83,10 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         sender=sender,
         business_msisdn=business_msisdn,
     ):
-        return True   # ⬅️ menu REMOVED here
+        return True
 
     # ----------------------------------
-    # ORDERS HANDLER (FIRST REAL WORKFLOW)
+    # ORDERS HANDLER
     # ----------------------------------
     if "orders" in profile.enabled_modules:
         if orders_handler.handle(
@@ -98,15 +98,20 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
+    # INSPECTION (signature requires profile_code)
+    # ----------------------------------
+    if "inspection" in profile.enabled_modules:
+        if inspection_handler.handle(
+            db=db,
+            msg=msg,
+            sender=sender,
+            profile_code=profile.client_code,  # REQUIRED by inspection handler
+        ):
+            return True
+
+    # ----------------------------------
     # Other modules
     # ----------------------------------
-    if "inspection" in profile.enabled_modules and inspection_handler.handle(
-        db=db,
-        msg=msg,
-        sender=sender,
-    ):
-        return True
-
     if "survey" in profile.enabled_modules and survey_handler.handle(
         db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
     ):
