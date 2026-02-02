@@ -32,18 +32,6 @@ logger = logging.getLogger("inbound.dispatcher")
 # Helpers
 # -------------------------------------------------
 
-def _safe_execute(db: Session, stmt, params):
-    try:
-        return db.execute(stmt, params)
-    except Exception:
-        logger.error("DISPATCH_DB_EXEC_FAILED | forcing rollback", exc_info=True)
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        raise
-
-
 def _reset_session(db: Session) -> None:
     try:
         db.rollback()
@@ -51,55 +39,40 @@ def _reset_session(db: Session) -> None:
         pass
 
 
-def _send_unknown_sender(db: Session, sender: str, business_msisdn: str) -> None:
-    _reset_session(db)
-
-    row = (
-        _safe_execute(
-            db,
-            text(
-                """
-                SELECT cm.message_text
-                FROM client_messages cm
-                JOIN whatsapp_numbers w ON w.client_id = cm.client_id
-                WHERE w.destination_number = :business
-                  AND cm.message_key = 'unknown_sender'
-                  AND cm.is_active = TRUE
-                LIMIT 1
-                """
-            ),
-            {"business": business_msisdn},
-        )
-        .mappings()
-        .first()
-    )
-
-    send_message(
-        to_number=sender,
-        text=row["message_text"] if row else "Access restricted.",
-    )
+def _safe_execute(db: Session, stmt, params):
+    try:
+        return db.execute(stmt, params)
+    except Exception:
+        logger.error("DISPATCH_DB_EXEC_FAILED", exc_info=True)
+        _reset_session(db)
+        raise
 
 
-def _render_menu(menu: dict) -> str:
-    title = f"{emoji.MENU_TITLE} {menu.get('title', '')} {emoji.MENU_TITLE}".strip()
-    lines = [title, ""]
+def _render_customer_menu(menu: dict) -> str:
+    """
+    Render Galitos-style friendly customer menu.
+    DB provides structure; presentation is code-driven.
+    """
 
-    emoji_map = {
-        "ORDER": emoji.ORDER,
-        "SPECIALS": emoji.SPECIALS,
-        "ABOUT": emoji.ABOUT,
-        "FEEDBACK": emoji.FEEDBACK,
-    }
+    title = f"{emoji.SPECIALS} Welcome to Galitos!"
+    lines = [
+        title,
+        "",
+        "You can:",
+        f"{emoji.SPECIALS} View our menu",
+        f"{emoji.ORDER} Place an order",
+        f"{emoji.SPECIALS} View specials",
+        f"{emoji.ABOUT} See trading hours",
+        f"{emoji.FEEDBACK} Send feedback",
+        "",
+        "Just type what you’d like, for example:",
+        "MENU",
+        "SPECIALS",
+        "ORDER",
+        "FEEDBACK: food was cold",
+    ]
 
-    for section in menu.get("sections", []):
-        lines.append(section.get("title", ""))
-        for cmd in section.get("commands", []):
-            key = cmd.upper()
-            prefix = emoji_map.get(key, "")
-            lines.append(f"{prefix} {cmd}".strip())
-        lines.append("")
-
-    return "\n".join(lines).strip()
+    return "\n".join(lines)
 
 
 def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str) -> None:
@@ -125,9 +98,13 @@ def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str)
         .first()
     )
 
+    if not row:
+        send_message(to_number=sender, text="Menu unavailable.")
+        return
+
     send_message(
         to_number=sender,
-        text=_render_menu(row["menu_json"]) if row else "Menu unavailable.",
+        text=_render_customer_menu(row["menu_json"]),
     )
 
 
@@ -136,15 +113,11 @@ def _send_menu(*, db: Session, sender: str, business_msisdn: str, menu_key: str)
 # -------------------------------------------------
 
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
-    try:
-        db.rollback()
-    except Exception:
-        pass
+    _reset_session(db)
 
     profile = get_client_profile(business_msisdn, db=db)
 
     if not profile:
-        _send_unknown_sender(db, sender, business_msisdn)
         return True
 
     if join_handler.handle(
@@ -162,7 +135,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     for module in profile.enabled_modules:
-
         if module == "orders" and orders_handler.handle(
             db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
         ):
