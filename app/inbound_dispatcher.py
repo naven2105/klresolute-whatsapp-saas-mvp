@@ -6,7 +6,7 @@ Project: KLResolute WhatsApp SaaS MVP
 
 LOCKED:
 - No DB writes
-- Behaviour defined by DB + handlers
+- Behaviour defined by handlers
 """
 
 import logging
@@ -87,30 +87,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # TEXT NORMALISATION
-    # ----------------------------------
-    body = ""
-    if msg.get("type") == "text":
-        body = msg.get("text", {}).get("body", "").strip().upper()
-
-    # ----------------------------------
-    # ORDER → food menu
-    # ----------------------------------
-    if body == "ORDER":
-        send_message(
-            to_number=sender,
-            text=(
-                "🍗 Galitos Food Menu\n\n"
-                "1️⃣ 1/2 Chicken – R89\n"
-                "2️⃣ Hot Box 3 Piece + Chips – R79\n"
-                "3️⃣ Full Chicken – R159\n\n"
-                "Reply with the number."
-            ),
-        )
-        return True
-
-    # ----------------------------------
-    # Orders handler (must see numeric input)
+    # ORDERS HANDLER (FIRST REAL WORKFLOW)
     # ----------------------------------
     if "orders" in profile.enabled_modules:
         if orders_handler.handle(
@@ -140,7 +117,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # Final fallback
+    # FINAL fallback → customer menu
     # ----------------------------------
     _send_customer_menu(sender)
     return True
