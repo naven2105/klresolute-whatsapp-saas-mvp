@@ -11,11 +11,9 @@ LOCKED:
 
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
-from app.utils.admin import is_admin_message
 
 from app.modules.join import handler as join_handler
 from app.modules.inspection import handler as inspection_handler
@@ -39,19 +37,10 @@ def _reset_session(db: Session) -> None:
         pass
 
 
-def _safe_execute(db: Session, stmt, params):
-    try:
-        return db.execute(stmt, params)
-    except Exception:
-        logger.error("DISPATCH_DB_EXEC_FAILED", exc_info=True)
-        _reset_session(db)
-        raise
-
-
 def _render_customer_menu() -> str:
     return "\n".join(
         [
-            f"{emoji.CHICKEN} Welcome to Galitos!",
+            "🍗 Welcome to Galitos!",
             "",
             "You can:",
             f"{emoji.MENU} View this menu",
@@ -102,7 +91,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     # ----------------------------------
-    # ORDER must reach order flow
+    # ORDER → food order flow
     # ----------------------------------
     body = ""
     if msg.get("type") == "text":
@@ -137,7 +126,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
-    # Default fallback → customer menu
+    # Fallback → customer menu
     # ----------------------------------
     _send_customer_menu(sender)
     return True
