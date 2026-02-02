@@ -120,7 +120,7 @@ def handle_galitos_menu(
     # ----------------------------------
     # FOOD MENU
     # ----------------------------------
-    if upper == "FOOD":
+    if upper in ("FOOD", "ORDER"):
         meta.send_session_message(
             to_msisdn=sender_number,
             text=(
