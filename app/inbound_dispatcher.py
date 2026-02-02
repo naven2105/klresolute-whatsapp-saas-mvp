@@ -101,7 +101,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # Other modules
     # ----------------------------------
     if "inspection" in profile.enabled_modules and inspection_handler.handle(
-        db=db, msg=msg, sender=sender, business_msisdn=business_msisdn
+        db=db,
+        msg=msg,
+        sender=sender,
     ):
         return True
 
