@@ -100,11 +100,14 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             db.execute(
                 text(
                     """
-                    INSERT INTO contacts (contact_id, contact_number)
-                    VALUES (gen_random_uuid(), :sender)
+                    INSERT INTO contacts (contact_id, client_id, contact_number)
+                    VALUES (gen_random_uuid(), :client_id, :sender)
                     """
                 ),
-                {"sender": sender},
+                {
+                    "client_id": client_row["client_id"],
+                    "sender": sender,
+                },
             )
             db.commit()
 
