@@ -218,8 +218,53 @@ def handle_client_command(
             if msg_text:
                 _send_text(sender_number, msg_text)
                 return True
-
             return False
+
+        # -------------------------------------------------
+        # SPECIALS (REPLAY LATEST)
+        # -------------------------------------------------
+        if not is_admin and business_number and upper == "SPECIALS":
+            try:
+                row = (
+                    db.execute(
+                        text(
+                            """
+                            SELECT media_id, caption
+                            FROM specials
+                            WHERE client_id = (
+                                SELECT client_id
+                                FROM whatsapp_numbers
+                                WHERE destination_number = :business
+                                LIMIT 1
+                            )
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                            """
+                        ),
+                        {"business": business_number},
+                    )
+                    .mappings()
+                    .first()
+                )
+
+                if not row:
+                    _send_text(sender_number, "No specials available right now.")
+                    return True
+
+                _meta_client.send_image_message(
+                    to_msisdn=sender_number,
+                    media_id=row["media_id"],
+                    caption=row["caption"],
+                )
+                return True
+
+            except Exception as exc:
+                logger.exception(
+                    "SPECIALS_REPLAY_FAIL | sender=%s | err=%s",
+                    sender_number,
+                    exc,
+                )
+                return True
 
         # -------------------------------------------------
         # FEEDBACK
