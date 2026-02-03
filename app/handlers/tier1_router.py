@@ -217,7 +217,9 @@ def handle_client_command(
             )
             if msg_text:
                 _send_text(sender_number, msg_text)
-            return True
+                return True
+
+            return False
 
         # -------------------------------------------------
         # FEEDBACK

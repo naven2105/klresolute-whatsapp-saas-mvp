@@ -202,6 +202,7 @@ def handle(
         # 1) Continuation path (active ORDER exists)
         # -------------------------------------------------
         active = _get_active_order_state(db, sender)
+
         if active:
             handled = False
 
@@ -213,14 +214,7 @@ def handle(
                     context={"business_msisdn": business_msisdn},
                 )
 
-            if handled:
-                if upper == "YES":
-                    order = _get_latest_confirmed_order(db, sender)
-                    if order:
-                        _notify_staff(db, order)
-                return True
-
-            return False
+            return True
 
         # -------------------------------------------------
         # 2) Entry path (no active ORDER)

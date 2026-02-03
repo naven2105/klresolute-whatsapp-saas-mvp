@@ -12,8 +12,10 @@ Rules (LOCKED):
 - Unknown text → customer menu
 - STOP / RESUME remain functional
 - YES/NO only acts when awaiting food order confirmation (conversation_state.order_pending = true)
+- SPECIALS → replay latest special
 """
 
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text as sql_text
 
@@ -24,6 +26,9 @@ from app.menus.customers.galitos_customer_menu import GALITOS_CUSTOMER_MENU
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 from app.utils.admin import is_admin_message
+
+logger = logging.getLogger("galitos.customer_commands")
+
 
 def _render_menu(menu: dict) -> str:
     lines = [menu["title"], ""]
@@ -36,13 +41,6 @@ def _render_menu(menu: dict) -> str:
 
 
 def _extract_choice_text(msg: dict) -> str:
-    """
-    Normalise inbound message into a single 'text' value.
-    Supports:
-      - text.body
-      - interactive.button_reply.id/title
-      - interactive.list_reply.id/title
-    """
     msg_type = msg.get("type")
 
     if msg_type == "text":
@@ -67,10 +65,6 @@ def _extract_choice_text(msg: dict) -> str:
 
 
 def _get_active_order_state(db: Session, sender: str, client_id: str):
-    """
-    Returns the active conversation_state row for this sender (if any).
-    Uses the real schema you pasted.
-    """
     return (
         db.execute(
             sql_text(
@@ -96,9 +90,6 @@ def _get_active_order_state(db: Session, sender: str, client_id: str):
 
 
 def _close_active_order(db: Session, sender: str, client_id: str) -> None:
-    """
-    Closes any active order state (idempotent).
-    """
     db.execute(
         sql_text(
             """
@@ -127,7 +118,6 @@ def handle_client_command(
 ) -> bool:
     msg_type = msg.get("type")
 
-    # Accept TEXT + INTERACTIVE for Galitos (interactive is used for flavour choices)
     if msg_type not in ("text", "interactive"):
         return False
 
@@ -138,6 +128,12 @@ def handle_client_command(
     text_upper = text.upper()
     meta = get_meta_client()
 
+    logger.info(
+        "CUSTOMER_CMD_ENTER | sender=%s | text=%s",
+        sender,
+        text_upper,
+    )
+
     # ----------------------------------
     # FOOD FLOW (must be FIRST)
     # ----------------------------------
@@ -147,6 +143,7 @@ def handle_client_command(
         message_text=text,
         client_id=client_id,
     ):
+        logger.info("CUSTOMER_CMD_HANDLED | path=food")
         return True
 
     # ----------------------------------
@@ -156,7 +153,6 @@ def handle_client_command(
         state = _get_active_order_state(db, sender, client_id)
 
         if state and bool(state.get("order_pending")) is True:
-            # Close state so repeat YES/NO doesn't loop forever
             _close_active_order(db, sender, client_id)
 
             if text_upper == "YES":
@@ -169,9 +165,52 @@ def handle_client_command(
                     to_msisdn=sender,
                     text="❌ OK — your Galitos order was cancelled.",
                 )
+
+            logger.info(
+                "CUSTOMER_CMD_ORDER_CONFIRM | sender=%s | response=%s",
+                sender,
+                text_upper,
+            )
             return True
 
-        # Standalone YES/NO falls through to menu (LOCKED requirement)
+    # ----------------------------------
+    # SPECIALS (FIX)
+    # ----------------------------------
+    if text_upper == "SPECIALS":
+        logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
+
+        row = (
+            db.execute(
+                sql_text(
+                    """
+                    SELECT media_id, caption
+                    FROM specials
+                    WHERE client_id = :client_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            .mappings()
+            .first()
+        )
+
+        if row:
+            meta.send_image_message(
+                to_msisdn=sender,
+                media_id=row["media_id"],
+                caption=row["caption"],
+            )
+            logger.info("CUSTOMER_CMD_SPECIALS_SENT | sender=%s", sender)
+            return True
+
+        meta.send_session_message(
+            to_msisdn=sender,
+            text="No specials available right now.",
+        )
+        logger.info("CUSTOMER_CMD_SPECIALS_NONE | sender=%s", sender)
+        return True
 
     # ----------------------------------
     # STOP
@@ -229,7 +268,7 @@ def handle_client_command(
         return True
 
     # ----------------------------------
-    # FALLBACK: UNKNOWN TEXT → CUSTOMER MENU
+    # FALLBACK
     # ----------------------------------
     meta.send_session_message(
         to_msisdn=sender,
