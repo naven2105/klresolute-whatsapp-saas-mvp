@@ -299,13 +299,23 @@ def handle_order_message(
         now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=2)))
         timestamp = now.strftime("%A, %Y-%m-%d · %Hh%M")
 
+        flavour_label = (
+            "Hot" if state["flavour"] == "H"
+            else "Mild" if state["flavour"] == "M"
+            else "Lemon & Herb"
+        )
+
         staff_message = (
             f"New Galitos Order | {timestamp} | "
             f"Item: {state['item_name']} | "
-            f"Flavour: {flavour} | "
+            f"Flavour: {flavour_label} | "
             f"Total: R{state['total_amount']} | "
-            f"Customer: {from_number}"
-        )
+                f"Customer: {from_number}"
+            )
+
+
+
+
 
         _notify_galitos_staff(
             db,
