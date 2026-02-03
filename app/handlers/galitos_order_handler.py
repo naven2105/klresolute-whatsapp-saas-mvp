@@ -92,24 +92,35 @@ def _notify_galitos_staff(
     for r in rows:
         try:
             logger.info(
-                "STAFF_NOTIFY_SEND | client_id=%s | msisdn=%s",
+                "STAFF_NOTIFY_SEND_ATTEMPT | client_id=%s | msisdn=%s",
                 client_id,
                 r.msisdn,
             )
-            _meta_client.send_generic_business_update_template(
+
+            response = _meta_client.send_generic_business_update_template(
                 to_msisdn=r.msisdn,
                 blob_text=message,
             )
+
+            logger.info(
+                "STAFF_NOTIFY_META_RESPONSE | client_id=%s | msisdn=%s | response=%r",
+                client_id,
+                r.msisdn,
+                response,
+            )
+
             logger.info(
                 "STAFF_NOTIFIED | client_id=%s | msisdn=%s",
                 client_id,
                 r.msisdn,
             )
-        except Exception:
+
+        except Exception as exc:
             logger.exception(
-                "STAFF_NOTIFY_FAIL | client_id=%s | msisdn=%s",
+                "STAFF_NOTIFY_FAIL | client_id=%s | msisdn=%s | err=%s",
                 client_id,
                 r.msisdn,
+                exc,
             )
 
 
@@ -220,17 +231,11 @@ def handle_order_message(
 
     normalized = (text or "").strip().upper()
 
-    # -------------------------------
-    # MENU = HARD RESET
-    # -------------------------------
     if normalized == "MENU":
         _close_order_state(db, state["id"])
         _send_text(from_number, "Order cancelled.\n\nReply MENU to start again.")
         return True
 
-    # -------------------------------
-    # AWAIT FLAVOUR
-    # -------------------------------
     if state.get("flavour") is None:
         flavour_map = {
             "1": ("L", "Lemon & Herb"),
@@ -261,16 +266,7 @@ def handle_order_message(
         )
         return True
 
-    # -------------------------------
-    # CONFIRM ORDER
-    # -------------------------------
     if normalized == "YES":
-        logger.info(
-            "ORDER_CONFIRM_ENTER | sender=%s | state_id=%s",
-            from_number,
-            state["id"],
-        )
-
         try:
             order = OrderCreate(
                 client_id=state["client_id"],
@@ -284,7 +280,6 @@ def handle_order_message(
                 total_amount=state["total_amount"],
                 confirmed_at=datetime.utcnow(),
             )
-
             create_order(db, order)
             logger.info(
                 "ORDER_PERSISTED | sender=%s | client_id=%s",
@@ -322,9 +317,6 @@ def handle_order_message(
         )
         return True
 
-    # -------------------------------
-    # CANCEL ORDER
-    # -------------------------------
     if normalized == "NO":
         _close_order_state(db, state["id"])
         _send_text(from_number, "❌ Order cancelled.\n\nType MENU to start again.")
