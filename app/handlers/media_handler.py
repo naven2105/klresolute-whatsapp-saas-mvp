@@ -211,6 +211,7 @@ def handle_media_message(
             "MEDIA_HANDLER_ADMIN_CONFIRM_OK | sender=%s",
             sender,
         )
+        
     except Exception as exc:
         logger.error(
             "MEDIA_HANDLER_ADMIN_CONFIRM_FAIL | sender=%s | error=%s",
