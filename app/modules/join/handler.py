@@ -5,14 +5,12 @@ File: app/modules/join/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle client opt-in (JOIN) logic with DB-driven onboarding messages.
+Handle client opt-in (JOIN) logic.
 
 Responsibilities:
 - Detect JOIN command
-- Detect unknown sender pre-JOIN
-- Read onboarding messages from client_onboarding_messages
 - Create contact if new
-- Send appropriate onboarding message
+- Send JOIN REQUEST / WELCOME messages from tables
 - Return True if handled
 
 Scope:
@@ -24,9 +22,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.outbound.factory import get_meta_client
+from app.outbound.meta import MetaWhatsAppClient
+from app.outbound.settings import load_meta_settings
 
 logger = logging.getLogger("module.join")
+
+_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
 def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
@@ -43,36 +44,27 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
         return False
 
     body = msg.get("text", {}).get("body", "").strip()
-    body_upper = body.upper()
-
-    meta = get_meta_client()
+    upper = body.upper()
 
     # ----------------------------------
-    # Resolve client_id
+    # Resolve client (INTEGER id)
     # ----------------------------------
-    try:
-        client_row = (
-            db.execute(
-                text(
-                    """
-                    SELECT client_id
-                    FROM whatsapp_numbers
-                    WHERE destination_number = :business
-                      AND status = 'active'
-                    LIMIT 1
-                    """
-                ),
-                {"business": business_msisdn},
-            )
-            .mappings()
-            .first()
+    client_row = (
+        db.execute(
+            text(
+                """
+                SELECT klresolute_client_id
+                FROM whatsapp_numbers
+                WHERE destination_number = :business
+                  AND status = 'active'
+                LIMIT 1
+                """
+            ),
+            {"business": business_msisdn},
         )
-    except Exception:
-        logger.exception(
-            "JOIN_CLIENT_LOOKUP_FAILED | business=%s",
-            business_msisdn,
-        )
-        return True
+        .mappings()
+        .first()
+    )
 
     if not client_row:
         logger.error(
@@ -81,108 +73,13 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
         )
         return True
 
-    client_id = client_row["client_id"]
+    client_id = client_row["klresolute_client_id"]
 
     # ----------------------------------
-    # Check existing contact
+    # NON-JOIN → send JOIN REQUEST msg
     # ----------------------------------
-    contact = (
-        db.execute(
-            text(
-                """
-                SELECT 1
-                FROM contacts
-                WHERE contact_number = :sender
-                LIMIT 1
-                """
-            ),
-            {"sender": sender},
-        )
-        .first()
-    )
-
-    # ----------------------------------
-    # JOIN command
-    # ----------------------------------
-    if body_upper == "JOIN":
-        if contact:
-            msg_row = (
-                db.execute(
-                    text(
-                        """
-                        SELECT message_text
-                        FROM client_onboarding_messages
-                        WHERE client_id = :client_id
-                          AND message_key = 'join_exists'
-                          AND is_active = TRUE
-                        LIMIT 1
-                        """
-                    ),
-                    {"client_id": client_id},
-                )
-                .mappings()
-                .first()
-            )
-        else:
-            try:
-                db.execute(
-                    text(
-                        """
-                        INSERT INTO contacts (contact_id, contact_number)
-                        VALUES (gen_random_uuid(), :sender)
-                        """
-                    ),
-                    {"sender": sender},
-                )
-                db.commit()
-            except IntegrityError:
-                db.rollback()
-                logger.warning(
-                    "JOIN_CONTACT_RACE_CONDITION | sender=%s",
-                    sender,
-                )
-            except Exception:
-                db.rollback()
-                logger.exception(
-                    "JOIN_CONTACT_PERSIST_FAILED | sender=%s",
-                    sender,
-                )
-
-            msg_row = (
-                db.execute(
-                    text(
-                        """
-                        SELECT message_text
-                        FROM client_onboarding_messages
-                        WHERE client_id = :client_id
-                          AND message_key = 'join_success'
-                          AND is_active = TRUE
-                        LIMIT 1
-                        """
-                    ),
-                    {"client_id": client_id},
-                )
-                .mappings()
-                .first()
-            )
-
-        if msg_row:
-            meta.send_session_message(
-                to_msisdn=sender,
-                text=msg_row["message_text"],
-            )
-
-        logger.info(
-            "JOIN_COMPLETED | sender=%s",
-            sender,
-        )
-        return True
-
-    # ----------------------------------
-    # Unknown sender (pre-JOIN)
-    # ----------------------------------
-    if not contact:
-        msg_row = (
+    if upper != "JOIN":
+        row = (
             db.execute(
                 text(
                     """
@@ -200,16 +97,91 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             .first()
         )
 
-        if msg_row:
-            meta.send_session_message(
+        if row:
+            _meta_client.send_session_message(
                 to_msisdn=sender,
-                text=msg_row["message_text"],
+                text=row["message_text"],
             )
 
-        logger.info(
-            "JOIN_REQUEST_SENT | sender=%s",
+        return True
+
+    # ----------------------------------
+    # JOIN → persist contact
+    # ----------------------------------
+    try:
+        exists = (
+            db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM contacts
+                    WHERE contact_number = :sender
+                    LIMIT 1
+                    """
+                ),
+                {"sender": sender},
+            )
+            .first()
+        )
+
+        if not exists:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO contacts (contact_id, contact_number)
+                    VALUES (gen_random_uuid(), :sender)
+                    """
+                ),
+                {"sender": sender},
+            )
+            db.commit()
+
+    except IntegrityError:
+        db.rollback()
+        logger.warning(
+            "JOIN_CONTACT_RACE_CONDITION | sender=%s",
+            sender,
+        )
+
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "JOIN_CONTACT_PERSIST_FAILED | sender=%s",
             sender,
         )
         return True
 
-    return False
+    # ----------------------------------
+    # JOIN → send WELCOME msg
+    # ----------------------------------
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT message_text
+                FROM client_onboarding_messages
+                WHERE client_id = :client_id
+                  AND message_key = 'join_welcome'
+                  AND is_active = TRUE
+                LIMIT 1
+                """
+            ),
+            {"client_id": client_id},
+        )
+        .mappings()
+        .first()
+    )
+
+    if row:
+        _meta_client.send_session_message(
+            to_msisdn=sender,
+            text=row["message_text"],
+        )
+
+    logger.info(
+        "JOIN_COMPLETED | sender=%s | client_id=%s",
+        sender,
+        client_id,
+    )
+
+    return True
