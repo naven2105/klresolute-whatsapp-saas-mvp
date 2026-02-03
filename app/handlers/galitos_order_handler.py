@@ -296,12 +296,16 @@ def handle_order_message(
 
         _close_order_state(db, state["id"])
 
+        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=2)))
+        timestamp = now.strftime("%A, %Y-%m-%d · %Hh%M")
+
         staff_message = (
-            f"Order | {state['item_name']} | "
-            f"{state['flavour']} | "
-            f"R{state['total_amount']} | "
-            f"Cust: {from_number} | "
-            f"{datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=2))).strftime('%Y-%m-%d %H:%M')}"
+            "📢 New Galitos Order\n"
+            f"🕒 {timestamp}\n\n"
+            f"Item: {state['item_name']}\n"
+            f"Flavour: {'Hot' if state['flavour'] == 'H' else 'Mild' if state['flavour'] == 'M' else 'Lemon & Herb'}\n"
+            f"Total: R{state['total_amount']}\n"
+            f"Customer: {from_number}"
         )
 
         _notify_galitos_staff(
