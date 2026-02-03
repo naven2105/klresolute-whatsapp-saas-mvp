@@ -9,7 +9,7 @@ Handle client opt-in (JOIN) logic.
 
 Responsibilities:
 - Detect JOIN command
-- Create contact if new
+- Create client_contact if new
 - Do NOT send any message
 - Return True if handled
 
@@ -50,7 +50,7 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
             db.execute(
                 text(
                     """
-                    SELECT client_id
+                    SELECT klresolute_client_id
                     FROM whatsapp_numbers
                     WHERE destination_number = :business
                       AND status = 'active'
@@ -77,57 +77,70 @@ def handle(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool
         )
         return True
 
+    client_id = client_row["klresolute_client_id"]
+
     # ----------------------------------
-    # Contact lookup / creation
+    # Client contact lookup / creation
     # ----------------------------------
     try:
-        contact = (
+        existing = (
             db.execute(
                 text(
                     """
                     SELECT 1
-                    FROM contacts
-                    WHERE contact_number = :sender
+                    FROM client_contacts
+                    WHERE client_id = :client_id
+                      AND contact_number = :sender
                     LIMIT 1
                     """
                 ),
-                {"sender": sender},
+                {"client_id": client_id, "sender": sender},
             )
             .first()
         )
 
-        if not contact:
+        if not existing:
             db.execute(
                 text(
                     """
-                    INSERT INTO contacts (contact_id, client_id, contact_number)
-                    VALUES (gen_random_uuid(), :client_id, :sender)
+                    INSERT INTO client_contacts (
+                        client_id,
+                        contact_number,
+                        is_opted_out,
+                        created_at
+                    )
+                    VALUES (
+                        :client_id,
+                        :sender,
+                        FALSE,
+                        now()
+                    )
                     """
                 ),
-                {
-                    "client_id": client_row["client_id"],
-                    "sender": sender,
-                },
+                {"client_id": client_id, "sender": sender},
             )
             db.commit()
 
     except IntegrityError:
         db.rollback()
         logger.warning(
-            "JOIN_CONTACT_RACE_CONDITION | sender=%s",
+            "JOIN_CLIENT_CONTACT_RACE | sender=%s | client_id=%s",
             sender,
+            client_id,
         )
 
     except Exception:
         db.rollback()
         logger.error(
-            "JOIN_CONTACT_PERSIST_FAILED | sender=%s",
+            "JOIN_CLIENT_CONTACT_PERSIST_FAILED | sender=%s | client_id=%s",
             sender,
+            client_id,
             exc_info=True,
         )
 
     logger.info(
-        "JOIN_COMPLETED | sender=%s",
+        "JOIN_COMPLETED | sender=%s | client_id=%s",
         sender,
+        client_id,
     )
     return True
