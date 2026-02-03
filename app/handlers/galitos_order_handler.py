@@ -300,11 +300,10 @@ def handle_order_message(
         timestamp = now.strftime("%A, %Y-%m-%d · %Hh%M")
 
         staff_message = (
-            "📢 New Galitos Order\n"
-            f"🕒 {timestamp}\n\n"
-            f"Item: {state['item_name']}\n"
-            f"Flavour: {'Hot' if state['flavour'] == 'H' else 'Mild' if state['flavour'] == 'M' else 'Lemon & Herb'}\n"
-            f"Total: R{state['total_amount']}\n"
+            f"New Galitos Order | {timestamp} | "
+            f"Item: {state['item_name']} | "
+            f"Flavour: {flavour} | "
+            f"Total: R{state['total_amount']} | "
             f"Customer: {from_number}"
         )
 
