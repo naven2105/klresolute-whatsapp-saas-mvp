@@ -5,6 +5,7 @@ File: app/clients/galitos/customer_commands.py
 Path: app/clients/galitos/customer_commands.py
 Project: KLResolute WhatsApp SaaS MVP
 
+
 Purpose:
 Galitos customer self-service command router.
 
@@ -111,8 +112,8 @@ def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
     try:
         send_customer_menu_from_db(
             db=db,
-            client_id=client_id,
-            sender_msisdn=sender,
+            client_id=client_id,   # INTEGER (stringified)
+            sender=sender,
             menu_key="customer_menu",
         )
         logger.info("CUSTOMER_MENU_SENT | sender=%s | client_id=%s", sender, client_id)
