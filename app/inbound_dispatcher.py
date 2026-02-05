@@ -2,17 +2,23 @@ from __future__ import annotations
 
 """
 File: app/inbound_dispatcher.py
+Path: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
 
 LOCKED:
 - No DB writes
 - Behaviour defined by handlers
+
+MVP RULE:
+- resolved_client_id MUST be INTEGER (klresolute_client_id)
 """
 
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.profiles.client_profile import get_client_profile
+from app.handlers.tier1_router import handle_client_command as tier1_handle
 
 from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
@@ -33,6 +39,56 @@ def _reset_session(db: Session) -> None:
         pass
 
 
+def _resolve_integer_client_id(
+    db: Session,
+    *,
+    business_msisdn: str,
+) -> int | None:
+    """
+    Resolve MVP integer client_id via whatsapp_numbers.klresolute_client_id
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT klresolute_client_id
+                    FROM whatsapp_numbers
+                    WHERE destination_number = :business
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_msisdn},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row or row["klresolute_client_id"] is None:
+            logger.error(
+                "CLIENT_ID_INT_NOT_FOUND | business=%s",
+                business_msisdn,
+            )
+            return None
+
+        client_id_int = int(row["klresolute_client_id"])
+        logger.info(
+            "CLIENT_ID_INT_RESOLVED | business=%s | client_id=%s",
+            business_msisdn,
+            client_id_int,
+        )
+        return client_id_int
+
+    except Exception as exc:
+        logger.exception(
+            "CLIENT_ID_INT_RESOLUTION_FAIL | business=%s | err=%s",
+            business_msisdn,
+            exc,
+        )
+        return None
+
+
 # -------------------------------------------------
 # Dispatcher
 # -------------------------------------------------
@@ -40,6 +96,21 @@ def _reset_session(db: Session) -> None:
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
     _reset_session(db)
 
+    # ----------------------------------
+    # Resolve integer client_id (MVP)
+    # ----------------------------------
+    resolved_client_id = _resolve_integer_client_id(
+        db,
+        business_msisdn=business_msisdn,
+    )
+
+    if resolved_client_id is None:
+        # Hard stop — cannot proceed without integer client id
+        return True
+
+    # ----------------------------------
+    # Resolve profile (routing only)
+    # ----------------------------------
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
         return True
@@ -87,5 +158,16 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     ):
         return True
 
-    # Final fallback handled by Tier-1 router
-    return False
+    # ----------------------------------
+    # Final fallback → Tier-1 router
+    # ----------------------------------
+    return bool(
+        tier1_handle(
+            db=db,
+            sender_number=sender,
+            message_text=(msg.get("text", {}) or {}).get("body", ""),
+            msg=msg,
+            resolved_client_id=str(resolved_client_id),
+            resolved_business_number=business_msisdn,
+        )
+    )
