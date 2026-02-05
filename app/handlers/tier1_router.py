@@ -117,6 +117,82 @@ def _admin_numbers(db: Session) -> list[str]:
         return []
 
 
+def _ensure_client_contact(
+    db: Session,
+    *,
+    client_id: int,
+    contact_number: str,
+) -> None:
+    """
+    Silent "JOIN" (implicit):
+    - If no row exists: insert is_opted_out = FALSE
+    - If row exists and is_opted_out = TRUE: do nothing
+    - If row exists and is_opted_out = FALSE: do nothing
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT is_opted_out
+                    FROM client_contacts
+                    WHERE client_id = :client_id
+                      AND contact_number = :contact_number
+                    LIMIT 1
+                    """
+                ),
+                {"client_id": client_id, "contact_number": contact_number},
+            )
+            .mappings()
+            .first()
+        )
+
+        if row:
+            if bool(row.get("is_opted_out")) is True:
+                logger.info(
+                    "SILENT_JOIN_SKIPPED_OPTED_OUT | client_id=%s | contact=%s",
+                    client_id,
+                    contact_number,
+                )
+                return
+
+            logger.info(
+                "SILENT_JOIN_EXISTS | client_id=%s | contact=%s",
+                client_id,
+                contact_number,
+            )
+            return
+
+        db.execute(
+            text(
+                """
+                INSERT INTO client_contacts (client_id, contact_number, is_opted_out, created_at)
+                VALUES (:client_id, :contact_number, FALSE, now())
+                """
+            ),
+            {"client_id": client_id, "contact_number": contact_number},
+        )
+        db.commit()
+
+        logger.info(
+            "SILENT_JOIN_INSERTED | client_id=%s | contact=%s",
+            client_id,
+            contact_number,
+        )
+
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.exception(
+            "SILENT_JOIN_FAIL | client_id=%s | contact=%s | err=%s",
+            client_id,
+            contact_number,
+            exc,
+        )
+
+
 # =================================================
 # Main handler
 # =================================================
@@ -218,53 +294,8 @@ def handle_client_command(
             if msg_text:
                 _send_text(sender_number, msg_text)
                 return True
+
             return False
-
-        # -------------------------------------------------
-        # SPECIALS (REPLAY LATEST)
-        # -------------------------------------------------
-        if not is_admin and business_number and upper == "SPECIALS":
-            try:
-                row = (
-                    db.execute(
-                        text(
-                            """
-                            SELECT media_id, caption
-                            FROM specials
-                            WHERE client_id = (
-                                SELECT client_id
-                                FROM whatsapp_numbers
-                                WHERE destination_number = :business
-                                LIMIT 1
-                            )
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                            """
-                        ),
-                        {"business": business_number},
-                    )
-                    .mappings()
-                    .first()
-                )
-
-                if not row:
-                    _send_text(sender_number, "No specials available right now.")
-                    return True
-
-                _meta_client.send_image_message(
-                    to_msisdn=sender_number,
-                    media_id=row["media_id"],
-                    caption=row["caption"],
-                )
-                return True
-
-            except Exception as exc:
-                logger.exception(
-                    "SPECIALS_REPLAY_FAIL | sender=%s | err=%s",
-                    sender_number,
-                    exc,
-                )
-                return True
 
         # -------------------------------------------------
         # FEEDBACK
@@ -285,9 +316,23 @@ def handle_client_command(
             return True
 
         # -------------------------------------------------
-        # Delegate non-order customer commands
+        # Customer path: silent join + delegate
         # -------------------------------------------------
         if not is_admin:
+            if resolved_client_id:
+                try:
+                    _ensure_client_contact(
+                        db,
+                        client_id=int(resolved_client_id),
+                        contact_number=sender_number,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "SILENT_JOIN_CLIENT_ID_BAD | resolved_client_id=%r | err=%s",
+                        resolved_client_id,
+                        exc,
+                    )
+
             return bool(
                 handle_customer_commands(
                     db=db,

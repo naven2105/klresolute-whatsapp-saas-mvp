@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from app.profiles.client_profile import get_client_profile
 
-from app.modules.join import handler as join_handler
 from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
@@ -43,17 +42,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
-        return True
-
-    # ----------------------------------
-    # JOIN (early)
-    # ----------------------------------
-    if join_handler.handle(
-        db=db,
-        msg=msg,
-        sender=sender,
-        business_msisdn=business_msisdn,
-    ):
         return True
 
     # ----------------------------------
