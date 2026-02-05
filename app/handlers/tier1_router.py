@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """
 File: app/handlers/tier1_router.py
+Path: app/handlers/tier1_router.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
@@ -11,6 +12,10 @@ GUARD RAILS (LOCKED):
 - MUST NOT handle order flow
 - MUST NOT intercept YES / NO
 - MUST NOT require profile DB for orders
+
+Tier-1 Routing Rule (LOCKED):
+- MUST resolve client_id (UUID) before delegating to downstream handlers.
+- MUST NOT allow customer handlers to run with missing client_id.
 """
 
 import logging
@@ -29,7 +34,7 @@ from app.survey import (
 )
 
 from app.clients.galitos.customer_commands import (
-    handle_client_command as handle_customer_commands
+    handle_client_command as handle_customer_commands,
 )
 
 logger = logging.getLogger("handlers.tier1_router")
@@ -59,6 +64,62 @@ _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 def _send_text(to_number: str, text_msg: str) -> None:
     logger.info("SEND_TEXT | to=%s | text=%r", to_number, text_msg)
     _meta_client.send_session_message(to_msisdn=to_number, text=text_msg)
+
+
+def _resolve_client_id_by_business_number(
+    db: Session,
+    *,
+    business_number: str,
+) -> str | None:
+    """
+    Resolve client_id (UUID) using the WhatsApp business destination number.
+
+    Source of truth:
+    public.whatsapp_numbers.destination_number -> public.whatsapp_numbers.client_id (UUID)
+    """
+    if not business_number:
+        logger.error("CLIENT_RESOLUTION_FAILED | reason=missing_business_number")
+        return None
+
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT client_id
+                    FROM whatsapp_numbers
+                    WHERE destination_number = :business
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_number},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row or not row.get("client_id"):
+            logger.error(
+                "CLIENT_RESOLUTION_FAILED | reason=client_not_found | business=%s",
+                business_number,
+            )
+            return None
+
+        client_id = str(row["client_id"]).strip()
+        logger.info(
+            "CLIENT_RESOLVED | client_id=%s | business=%s",
+            client_id,
+            business_number,
+        )
+        return client_id
+
+    except Exception as exc:
+        logger.exception(
+            "CLIENT_RESOLUTION_FAILED | reason=exception | business=%s | err=%s",
+            business_number,
+            exc,
+        )
+        return None
 
 
 def _get_client_message(
@@ -120,7 +181,7 @@ def _admin_numbers(db: Session) -> list[str]:
 def _ensure_client_contact(
     db: Session,
     *,
-    client_id: int,
+    client_id: str,
     contact_number: str,
 ) -> None:
     """
@@ -128,7 +189,17 @@ def _ensure_client_contact(
     - If no row exists: insert is_opted_out = FALSE
     - If row exists and is_opted_out = TRUE: do nothing
     - If row exists and is_opted_out = FALSE: do nothing
+
+    NOTE:
+    - client_id is UUID (string), not int.
     """
+    if not client_id:
+        logger.error(
+            "SILENT_JOIN_GUARD_FAIL | reason=missing_client_id | contact=%s",
+            contact_number,
+        )
+        return
+
     try:
         row = (
             db.execute(
@@ -220,6 +291,22 @@ def handle_client_command(
                 sender_number,
             )
             return False
+
+        # -------------------------------------------------
+        # Resolve client_id (UUID) once, in Tier-1 (LOCKED)
+        # -------------------------------------------------
+        client_id: str | None = None
+        if resolved_client_id and str(resolved_client_id).strip():
+            client_id = str(resolved_client_id).strip()
+            logger.info(
+                "CLIENT_RESOLVED | client_id=%s | source=resolved_client_id",
+                client_id,
+            )
+        else:
+            client_id = _resolve_client_id_by_business_number(
+                db,
+                business_number=business_number or "",
+            )
 
         is_admin = (
             business_number
@@ -316,30 +403,32 @@ def handle_client_command(
             return True
 
         # -------------------------------------------------
-        # Customer path: silent join + delegate
+        # Customer path: require client_id + silent join + delegate
         # -------------------------------------------------
         if not is_admin:
-            if resolved_client_id:
-                try:
-                    _ensure_client_contact(
-                        db,
-                        client_id=int(resolved_client_id),
-                        contact_number=sender_number,
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "SILENT_JOIN_CLIENT_ID_BAD | resolved_client_id=%r | err=%s",
-                        resolved_client_id,
-                        exc,
-                    )
+            if not client_id:
+                logger.error(
+                    "CLIENT_RESOLUTION_FAILED | reason=missing_client_id_before_customer_dispatch "
+                    "| sender=%s | business=%s",
+                    sender_number,
+                    business_number,
+                )
+                # Hard stop: no fallback menu, no customer handler without client_id.
+                return True
+
+            _ensure_client_contact(
+                db,
+                client_id=client_id,
+                contact_number=sender_number,
+            )
 
             return bool(
                 handle_customer_commands(
                     db=db,
                     sender=sender_number,
                     msg=msg or {"type": "text", "text": {"body": message_text or ""}},
-                    client_id=str(resolved_client_id) if resolved_client_id else "",
-                    business_msisdn=business_number,
+                    client_id=client_id,
+                    business_msisdn=business_number or "",
                 )
             )
 
