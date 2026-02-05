@@ -2,17 +2,22 @@ from __future__ import annotations
 
 """
 File: app/clients/galitos/customer_commands.py
+Path: app/clients/galitos/customer_commands.py
+Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Galitos customer self-service command router.
 
 Rules (LOCKED):
 - FOOD → food menu
-- MENU / HELP / ABOUT → customer menu
-- Unknown text → customer menu
+- MENU / HELP / ABOUT → customer menu (DB-only)
+- Unknown text → customer menu (DB-only)
 - STOP / RESUME remain functional
 - YES/NO only acts when awaiting food order confirmation (conversation_state.order_pending = true)
 - SPECIALS → replay latest special
+
+Notes:
+- Customer menus MUST come from DB (client_menus). No code-based menu imports.
 """
 
 import logging
@@ -22,22 +27,12 @@ from sqlalchemy import text as sql_text
 from app.models import Contact
 from app.outbound.factory import get_meta_client
 
-from app.menus.customers.galitos_customer_menu import GALITOS_CUSTOMER_MENU
+from app.menus.customer_menu_service import send_customer_menu_from_db
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("galitos.customer_commands")
-
-
-def _render_menu(menu: dict) -> str:
-    lines = [menu["title"], ""]
-    for section in menu.get("sections", []):
-        lines.append(section["title"])
-        for cmd in section.get("commands", []):
-            lines.append(cmd)
-        lines.append("")
-    return "\n".join(lines).strip()
 
 
 def _extract_choice_text(msg: dict) -> str:
@@ -108,6 +103,29 @@ def _close_active_order(db: Session, sender: str, client_id: str) -> None:
     db.commit()
 
 
+def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
+    """
+    Guarded DB-only menu send.
+    No fallback menus.
+    """
+    try:
+        send_customer_menu_from_db(
+            db=db,
+            client_id=client_id,
+            sender_msisdn=sender,
+            menu_key="customer_menu",
+        )
+        logger.info("CUSTOMER_MENU_SENT | sender=%s | client_id=%s", sender, client_id)
+    except Exception:
+        logger.exception(
+            "CUSTOMER_MENU_FAILED | sender=%s | client_id=%s | menu_key=customer_menu",
+            sender,
+            client_id,
+        )
+        # Hard fail: no fallback menu. Let upstream/global error handling decide.
+        raise
+
+
 def handle_client_command(
     *,
     db: Session,
@@ -174,7 +192,7 @@ def handle_client_command(
             return True
 
     # ----------------------------------
-    # SPECIALS (FIX)
+    # SPECIALS
     # ----------------------------------
     if text_upper == "SPECIALS":
         logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
@@ -261,17 +279,11 @@ def handle_client_command(
     # CUSTOMER MENU (explicit)
     # ----------------------------------
     if text_upper in {"MENU", "HELP", "ABOUT"}:
-        meta.send_session_message(
-            to_msisdn=sender,
-            text=_render_menu(GALITOS_CUSTOMER_MENU),
-        )
+        _send_customer_menu(db=db, sender=sender, client_id=client_id)
         return True
 
     # ----------------------------------
-    # FALLBACK
+    # FALLBACK → CUSTOMER MENU (DB-only)
     # ----------------------------------
-    meta.send_session_message(
-        to_msisdn=sender,
-        text=_render_menu(GALITOS_CUSTOMER_MENU),
-    )
+    _send_customer_menu(db=db, sender=sender, client_id=client_id)
     return True
