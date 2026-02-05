@@ -78,6 +78,11 @@ def send_customer_menu_from_db(
     Send customer menu using DB-backed menu.
     client_id is INTEGER (stringified) from Tier-1.
     """
+    logger.info(
+        "MENU_SERVICE_ENTER | client_id=%r | type=%s",
+        client_id,
+        type(client_id).__name__,
+    )
 
     # ----------------------------------
     # Guard + parse integer client_id
