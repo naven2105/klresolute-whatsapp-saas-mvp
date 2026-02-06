@@ -6,16 +6,16 @@ Path: app/modules/status/admin_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle ADMIN-only STATUS / ANNOUNCEMENT commands.
+Admin-only Status / Announcement writer.
 
-Command format (LOCKED):
-STATUS: <message>
+Responsibility (SINGLE):
+- Allow admins to set or clear a client status message.
 
-Rules (LOCKED):
-- Admins only
-- One active status per client
-- New status overwrites existing one
-- No customer delivery here (read-only elsewhere)
+Rules:
+- Admin-only
+- DB-driven client resolution
+- Fail closed
+- No customer routing
 """
 
 import logging
@@ -27,27 +27,26 @@ from app.utils.admin import is_admin_message
 logger = logging.getLogger("modules.status.admin_handler")
 
 
+# -------------------------------------------------
+# Public entry
+# -------------------------------------------------
+
 def handle_status_command(
     *,
     db: Session,
     sender: str,
-    message_text: str,
     business_msisdn: str,
+    message_text: str,
 ) -> bool:
     """
-    Returns True if message was handled (admin STATUS command).
-    Returns False if message is not a STATUS command.
+    Handles admin STATUS commands.
+
+    Supported:
+    - STATUS: <text>
+    - STATUS OFF
     """
 
-    # ----------------------------------
-    # Guard: command format
-    # ----------------------------------
-    if not message_text:
-        return False
-
-    raw = message_text.strip()
-    if not raw.upper().startswith("STATUS:"):
-        return False
+    upper = (message_text or "").strip().upper()
 
     # ----------------------------------
     # Guard: admin only
@@ -57,35 +56,24 @@ def handle_status_command(
         sender=sender,
         business_msisdn=business_msisdn,
     ):
-        logger.warning(
-            "STATUS_REJECTED_NON_ADMIN | sender=%s | business=%s",
+        logger.info(
+            "STATUS_REJECTED | reason=not_admin | sender=%s | business=%s",
             sender,
             business_msisdn,
         )
-        return True  # consumed but rejected
-
-    status_text = raw.split(":", 1)[1].strip()
-
-    if not status_text:
-        logger.error(
-            "STATUS_REJECTED_EMPTY | sender=%s | business=%s",
-            sender,
-            business_msisdn,
-        )
-        return True
+        return False
 
     # ----------------------------------
-    # Resolve client UUID
+    # Resolve client_id (INTEGER MVP)
     # ----------------------------------
     row = (
         db.execute(
             text(
                 """
-                SELECT c.client_id
-                FROM whatsapp_numbers w
-                JOIN clients c ON c.client_id = w.client_id
-                WHERE w.destination_number = :business
-                  AND w.status = 'active'
+                SELECT klresolute_client_id
+                FROM whatsapp_numbers
+                WHERE destination_number = :business
+                  AND status = 'active'
                 LIMIT 1
                 """
             ),
@@ -95,20 +83,67 @@ def handle_status_command(
         .first()
     )
 
-    if not row:
+    if not row or row["klresolute_client_id"] is None:
         logger.error(
-            "STATUS_CLIENT_RESOLUTION_FAIL | business=%s | sender=%s",
+            "STATUS_BLOCKED | reason=client_not_resolved | business=%s",
             business_msisdn,
+        )
+        return True
+
+    client_id = int(row["klresolute_client_id"])
+
+    # ----------------------------------
+    # STATUS OFF
+    # ----------------------------------
+    if upper == "STATUS OFF":
+        db.execute(
+            text(
+                """
+                UPDATE client_status
+                SET is_active = FALSE
+                WHERE client_id = :client_id
+                  AND is_active = TRUE
+                """
+            ),
+            {"client_id": client_id},
+        )
+        db.commit()
+
+        logger.info(
+            "STATUS_CLEARED | client_id=%s | by=%s",
+            client_id,
             sender,
         )
         return True
 
-    client_id = str(row["client_id"])
+    # ----------------------------------
+    # STATUS SET
+    # ----------------------------------
+    if upper.startswith("STATUS:"):
+        status_text = message_text.split(":", 1)[1].strip()
 
-    # ----------------------------------
-    # Upsert status (single active row)
-    # ----------------------------------
-    try:
+        if not status_text:
+            logger.warning(
+                "STATUS_EMPTY | client_id=%s | sender=%s",
+                client_id,
+                sender,
+            )
+            return True
+
+        # deactivate previous
+        db.execute(
+            text(
+                """
+                UPDATE client_status
+                SET is_active = FALSE
+                WHERE client_id = :client_id
+                  AND is_active = TRUE
+                """
+            ),
+            {"client_id": client_id},
+        )
+
+        # insert new
         db.execute(
             text(
                 """
@@ -124,12 +159,6 @@ def handle_status_command(
                     TRUE,
                     now()
                 )
-                ON CONFLICT (client_id)
-                DO UPDATE SET
-                    status_text = EXCLUDED.status_text,
-                    is_active = TRUE,
-                    created_at = now(),
-                    expires_at = NULL
                 """
             ),
             {
@@ -140,37 +169,11 @@ def handle_status_command(
         db.commit()
 
         logger.info(
-            "STATUS_SET_OK | client_id=%s | sender=%s",
+            "STATUS_SET | client_id=%s | by=%s | text=%r",
             client_id,
             sender,
-        )
-
-    except Exception as exc:
-        db.rollback()
-        logger.exception(
-            "STATUS_SET_FAIL | client_id=%s | sender=%s | err=%s",
-            client_id,
-            sender,
-            exc,
+            status_text,
         )
         return True
 
-    # ----------------------------------
-    # Confirm to admin
-    # ----------------------------------
-    try:
-        from app.outbound.factory import get_meta_client
-
-        meta = get_meta_client(business_msisdn=business_msisdn)
-        meta.send_session_message(
-            to_msisdn=sender,
-            text="✅ Status updated. Customers will see this on their next interaction.",
-        )
-    except Exception:
-        logger.exception(
-            "STATUS_ADMIN_CONFIRM_FAIL | sender=%s | business=%s",
-            sender,
-            business_msisdn,
-        )
-
-    return True
+    return False
