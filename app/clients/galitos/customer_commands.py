@@ -144,7 +144,7 @@ def handle_client_command(
         return False
 
     text_upper = text.upper()
-    meta = get_meta_client()
+    meta = get_meta_client(business_msisdn=business_msisdn)
 
     logger.info(
         "CUSTOMER_CMD_ENTER | sender=%s | text=%s",
@@ -198,6 +198,21 @@ def handle_client_command(
         logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
 
         # Resolve UUID from INTEGER client_id
+
+        try:
+            client_id_int = int(str(client_id))
+        except Exception:
+            logger.error(
+                "SPECIALS_CLIENT_ID_INVALID | client_id=%r | sender=%s",
+                client_id,
+                sender,
+            )
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="No specials available right now.",
+            )
+            return True
+
         row_uuid = (
             db.execute(
                 sql_text(
@@ -205,11 +220,11 @@ def handle_client_command(
                     SELECT client_id
                     FROM whatsapp_numbers
                     WHERE klresolute_client_id = :cid
-                      AND status = 'active'
+                    AND status = 'active'
                     LIMIT 1
                     """
                 ),
-                {"cid": int(client_id)},
+                {"cid": client_id_int},
             )
             .mappings()
             .first()
