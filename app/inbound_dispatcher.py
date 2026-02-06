@@ -67,14 +67,14 @@ def _resolve_integer_client_id(
 
         if not row or row["klresolute_client_id"] is None:
             logger.error(
-                "CLIENT_ID_INT_NOT_FOUND | business=%s",
+                "DISPATCH_CLIENT_ID_INT_NOT_FOUND | business=%s",
                 business_msisdn,
             )
             return None
 
         client_id_int = int(row["klresolute_client_id"])
         logger.info(
-            "CLIENT_ID_INT_RESOLVED | business=%s | client_id=%s",
+            "DISPATCH_CLIENT_ID_INT_RESOLVED | business=%s | client_id=%s",
             business_msisdn,
             client_id_int,
         )
@@ -82,7 +82,7 @@ def _resolve_integer_client_id(
 
     except Exception as exc:
         logger.exception(
-            "CLIENT_ID_INT_RESOLUTION_FAIL | business=%s | err=%s",
+            "DISPATCH_CLIENT_ID_INT_RESOLUTION_FAIL | business=%s | err=%s",
             business_msisdn,
             exc,
         )
@@ -105,7 +105,11 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     )
 
     if resolved_client_id is None:
-        # Hard stop — cannot proceed without integer client id
+        logger.error(
+            "DISPATCH_ABORTED | reason=client_id_not_resolved | business=%s | sender=%s",
+            business_msisdn,
+            sender,
+        )
         return True
 
     # ----------------------------------
@@ -113,6 +117,11 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ----------------------------------
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
+        logger.error(
+            "DISPATCH_ABORTED | reason=profile_not_resolved | business=%s | sender=%s",
+            business_msisdn,
+            sender,
+        )
         return True
 
     # ----------------------------------

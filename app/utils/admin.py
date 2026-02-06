@@ -13,8 +13,11 @@ Rules (LOCKED):
 - No hardcoded admin numbers
 """
 
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
+logger = logging.getLogger("utils.admin")
 
 
 def is_admin_message(
@@ -50,6 +53,11 @@ def is_admin_message(
     )
 
     if not row:
+        logger.error(
+            "ADMIN_CHECK_BLOCKED | reason=client_not_resolved | business=%s | sender=%s",
+            business_msisdn,
+            sender,
+        )
         return False
 
     client_code = str(row["client_name"]).upper()
@@ -77,4 +85,19 @@ def is_admin_message(
         .first()
     )
 
-    return admin_row is not None
+    if not admin_row:
+        logger.info(
+            "ADMIN_CHECK_FALSE | business=%s | client_code=%s | sender=%s",
+            business_msisdn,
+            client_code,
+            sender,
+        )
+        return False
+
+    logger.info(
+        "ADMIN_CHECK_TRUE | business=%s | client_code=%s | sender=%s",
+        business_msisdn,
+        client_code,
+        sender,
+    )
+    return True

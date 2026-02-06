@@ -45,7 +45,10 @@ def get_client_profile(
     db: Optional[Session] = None,
 ) -> ClientProfile | None:
     if not db:
-        logger.error("PROFILE_DB_NOT_PROVIDED | business=%s", business_msisdn)
+        logger.error(
+            "PROFILE_DB_NOT_PROVIDED | business=%s",
+            business_msisdn,
+        )
         return None
 
     try:
@@ -77,7 +80,7 @@ def get_client_profile(
         )
 
         if not client_row:
-            logger.warning(
+            logger.error(
                 "PROFILE_CLIENT_NOT_FOUND | business=%s",
                 business_msisdn,
             )
@@ -108,8 +111,15 @@ def get_client_profile(
             .all()
         )
 
+        if not modules:
+            logger.warning(
+                "PROFILE_NO_MODULES_ENABLED | business=%s | client_code=%s",
+                business_msisdn,
+                client_code,
+            )
+
         # ----------------------------------
-        # Admin numbers (client_admins)
+        # Admin numbers
         # ----------------------------------
         admins = (
             db.execute(
@@ -129,11 +139,12 @@ def get_client_profile(
         )
 
         logger.info(
-            "PROFILE_RESOLVED | business=%s | client_id=%s | client=%s | modules=%s",
+            "PROFILE_RESOLVED | business=%s | client_id=%s | client_code=%s | modules=%s | admins=%s",
             business_msisdn,
             client_id,
             client_code,
             ",".join(modules) if modules else "-",
+            len(admins),
         )
 
         return ClientProfile(
@@ -149,9 +160,8 @@ def get_client_profile(
         except Exception:
             pass
 
-        logger.error(
+        logger.exception(
             "PROFILE_RESOLUTION_FAILED | business=%s",
             business_msisdn,
-            exc_info=True,
         )
-        return None    
+        return None

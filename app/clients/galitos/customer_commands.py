@@ -5,7 +5,6 @@ File: app/clients/galitos/customer_commands.py
 Path: app/clients/galitos/customer_commands.py
 Project: KLResolute WhatsApp SaaS MVP
 
-
 Purpose:
 Galitos customer self-service command router.
 
@@ -116,7 +115,11 @@ def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
             sender=sender,
             menu_key="customer_menu",
         )
-        logger.info("CUSTOMER_MENU_SENT | sender=%s | client_id=%s", sender, client_id)
+        logger.info(
+            "CUSTOMER_MENU_SENT | sender=%s | client_id=%s",
+            sender,
+            client_id,
+        )
     except Exception:
         logger.exception(
             "CUSTOMER_MENU_FAILED | sender=%s | client_id=%s | menu_key=customer_menu",
@@ -147,9 +150,10 @@ def handle_client_command(
     meta = get_meta_client(business_msisdn=business_msisdn)
 
     logger.info(
-        "CUSTOMER_CMD_ENTER | sender=%s | text=%s",
+        "CUSTOMER_CMD_ENTER | sender=%s | text=%s | client_id=%s",
         sender,
         text_upper,
+        client_id,
     )
 
     # ----------------------------------
@@ -197,8 +201,6 @@ def handle_client_command(
     if text_upper == "SPECIALS":
         logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
 
-        # Resolve UUID from INTEGER client_id
-
         try:
             client_id_int = int(str(client_id))
         except Exception:
@@ -220,7 +222,7 @@ def handle_client_command(
                     SELECT client_id
                     FROM whatsapp_numbers
                     WHERE klresolute_client_id = :cid
-                    AND status = 'active'
+                      AND status = 'active'
                     LIMIT 1
                     """
                 ),
@@ -229,7 +231,6 @@ def handle_client_command(
             .mappings()
             .first()
         )
-
 
         if not row_uuid:
             logger.error(

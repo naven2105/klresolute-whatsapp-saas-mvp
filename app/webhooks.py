@@ -86,6 +86,38 @@ def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
         return True
 
 
+def _resolve_integer_client_id(
+    db: Session,
+    *,
+    business_msisdn: str,
+) -> int | None:
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT klresolute_client_id
+                    FROM whatsapp_numbers
+                    WHERE destination_number = :business
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_msisdn},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row or row["klresolute_client_id"] is None:
+            return None
+
+        return int(row["klresolute_client_id"])
+
+    except Exception:
+        return None
+
+
 # -------------------------------------------------
 # Webhook
 # -------------------------------------------------
@@ -120,7 +152,7 @@ async def whatsapp_webhook(
         pass
 
     # -----------------------------
-    # Dispatch (modules)
+    # Dispatch (modules + routing)
     # -----------------------------
     handled = dispatch(
         db=db,
@@ -130,22 +162,35 @@ async def whatsapp_webhook(
     )
 
     # -----------------------------
-    # Tier-1 fallback (CUSTOMER MENU)
+    # Tier-1 fallback (GUARDED)
     # -----------------------------
     if not handled:
         body = (
-            msg.get("text", {}).get("body", "").strip().upper()
+            msg.get("text", {}).get("body", "").strip()
             if msg.get("type") == "text"
             else ""
         )
 
-        if body not in ("YES", "NO"):
-            handle_client_command(
-                db=db,
-                sender_number=sender,
-                message_text=body,
-                msg=msg,
-                resolved_business_number=business_msisdn,
+        if body.upper() not in ("YES", "NO"):
+            client_id_int = _resolve_integer_client_id(
+                db,
+                business_msisdn=business_msisdn,
             )
+
+            if client_id_int is None:
+                logger.error(
+                    "WEBHOOK_FALLBACK_BLOCKED | reason=client_id_not_resolved | business=%s | sender=%s",
+                    business_msisdn,
+                    sender,
+                )
+            else:
+                handle_client_command(
+                    db=db,
+                    sender_number=sender,
+                    message_text=body,
+                    msg=msg,
+                    resolved_client_id=str(client_id_int),
+                    resolved_business_number=business_msisdn,
+                )
 
     return Response(status_code=200)

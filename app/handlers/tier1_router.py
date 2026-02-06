@@ -23,8 +23,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import load_meta_settings
+from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
 
 from app.survey import (
@@ -55,16 +54,29 @@ ADMIN_MENU_TEXT = (
     "RESUME"
 )
 
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
-
 
 # =================================================
 # Helpers
 # =================================================
 
-def _send_text(to_number: str, text_msg: str) -> None:
-    logger.info("SEND_TEXT | to=%s | text=%r", to_number, text_msg)
-    _meta_client.send_session_message(to_msisdn=to_number, text=text_msg)
+def _send_text(*, business_number: str | None, to_number: str, text_msg: str) -> None:
+    if not business_number:
+        logger.error(
+            "TIER1_SEND_BLOCKED | reason=missing_business_number | to=%s | text=%r",
+            to_number,
+            text_msg,
+        )
+        return
+
+    logger.info(
+        "SEND_TEXT | business=%s | to=%s | text=%r",
+        business_number,
+        to_number,
+        text_msg,
+    )
+
+    meta = get_meta_client(business_msisdn=business_number)
+    meta.send_session_message(to_msisdn=to_number, text=text_msg)
 
 
 def _get_client_message(
@@ -264,7 +276,11 @@ def handle_client_command(
                 if closed:
                     summary = build_survey_summary_text(db, closed)
                     for admin in _admin_numbers(db):
-                        _send_text(admin, summary)
+                        _send_text(
+                            business_number=business_number,
+                            to_number=admin,
+                            text_msg=summary,
+                        )
             except Exception as exc:
                 logger.exception(
                     "SURVEY_AUTO_CLOSE_FAIL | business=%s | err=%s",
@@ -290,7 +306,11 @@ def handle_client_command(
                         client_number=sender_number,
                         button_id=button_reply,
                     ):
-                        _send_text(sender_number, "Thank you for your response.")
+                        _send_text(
+                            business_number=business_number,
+                            to_number=sender_number,
+                            text_msg="Thank you for your response.",
+                        )
                 return True
             except Exception as exc:
                 logger.exception(
@@ -304,7 +324,11 @@ def handle_client_command(
         # Admin menu
         # -------------------------------------------------
         if is_admin and upper == "MENU":
-            _send_text(sender_number, ADMIN_MENU_TEXT)
+            _send_text(
+                business_number=business_number,
+                to_number=sender_number,
+                text_msg=ADMIN_MENU_TEXT,
+            )
             return True
 
         # -------------------------------------------------
@@ -317,7 +341,11 @@ def handle_client_command(
                 message_key=upper.lower(),
             )
             if msg_text:
-                _send_text(sender_number, msg_text)
+                _send_text(
+                    business_number=business_number,
+                    to_number=sender_number,
+                    text_msg=msg_text,
+                )
                 return True
 
             return False
@@ -326,17 +354,19 @@ def handle_client_command(
         # FEEDBACK
         # -------------------------------------------------
         if not is_admin and upper.startswith("FEEDBACK"):
-            if ":" in message_text:
-                feedback = message_text.split(":", 1)[1].strip()
+            if ":" in (message_text or ""):
+                feedback = (message_text or "").split(":", 1)[1].strip()
                 if feedback:
                     _send_text(
-                        sender_number,
-                        "Thank you — we’ve received your feedback.",
+                        business_number=business_number,
+                        to_number=sender_number,
+                        text_msg="Thank you — we’ve received your feedback.",
                     )
                     for admin in _admin_numbers(db):
                         _send_text(
-                            admin,
-                            f"📝 Feedback\nFrom: {sender_number}\n\n{feedback}",
+                            business_number=business_number,
+                            to_number=admin,
+                            text_msg=f"📝 Feedback\nFrom: {sender_number}\n\n{feedback}",
                         )
             return True
 
