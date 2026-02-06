@@ -6,29 +6,26 @@ Path: app/handlers/tier1_admin_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin-specific Tier-1 handling.
+Tier-1 Admin command handling.
 
-Rules (LOCKED):
-- Admins only
-- No customer menu logic
-- No order handling
+Responsibilities:
+- Admin command routing
+- Admin fallback behaviour (unrecognised input)
+- Admin menu rendering
+
+GUARD RAILS:
 - Fail closed
+- Never route customer logic
+- Always log admin fallthroughs
 """
 
 import logging
 from sqlalchemy.orm import Session
 
 from app.outbound.factory import get_meta_client
-from app.utils.admin import is_admin_message
 
-from app.survey import (
-    auto_close_expired_surveys,
-    get_active_survey,
-    record_response,
-    build_survey_summary_text,
-)
+logger = logging.getLogger("handlers.tier1_admin_handler")
 
-logger = logging.getLogger("handlers.tier1_admin")
 
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
@@ -37,115 +34,70 @@ ADMIN_MENU_TEXT = (
     "SURVEY FREQUENCY: <question>\n"
     "SURVEY HELPFULNESS: <question>\n"
     "END SURVEY\n\n"
-    "✉️ Messaging\n"
-    "SEND: <number> <message>\n"
-    "BROADCAST: <message>\n\n"
     "⚙️ System\n"
-    "PAUSE\n"
-    "RESUME"
+    "STATUS: <message>\n"
+    "CLEAR STATUS"
 )
 
+
+# -------------------------------------------------
+# Public entry
+# -------------------------------------------------
 
 def handle_admin_command(
     *,
     db: Session,
     sender_number: str,
     message_text: str,
-    msg: dict | None,
-    business_msisdn: str | None,
+    business_msisdn: str,
 ) -> bool:
     """
-    Returns True if admin message was handled.
+    Handle admin commands.
+    Returns True if handled.
     """
 
-    if not business_msisdn:
-        logger.error(
-            "ADMIN_HANDLER_BLOCKED | reason=missing_business_number | sender=%s",
-            sender_number,
-        )
-        return False
-
-    if not is_admin_message(
-        db=db,
-        sender=sender_number,
-        business_msisdn=business_msisdn,
-    ):
-        return False
+    text = (message_text or "").strip()
+    upper = text.upper()
 
     meta = get_meta_client(business_msisdn=business_msisdn)
-    upper = (message_text or "").strip().upper()
 
     logger.info(
-        "ADMIN_CMD_ENTER | sender=%s | text=%s | business=%s",
+        "ADMIN_CMD_ENTER | sender=%s | text=%r | business=%s",
         sender_number,
-        upper,
+        text,
         business_msisdn,
     )
 
-    # -------------------------------------------------
-    # Survey auto-close (safe)
-    # -------------------------------------------------
-    try:
-        closed = auto_close_expired_surveys(db, business_msisdn)
-        if closed:
-            summary = build_survey_summary_text(db, closed)
-            meta.send_session_message(
-                to_msisdn=sender_number,
-                text=summary,
-            )
-    except Exception:
-        logger.exception(
-            "ADMIN_SURVEY_AUTO_CLOSE_FAIL | sender=%s",
-            sender_number,
-        )
-
-    # -------------------------------------------------
-    # Survey button replies
-    # -------------------------------------------------
-    if msg and msg.get("type") == "interactive":
-        try:
-            button_reply = (
-                msg.get("interactive", {})
-                .get("button_reply", {})
-                .get("id")
-            )
-            if button_reply:
-                active = get_active_survey(db, business_msisdn)
-                if active and record_response(
-                    db=db,
-                    survey=active,
-                    client_number=sender_number,
-                    button_id=button_reply,
-                ):
-                    meta.send_session_message(
-                        to_msisdn=sender_number,
-                        text="Thank you for your response.",
-                    )
-                return True
-        except Exception:
-            logger.exception(
-                "ADMIN_SURVEY_RESPONSE_FAIL | sender=%s",
-                sender_number,
-            )
-            return True
-
-    # -------------------------------------------------
-    # Admin MENU
-    # -------------------------------------------------
+    # ----------------------------------
+    # Explicit MENU
+    # ----------------------------------
     if upper == "MENU":
         meta.send_session_message(
             to_msisdn=sender_number,
             text=ADMIN_MENU_TEXT,
         )
+        logger.info("ADMIN_MENU_SENT | sender=%s", sender_number)
         return True
 
-    # -------------------------------------------------
-    # Admin fallback (important)
-    # -------------------------------------------------
+    # ----------------------------------
+    # STATUS commands handled elsewhere
+    # (kept explicit for clarity)
+    # ----------------------------------
+    if upper.startswith("STATUS:"):
+        logger.info("ADMIN_STATUS_COMMAND_RECEIVED | sender=%s", sender_number)
+        return False  # delegated to status module
+
+    if upper == "CLEAR STATUS":
+        logger.info("ADMIN_CLEAR_STATUS_RECEIVED | sender=%s", sender_number)
+        return False  # delegated to status module
+
+    # ----------------------------------
+    # FALLBACK — ALWAYS SHOW ADMIN MENU
+    # ----------------------------------
     logger.info(
-        "ADMIN_FALLBACK_MENU | sender=%s | text=%s",
+        "ADMIN_FALLBACK_MENU | sender=%s | text=%r",
         sender_number,
-        upper,
+        text,
     )
 
     meta.send_session_message(
