@@ -170,6 +170,13 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ----------------------------------
     # Final fallback → Tier-1 router
     # ----------------------------------
+    logger.info(
+        "DISPATCH_FALLTHROUGH_TO_TIER1 | sender=%s | business=%s | client_code=%s",
+        sender,
+        business_msisdn,
+        profile.client_code,
+    )
+
     return bool(
         tier1_handle(
             db=db,
