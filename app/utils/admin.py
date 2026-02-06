@@ -24,25 +24,57 @@ def is_admin_message(
     business_msisdn: str,
 ) -> bool:
     """
-    Returns True if sender is an active admin for the given client.
+    Returns True if sender is an active admin for the given business.
     Fail-closed by default.
     """
 
-    row = db.execute(
-        text(
-            """
-            SELECT 1
-            FROM client_admins
-            WHERE msisdn = :msisdn
-              AND client_code = :client
-              AND is_active = TRUE
-            LIMIT 1
-            """
-        ),
-        {
-            "msisdn": sender,
-            "client": business_msisdn,
-        },
-    ).first()
+    # ----------------------------------
+    # Resolve client_code from business_msisdn
+    # ----------------------------------
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT c.client_name
+                FROM whatsapp_numbers w
+                JOIN clients c ON c.client_id = w.client_id
+                WHERE w.destination_number = :business
+                  AND w.status = 'active'
+                LIMIT 1
+                """
+            ),
+            {"business": business_msisdn},
+        )
+        .mappings()
+        .first()
+    )
 
-    return row is not None
+    if not row:
+        return False
+
+    client_code = str(row["client_name"]).upper()
+
+    # ----------------------------------
+    # Check admin allowlist
+    # ----------------------------------
+    admin_row = (
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM client_admins
+                WHERE msisdn = :msisdn
+                  AND client_code = :client_code
+                  AND is_active = TRUE
+                LIMIT 1
+                """
+            ),
+            {
+                "msisdn": sender,
+                "client_code": client_code,
+            },
+        )
+        .first()
+    )
+
+    return admin_row is not None
