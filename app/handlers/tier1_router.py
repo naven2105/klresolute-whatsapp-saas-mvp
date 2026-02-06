@@ -25,6 +25,7 @@ from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
+from app.handlers.admin_menu_builder import build_admin_menu
 from app.modules.status.reader import get_active_status
 
 from app.survey import (
@@ -40,18 +41,6 @@ from app.clients.galitos.customer_commands import (
 
 logger = logging.getLogger("handlers.tier1_router")
 
-ADMIN_MENU_TEXT = (
-    "🛠️ Admin Menu\n\n"
-    "📊 Surveys\n"
-    "SURVEY SENTIMENT: <question>\n"
-    "SURVEY FREQUENCY: <question>\n"
-    "SURVEY HELPFULNESS: <question>\n"
-    "END SURVEY\n\n"
-    "⚙️ System\n"
-    "STATUS: <message>\n"
-    "CLEAR STATUS"
-)
-
 
 # =================================================
 # Helpers
@@ -60,34 +49,13 @@ ADMIN_MENU_TEXT = (
 def _send_text(*, business_number: str | None, to_number: str, text_msg: str) -> None:
     if not business_number:
         logger.error(
-            "TIER1_SEND_BLOCKED | reason=missing_business_number | to=%s | text=%r",
+            "TIER1_SEND_BLOCKED | reason=missing_business_number | to=%s",
             to_number,
-            text_msg,
         )
         return
 
     meta = get_meta_client(business_msisdn=business_number)
     meta.send_session_message(to_msisdn=to_number, text=text_msg)
-
-
-def _admin_numbers(db: Session) -> list[str]:
-    try:
-        return (
-            db.execute(
-                text(
-                    """
-                    SELECT msisdn
-                    FROM client_admins
-                    WHERE is_active = TRUE
-                    """
-                )
-            )
-            .scalars()
-            .all()
-        )
-    except Exception:
-        logger.exception("ADMIN_LOOKUP_FAIL")
-        return []
 
 
 def _ensure_client_contact(
@@ -104,11 +72,11 @@ def _ensure_client_contact(
                     SELECT 1
                     FROM client_contacts
                     WHERE client_id = :client_id
-                      AND contact_number = :contact
+                      AND contact_number = :contact_number
                     LIMIT 1
                     """
                 ),
-                {"client_id": client_id, "contact": contact_number},
+                {"client_id": client_id, "contact_number": contact_number},
             )
             .first()
         )
@@ -119,11 +87,21 @@ def _ensure_client_contact(
         db.execute(
             text(
                 """
-                INSERT INTO client_contacts (client_id, contact_number, is_opted_out, created_at)
-                VALUES (:client_id, :contact, FALSE, now())
+                INSERT INTO client_contacts (
+                    client_id,
+                    contact_number,
+                    is_opted_out,
+                    created_at
+                )
+                VALUES (
+                    :client_id,
+                    :contact_number,
+                    FALSE,
+                    now()
+                )
                 """
             ),
-            {"client_id": client_id, "contact": contact_number},
+            {"client_id": client_id, "contact_number": contact_number},
         )
         db.commit()
 
@@ -171,10 +149,6 @@ def handle_client_command(
         # HARD ORDER GUARD
         # ----------------------------------
         if upper in ("YES", "NO"):
-            logger.info(
-                "ORDER_CONFIRMATION_BYPASS_TIER1 | sender=%s",
-                sender_number,
-            )
             return False
 
         is_admin = (
@@ -187,50 +161,24 @@ def handle_client_command(
         )
 
         # ----------------------------------
-        # Survey auto-close (safe)
-        # ----------------------------------
-        if business_number:
-            try:
-                closed = auto_close_expired_surveys(db, business_number)
-                if closed:
-                    summary = build_survey_summary_text(db, closed)
-                    for admin in _admin_numbers(db):
-                        _send_text(
-                            business_number=business_number,
-                            to_number=admin,
-                            text_msg=summary,
-                        )
-            except Exception:
-                logger.exception("SURVEY_AUTO_CLOSE_FAIL")
-
-        # ----------------------------------
-        # Explicit admin MENU command
-        # ----------------------------------
-        if is_admin and upper == "MENU":
-            logger.info(
-                "ADMIN_MENU_REQUEST | sender=%s",
-                sender_number,
-            )
-            _send_text(
-                business_number=business_number,
-                to_number=sender_number,
-                text_msg=ADMIN_MENU_TEXT,
-            )
-            return True
-
-        # ----------------------------------
-        # ✅ ADMIN FALLBACK (MANDATORY)
+        # ADMIN PATH (MANDATORY FALLBACK)
         # ----------------------------------
         if is_admin:
-            logger.info(
-                "ADMIN_FALLBACK_MENU | sender=%s | text=%r",
-                sender_number,
-                message_text,
+            admin_menu = build_admin_menu(
+                db=db,
+                business_msisdn=business_number,
             )
+
             _send_text(
                 business_number=business_number,
                 to_number=sender_number,
-                text_msg=ADMIN_MENU_TEXT,
+                text_msg=admin_menu,
+            )
+
+            logger.info(
+                "ADMIN_FALLBACK_MENU_SENT | sender=%s | business=%s",
+                sender_number,
+                business_number,
             )
             return True
 
@@ -240,9 +188,8 @@ def handle_client_command(
         client_id_int = _parse_resolved_client_id_int(resolved_client_id)
         if client_id_int is None:
             logger.error(
-                "CLIENT_RESOLUTION_FAILED | sender=%s | resolved_client_id=%r",
+                "CLIENT_BLOCKED | reason=missing_client_id | sender=%s",
                 sender_number,
-                resolved_client_id,
             )
             return True
 
@@ -253,7 +200,7 @@ def handle_client_command(
         )
 
         # ----------------------------------
-        # STATUS READ (before customer menu)
+        # STATUS READ (BEFORE MENU)
         # ----------------------------------
         status_text = (
             get_active_status(
@@ -275,7 +222,8 @@ def handle_client_command(
             handle_customer_commands(
                 db=db,
                 sender=sender_number,
-                msg=msg or {"type": "text", "text": {"body": message_text or ""}},
+                msg=msg
+                or {"type": "text", "text": {"body": message_text or ""}},
                 client_id=str(client_id_int),
                 business_msisdn=business_number or "",
             )
