@@ -31,6 +31,46 @@ logger = logging.getLogger("media_handler")
 DEFAULT_CAPTION = "Today’s specials"
 
 
+def _resolve_client_uuid(db: Session, *, client_id_int: int) -> str | None:
+    """
+    Resolve UUID client_id from integer klresolute_client_id.
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT client_id
+                    FROM whatsapp_numbers
+                    WHERE klresolute_client_id = :cid
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id_int},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row:
+            logger.error(
+                "MEDIA_CLIENT_UUID_NOT_FOUND | client_id_int=%s",
+                client_id_int,
+            )
+            return None
+
+        return str(row["client_id"])
+
+    except Exception as exc:
+        logger.exception(
+            "MEDIA_CLIENT_UUID_RESOLUTION_FAIL | client_id_int=%s | err=%s",
+            client_id_int,
+            exc,
+        )
+        return None
+
+
 def handle_media_message(
     *,
     db: Session,
@@ -72,6 +112,26 @@ def handle_media_message(
         )
         return True  # consumed but ignored
 
+    # -------------------------------------------------
+    # Guard + resolve UUID client_id
+    # -------------------------------------------------
+    try:
+        client_id_int = int(str(client_id))
+    except Exception:
+        logger.error(
+            "MEDIA_CLIENT_ID_INVALID | client_id=%r",
+            client_id,
+        )
+        return True
+
+    client_uuid = _resolve_client_uuid(
+        db,
+        client_id_int=client_id_int,
+    )
+
+    if not client_uuid:
+        return True
+
     meta = get_meta_client()
 
     media_id = msg["image"]["id"]
@@ -85,7 +145,7 @@ def handle_media_message(
     )
 
     # -------------------------------------------------
-    # Store SPECIAL (latest wins)
+    # Store SPECIAL (latest wins) — UUID SAFE
     # -------------------------------------------------
     try:
         db.execute(
@@ -106,7 +166,7 @@ def handle_media_message(
                 """
             ),
             {
-                "client_id": client_id,
+                "client_id": client_uuid,
                 "media_id": media_id,
                 "caption": caption,
             },
@@ -114,15 +174,15 @@ def handle_media_message(
         db.commit()
 
         logger.info(
-            "MEDIA_HANDLER_DB_OK | client_id=%s | media_id=%s",
-            client_id,
+            "MEDIA_HANDLER_DB_OK | client_uuid=%s | media_id=%s",
+            client_uuid,
             media_id,
         )
 
     except Exception as exc:
         logger.error(
-            "MEDIA_HANDLER_DB_FAIL | client_id=%s | media_id=%s | error=%s",
-            client_id,
+            "MEDIA_HANDLER_DB_FAIL | client_uuid=%s | media_id=%s | error=%s",
+            client_uuid,
             media_id,
             exc,
             exc_info=True,
@@ -212,7 +272,6 @@ def handle_media_message(
             sender,
         )
 
-
     except Exception as exc:
         logger.error(
             "MEDIA_HANDLER_ADMIN_CONFIRM_FAIL | sender=%s | error=%s",
@@ -222,5 +281,3 @@ def handle_media_message(
         )
 
     return True
-
-
