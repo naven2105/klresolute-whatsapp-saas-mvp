@@ -11,6 +11,10 @@ LOCKED:
 
 MVP RULE:
 - resolved_client_id MUST be INTEGER (klresolute_client_id)
+
+STATUS:
+- Broadcast module is PAUSED
+- Replaced conceptually by Status / Announcement (to be implemented)
 """
 
 import logging
@@ -23,7 +27,7 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
-from app.modules.broadcast import handler as broadcast_handler
+# from app.modules.broadcast import handler as broadcast_handler  # PAUSED
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -149,23 +153,26 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # ----------------------------------
-    # Other modules
+    # SURVEY
     # ----------------------------------
-    if "survey" in profile.enabled_modules and survey_handler.handle(
-        db=db,
-        msg=msg,
-        sender=sender,
-        business_msisdn=business_msisdn,
-    ):
-        return True
+    if "survey" in profile.enabled_modules:
+        if survey_handler.handle(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        ):
+            return True
 
-    if "broadcast" in profile.enabled_modules and broadcast_handler.handle(
-        db=db,
-        msg=msg,
-        sender=sender,
-        business_msisdn=business_msisdn,
-    ):
-        return True
+    # ----------------------------------
+    # BROADCAST (PAUSED)
+    # ----------------------------------
+    if "broadcast" in profile.enabled_modules:
+        logger.warning(
+            "DISPATCH_MODULE_SKIPPED | module=broadcast | reason=paused | business=%s | sender=%s",
+            business_msisdn,
+            sender,
+        )
 
     # ----------------------------------
     # Final fallback → Tier-1 router
@@ -176,6 +183,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         business_msisdn,
         profile.client_code,
     )
+
 
     return bool(
         tier1_handle(
