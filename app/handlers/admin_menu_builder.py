@@ -1,120 +1,73 @@
 from __future__ import annotations
 
 """
-File: app/admin/menu_builder.py
-Path: app/admin/menu_builder.py
+File: app/handlers/admin_menu_builder.py
+Path: app/handlers/admin_menu_builder.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-DB-backed Admin Menu builder (multi-client).
+Build the Admin Menu text ONLY.
 
-Rules (LOCKED):
-- Read-only DB access
-- Client identity uses INTEGER client_id ONLY
-- No UUID client resolution here
-- No WhatsApp sending here
-- Fail closed: return a safe default menu if DB menu missing
+Scope (LOCKED):
+- No DB writes
+- No message sending
+- No routing
+- No client-specific branching
+- No UUID / INTEGER handling
+- Pure text construction
+
+Design Rules:
+- Single source of truth for Admin Menu
+- One responsibility: return menu text
+- Safe to call from Tier-1
+- Guarded with logs
 """
 
 import logging
-from sqlalchemy.orm import Session
-from sqlalchemy import text
 
-logger = logging.getLogger("admin.menu_builder")
+logger = logging.getLogger("handlers.admin_menu_builder")
 
 
-# -------------------------------------------------
-# Default (safe fallback) — used only if DB menu is missing
-# -------------------------------------------------
-_DEFAULT_ADMIN_MENU_TEXT = (
-    "🛠️ Admin Menu\n\n"
-    "📊 Surveys\n"
-    "SENTIMENT → 👍 😐 👎\n"
-    "FREQUENCY → DAILY | WEEKLY | MONTHLY\n"
-    "HELPFULNESS → YES | NO\n"
-    "END SURVEY\n\n"
-    "ℹ️ Survey notes:\n"
-    "• Surveys automatically close after 24 hours\n"
-    "• Starting a new survey within 24 hours will close the previous one\n"
-    "• Survey results are shared with admins automatically\n\n"
-    "🔥 Specials\n"
-    "SPECIALS IMAGE → <send image + caption>\n"
-    "CLEAR SPECIALS\n\n"
-    "ℹ️ Specials notes:\n"
-    "• Only one special can be active at a time\n"
-    "• Customers can only access the latest special\n\n"
-    "✉️ Messaging\n"
-    "SEND: <number> <message>\n\n"
-    "ℹ️ Messaging notes:\n"
-    "• Messages are sent to one customer at a time\n\n"
-    "⚙️ System\n"
-    "STATUS: <message>\n"
-    "CLEAR STATUS"
-)
-
-
-def get_admin_menu_text(
-    *,
-    db: Session,
-    client_id: int,
-    menu_key: str = "admin_menu",
-) -> str:
+def build_admin_menu_text() -> str:
     """
-    Fetch admin menu text for a client (INTEGER client_id).
-    Returns DB menu if present, else returns safe default.
-    Never raises.
+    Returns the full admin menu text.
+    This function must NEVER raise.
     """
-
-    # Guard rails
-    if not isinstance(client_id, int):
-        try:
-            client_id = int(str(client_id))
-        except Exception:
-            logger.error("ADMIN_MENU_CLIENT_ID_INVALID | client_id=%r", client_id)
-            return _DEFAULT_ADMIN_MENU_TEXT
 
     try:
-        row = (
-            db.execute(
-                text(
-                    """
-                    SELECT menu_text
-                    FROM client_admin_menus
-                    WHERE client_id = :client_id
-                      AND menu_key = :menu_key
-                      AND is_active = TRUE
-                    LIMIT 1
-                    """
-                ),
-                {"client_id": client_id, "menu_key": menu_key},
-            )
-            .mappings()
-            .first()
+        menu = (
+            "🛠️ Admin Menu\n\n"
+            "📊 Surveys\n"
+            "SURVEY SENTIMENT: <question>\n"
+            "👍 Like   😐 Neutral   👎 Dislike\n\n"
+            "SURVEY FREQUENCY: <question>\n"
+            "👍 Like   😐 Neutral   👎 Dislike\n\n"
+            "SURVEY HELPFULNESS: <question>\n"
+            "👍 Like   😐 Neutral   👎 Dislike\n\n"
+            "END SURVEY\n\n"
+            "ℹ️ Survey Notes\n"
+            "- Surveys auto-close after 24 hours\n"
+            "- A new survey replaces any active survey\n"
+            "- Survey results are sent to admins on close\n\n"
+            "🔥 Specials\n"
+            "- Send an image with caption to set a special\n"
+            "- Only ONE special is active at a time\n"
+            "- New special replaces the previous one\n"
+            "- Customers can only see the latest special\n\n"
+            "⚙️ System Status\n"
+            "STATUS: <message>\n"
+            "CLEAR STATUS\n"
         )
 
-        if not row or not (row.get("menu_text") or "").strip():
-            logger.warning(
-                "ADMIN_MENU_NOT_FOUND | client_id=%s | menu_key=%s | using_default=1",
-                client_id,
-                menu_key,
-            )
-            return _DEFAULT_ADMIN_MENU_TEXT
+        logger.info("ADMIN_MENU_BUILT_OK")
+        return menu
 
-        logger.info(
-            "ADMIN_MENU_LOADED | client_id=%s | menu_key=%s | using_default=0",
-            client_id,
-            menu_key,
-        )
-        return str(row["menu_text"]).strip()
+    except Exception as exc:
+        logger.exception("ADMIN_MENU_BUILD_FAIL | err=%s", exc)
 
-    except Exception:
-        logger.exception(
-            "ADMIN_MENU_LOAD_FAIL | client_id=%s | menu_key=%s | using_default=1",
-            client_id,
-            menu_key,
+        # Fail-safe minimal menu
+        return (
+            "🛠️ Admin Menu\n\n"
+            "⚠️ Menu temporarily unavailable.\n"
+            "Please try again."
         )
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return _DEFAULT_ADMIN_MENU_TEXT
