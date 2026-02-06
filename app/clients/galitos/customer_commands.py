@@ -230,6 +230,7 @@ def handle_client_command(
             .first()
         )
 
+
         if not row_uuid:
             logger.error(
                 "SPECIALS_CLIENT_UUID_NOT_FOUND | client_id=%s | sender=%s",
