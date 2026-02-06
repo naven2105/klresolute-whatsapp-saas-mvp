@@ -123,7 +123,6 @@ def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
             sender,
             client_id,
         )
-        # Hard fail: no fallback menu. Let upstream/global error handling decide.
         raise
 
 
@@ -193,10 +192,42 @@ def handle_client_command(
             return True
 
     # ----------------------------------
-    # SPECIALS
+    # SPECIALS (UUID SAFE)
     # ----------------------------------
     if text_upper == "SPECIALS":
         logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
+
+        # Resolve UUID from INTEGER client_id
+        row_uuid = (
+            db.execute(
+                sql_text(
+                    """
+                    SELECT client_id
+                    FROM whatsapp_numbers
+                    WHERE klresolute_client_id = :cid
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"cid": int(client_id)},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row_uuid:
+            logger.error(
+                "SPECIALS_CLIENT_UUID_NOT_FOUND | client_id=%s | sender=%s",
+                client_id,
+                sender,
+            )
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="No specials available right now.",
+            )
+            return True
+
+        client_uuid = str(row_uuid["client_id"])
 
         row = (
             db.execute(
@@ -209,7 +240,7 @@ def handle_client_command(
                     LIMIT 1
                     """
                 ),
-                {"client_id": client_id},
+                {"client_id": client_uuid},
             )
             .mappings()
             .first()
