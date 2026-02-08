@@ -98,16 +98,21 @@ def _notify_galitos_staff(
                 r.msisdn,
             )
 
-            _meta_client.send_generic_business_update_template(
+            result = _meta_client.send_generic_business_update_template(
                 to_msisdn=r.msisdn,
                 blob_text=message,
             )
 
             logger.info(
-                "ORDER_STAFF_NOTIFY_SENT | client_id=%s | msisdn=%s",
+                "ORDER_STAFF_NOTIFY_META_RESPONSE | "
+                "client_id=%s | msisdn=%s | success=%s | message_id=%s | error=%s",
                 client_id,
                 r.msisdn,
+                getattr(result, "success", None),
+                getattr(result, "message_id", None),
+                getattr(result, "error", None),
             )
+
         except Exception:
             logger.exception(
                 "ORDER_STAFF_NOTIFY_SEND_FAIL | client_id=%s | msisdn=%s",
