@@ -15,6 +15,11 @@ Responsibilities (LOCKED):
 - Delegate all logic to survey services / handlers
 - Return True if message was handled
 
+Guards:
+- DB-backed client profile MUST be resolved with db
+- Survey module must never raise
+- Clear logs for: checked / missing / continued
+
 NO database schema logic here.
 NO Meta client creation here.
 """
@@ -48,8 +53,28 @@ def handle(
     Entry point for Survey module.
     """
 
-    profile = get_client_profile(business_msisdn)
-    if not profile or "survey" not in profile.enabled_modules:
+    # ----------------------------------
+    # Resolve client profile (DB-backed)
+    # ----------------------------------
+    profile = get_client_profile(
+        business_msisdn,
+        db=db,
+    )
+
+    if not profile:
+        logger.info(
+            "SURVEY_SKIP | reason=profile_not_resolved | business=%s | sender=%s",
+            business_msisdn,
+            sender,
+        )
+        return False
+
+    if "survey" not in profile.enabled_modules:
+        logger.info(
+            "SURVEY_SKIP | reason=module_disabled | business=%s | sender=%s",
+            business_msisdn,
+            sender,
+        )
         return False
 
     msg_type = msg.get("type")
@@ -67,6 +92,11 @@ def handle(
             sender=sender,
             business_msisdn=business_msisdn,
         ):
+            logger.info(
+                "SURVEY_ADMIN_COMMAND | sender=%s | business=%s",
+                sender,
+                business_msisdn,
+            )
             return handle_admin_surveys(
                 db=db,
                 sender_number=sender,
@@ -89,8 +119,9 @@ def handle(
         survey = get_active_survey(db, business_msisdn)
         if not survey:
             logger.info(
-                "SURVEY_RESPONSE_IGNORED | no active survey | sender=%s",
+                "SURVEY_RESPONSE_IGNORED | reason=no_active_survey | sender=%s | business=%s",
                 sender,
+                business_msisdn,
             )
             return True
 
