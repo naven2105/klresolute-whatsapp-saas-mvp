@@ -49,7 +49,20 @@ def _get_active_order_state(db: Session, sender: str) -> dict | None:
         .mappings()
         .first()
     )
-    return dict(row) if row else None
+
+    if not row:
+        logger.info(
+            "ORDERS_STATE_NONE | sender=%s",
+            sender,
+        )
+        return None
+
+    logger.info(
+        "ORDERS_STATE_ACTIVE | sender=%s | state_id=%s",
+        sender,
+        row.get("id"),
+    )
+    return dict(row)
 
 
 def _get_klresolute_client_id(db: Session, business_msisdn: str) -> int | None:
@@ -69,9 +82,20 @@ def _get_klresolute_client_id(db: Session, business_msisdn: str) -> int | None:
         .mappings()
         .first()
     )
-    if not row:
+
+    if not row or row.get("klresolute_client_id") is None:
+        logger.error(
+            "ORDERS_CLIENT_ID_LOOKUP_FAIL | business=%s",
+            business_msisdn,
+        )
         return None
-    return row.get("klresolute_client_id")
+
+    logger.info(
+        "ORDERS_CLIENT_ID_RESOLVED | business=%s | client_id=%s",
+        business_msisdn,
+        row["klresolute_client_id"],
+    )
+    return row["klresolute_client_id"]
 
 
 def _get_latest_confirmed_order(db: Session, sender: str) -> dict | None:
@@ -92,26 +116,52 @@ def _get_latest_confirmed_order(db: Session, sender: str) -> dict | None:
         .mappings()
         .first()
     )
-    return dict(row) if row else None
+
+    if not row:
+        logger.info(
+            "ORDERS_LATEST_NONE | sender=%s",
+            sender,
+        )
+        return None
+
+    return dict(row)
 
 
 def _get_active_staff_numbers(db: Session) -> list[str]:
     try:
-        return (
+        rows = (
             db.execute(
                 text(
                     """
                     SELECT msisdn
                     FROM galitos_staff
                     WHERE is_active = true
+                    ORDER BY msisdn
                     """
                 )
             )
             .scalars()
             .all()
         )
+
+        if not rows:
+            logger.error(
+                "ORDERS_STAFF_EMPTY | table=galitos_staff | is_active=true"
+            )
+            return []
+
+        logger.info(
+            "ORDERS_STAFF_RESOLVED | count=%s | staff=%s",
+            len(rows),
+            ",".join(rows),
+        )
+        return rows
+
     except Exception as exc:
-        logger.exception("ORDERS_STAFF_LOOKUP_FAIL | err=%s", exc)
+        logger.exception(
+            "ORDERS_STAFF_LOOKUP_FAIL | err=%s",
+            exc,
+        )
         return []
 
 
@@ -145,9 +195,17 @@ def _ask_for_flavour(sender: str) -> None:
 
 
 def _notify_staff(db: Session, order: dict) -> None:
+    logger.info(
+        "ORDERS_NOTIFY_ENTER | order_id=%s",
+        order.get("id"),
+    )
+
     staff = _get_active_staff_numbers(db)
     if not staff:
-        logger.error("ORDERS_NO_ACTIVE_STAFF | order_id=%s", order.get("id"))
+        logger.error(
+            "ORDERS_NOTIFY_ABORTED | reason=no_active_staff | order_id=%s",
+            order.get("id"),
+        )
         return
 
     msg = (
@@ -159,10 +217,23 @@ def _notify_staff(db: Session, order: dict) -> None:
     )
 
     for msisdn in staff:
-        send_message(to_number=msisdn, text=msg)
+        try:
+            send_message(to_number=msisdn, text=msg)
+            logger.info(
+                "ORDERS_STAFF_SENT | order_id=%s | staff=%s",
+                order.get("id"),
+                msisdn,
+            )
+        except Exception as exc:
+            logger.exception(
+                "ORDERS_STAFF_SEND_FAIL | order_id=%s | staff=%s | err=%s",
+                order.get("id"),
+                msisdn,
+                exc,
+            )
 
     logger.info(
-        "ORDERS_STAFF_NOTIFIED | order_id=%s | staff_count=%s",
+        "ORDERS_STAFF_NOTIFY_DONE | order_id=%s | staff_count=%s",
         order.get("id"),
         len(staff),
     )
@@ -179,13 +250,20 @@ def handle(
     sender: str,
     business_msisdn: str,
 ) -> bool:
-    # Guard: text only
     if not msg or msg.get("type") != "text":
+        logger.info(
+            "ORDERS_SKIP_NON_TEXT | sender=%s",
+            sender,
+        )
         return False
 
     body_raw = (msg.get("text", {}) or {}).get("body", "")
     body = (body_raw or "").strip()
     if not body:
+        logger.info(
+            "ORDERS_SKIP_EMPTY_TEXT | sender=%s",
+            sender,
+        )
         return False
 
     upper = body.upper()
@@ -198,27 +276,18 @@ def handle(
     )
 
     try:
-        # -------------------------------------------------
-        # 1) Continuation path (active ORDER exists)
-        # -------------------------------------------------
         active = _get_active_order_state(db, sender)
 
         if active:
-            handled = False
-
             if hasattr(galitos_orders, "handle_order_message"):
-                handled = galitos_orders.handle_order_message(
+                galitos_orders.handle_order_message(
                     db=db,
                     from_number=sender,
                     text=body,
                     context={"business_msisdn": business_msisdn},
                 )
-
             return True
 
-        # -------------------------------------------------
-        # 2) Entry path (no active ORDER)
-        # -------------------------------------------------
         if upper in ("ORDER", "FOOD"):
             _send_food_menu(sender)
             return True
@@ -231,14 +300,15 @@ def handle(
             }
 
             if body not in menu:
+                logger.info(
+                    "ORDERS_INVALID_MENU_SELECTION | sender=%s | value=%s",
+                    sender,
+                    body,
+                )
                 return False
 
             kl_client_id = _get_klresolute_client_id(db, business_msisdn)
             if kl_client_id is None:
-                logger.error(
-                    "ORDERS_CLIENT_ID_MISSING | business=%s",
-                    business_msisdn,
-                )
                 return True
 
             sku, name, price = menu[body]
@@ -282,6 +352,12 @@ def handle(
             )
             db.commit()
 
+            logger.info(
+                "ORDERS_STATE_CREATED | sender=%s | item=%s",
+                sender,
+                name,
+            )
+
             _ask_for_flavour(sender)
             return True
 
@@ -292,6 +368,10 @@ def handle(
             db.rollback()
         except Exception:
             pass
+        logger.warning(
+            "ORDERS_INTEGRITY_RECOVERED | sender=%s",
+            sender,
+        )
         _ask_for_flavour(sender)
         return True
 
