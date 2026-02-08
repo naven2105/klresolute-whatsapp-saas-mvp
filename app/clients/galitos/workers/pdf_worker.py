@@ -31,14 +31,7 @@ def generate_and_send_inspection_pdf(
     db: Session,
     inspection_id: int,
 ) -> None:
-    """
-    Builds inspection summary PDF and sends it to Galitos Admin(s).
-    """
-
     try:
-        # ----------------------------------
-        # Fetch inspection header
-        # ----------------------------------
         inspection = db.execute(
             text(
                 """
@@ -55,16 +48,15 @@ def generate_and_send_inspection_pdf(
         ).mappings().first()
 
         if not inspection:
-            logger.error(
-                "GALITOS_PDF_NO_INSPECTION | id=%s",
-                inspection_id,
-            )
+            logger.error("GALITOS_PDF_NO_INSPECTION | id=%s", inspection_id)
             return
 
-        # ----------------------------------
-        # Resolve client profile (SAFETY)
-        # ----------------------------------
-        profile = get_client_profile(inspection["business_msisdn"])
+        # ✅ FIX: pass db
+        profile = get_client_profile(
+            inspection["business_msisdn"],
+            db=db,
+        )
+
         if not profile or profile.client_code != "GALITOS":
             logger.info(
                 "GALITOS_PDF_SKIPPED_NON_GALITOS | id=%s | business=%s",
@@ -75,15 +67,9 @@ def generate_and_send_inspection_pdf(
 
         admin_numbers = profile.admin_numbers or []
         if not admin_numbers:
-            logger.warning(
-                "GALITOS_PDF_NO_ADMINS | id=%s",
-                inspection_id,
-            )
+            logger.warning("GALITOS_PDF_NO_ADMINS | id=%s", inspection_id)
             return
 
-        # ----------------------------------
-        # Fetch inspection events
-        # ----------------------------------
         events = db.execute(
             text(
                 """
@@ -101,9 +87,6 @@ def generate_and_send_inspection_pdf(
             {"id": inspection_id},
         ).mappings().all()
 
-        # ----------------------------------
-        # Build PDF content (text MVP)
-        # ----------------------------------
         lines = [
             "Galitos Kitchen Inspection Report",
             "",
@@ -128,9 +111,6 @@ def generate_and_send_inspection_pdf(
         pdf_bytes = "\n".join(lines).encode("utf-8")
         filename = f"inspection_{inspection_id}.pdf"
 
-        # ----------------------------------
-        # Send PDF to ALL Galitos admins
-        # ----------------------------------
         for admin_msisdn in admin_numbers:
             send_message(
                 to_number=admin_msisdn,

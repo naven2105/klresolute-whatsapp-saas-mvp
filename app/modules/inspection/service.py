@@ -20,7 +20,6 @@ from sqlalchemy import text
 
 from app.profiles.client_profile import get_client_profile
 
-# Client-specific PDF workers (LOCKED: no refactor)
 from app.clients.magen.workers.pdf_worker import (
     generate_and_send_inspection_pdf as magen_pdf_worker,
 )
@@ -71,13 +70,6 @@ def start_inspection(db: Session, *, sender: str, business_msisdn: str) -> int:
 
 
 def close_inspection(db: Session, *, inspection_id: int, status: str):
-    """
-    Close inspection and trigger client-specific post-close handling.
-    """
-
-    # ----------------------------------
-    # Close inspection (EXISTING BEHAVIOUR)
-    # ----------------------------------
     db.execute(
         text(
             """
@@ -97,9 +89,6 @@ def close_inspection(db: Session, *, inspection_id: int, status: str):
         status,
     )
 
-    # ----------------------------------
-    # Post-close PDF handling (NEW)
-    # ----------------------------------
     inspection = db.execute(
         text(
             """
@@ -118,7 +107,12 @@ def close_inspection(db: Session, *, inspection_id: int, status: str):
         )
         return
 
-    profile = get_client_profile(inspection["business_msisdn"])
+    # ✅ FIX: pass db
+    profile = get_client_profile(
+        inspection["business_msisdn"],
+        db=db,
+    )
+
     if not profile:
         logger.warning(
             "INSPECTION_POST_CLOSE_NO_PROFILE | business=%s | id=%s",
@@ -127,7 +121,6 @@ def close_inspection(db: Session, *, inspection_id: int, status: str):
         )
         return
 
-    # Client-specific routing (LOCKED)
     if profile.client_code == "MAGEN":
         magen_pdf_worker(
             db=db,
