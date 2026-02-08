@@ -12,7 +12,6 @@ RULE (MVP):
 - Accept INTEGER client_id from Tier-1
 - Resolve UUID client_id internally for client_menus
 """
- 
 
 import logging
 
@@ -20,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
-from app.menus.menu_renderer import render_menu_text
+from app.menus.menu_renderer import render_menu_text  # ✅ unified renderer
 
 logger = logging.getLogger("menus.customer_menu_service")
 
