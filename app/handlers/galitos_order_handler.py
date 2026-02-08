@@ -2,10 +2,17 @@ from __future__ import annotations
 
 """
 File: app/handlers/galitos_order_handler.py
+Path: app/handlers/galitos_order_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle client single-item orders (Phase 1) using DB-backed conversation state.
+Handle Galitos single-item order lifecycle (Phase 1).
+
+Responsibilities (LOCKED):
+- Maintain conversation_state
+- Confirm / cancel orders
+- Persist confirmed orders
+- Trigger staff notification
 """
 
 import logging
@@ -18,137 +25,54 @@ from sqlalchemy import text
 from app.services.order_service import create_order, OrderCreate
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
+from app.handlers.galitos_staff_notifier import notify_galitos_staff
 
-logger = logging.getLogger("galitos_order_handler")
+logger = logging.getLogger("galitos.order.handler")
 
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
-# =================================================
-# Messaging helpers
-# =================================================
+# -------------------------------------------------
+# Messaging
+# -------------------------------------------------
 
 def _send_text(to_number: str, text: str) -> None:
-    logger.info("SEND_TEXT | to=%s | text=%r", to_number, text)
+    logger.info("SEND_TEXT | to=%s | len=%s", to_number, len(text))
     _meta_client.send_session_message(
         to_msisdn=to_number,
         text=text,
     )
 
 
-# =======================================================
-# Notify ALL active Galitos staff members of client order
-# =======================================================
-
-def _notify_galitos_staff(
-    db: Session,
-    *,
-    client_id: int,   # MUST be INTEGER
-    message: str,
-) -> None:
-    """
-    Notify ALL active Galitos staff members.
-    Uses galitos_staff.klresolute_client_id (INTEGER).
-    """
-
-    logger.info(
-        "STAFF_NOTIFY_ENTER | client_id=%s | message=%r",
-        client_id,
-        message,
-    )
-
-    try:
-        rows = db.execute(
-            text(
-                """
-                SELECT msisdn
-                FROM galitos_staff
-                WHERE klresolute_client_id = :client_id
-                  AND is_active = true
-                """
-            ),
-            {"client_id": client_id},
-        ).fetchall()
-    except Exception:
-        logger.exception(
-            "STAFF_NOTIFY_QUERY_FAIL | client_id=%s",
-            client_id,
-        )
-        return
-
-    logger.info(
-        "STAFF_NOTIFY_ROWS | client_id=%s | count=%s",
-        client_id,
-        len(rows),
-    )
-
-    if not rows:
-        logger.warning(
-            "NO_GALITOS_STAFF_FOUND | client_id=%s",
-            client_id,
-        )
-        return
-
-    for r in rows:
-        try:
-            logger.info(
-                "STAFF_NOTIFY_SEND_ATTEMPT | client_id=%s | msisdn=%s",
-                client_id,
-                r.msisdn,
-            )
-
-            response = _meta_client.send_generic_business_update_template(
-                to_msisdn=r.msisdn,
-                blob_text=message,
-            )
-
-            logger.info(
-                "STAFF_NOTIFY_META_RESPONSE | client_id=%s | msisdn=%s | response=%r",
-                client_id,
-                r.msisdn,
-                response,
-            )
-
-            logger.info(
-                "STAFF_NOTIFIED | client_id=%s | msisdn=%s",
-                client_id,
-                r.msisdn,
-            )
-
-        except Exception as exc:
-            logger.exception(
-                "STAFF_NOTIFY_FAIL | client_id=%s | msisdn=%s | err=%s",
-                client_id,
-                r.msisdn,
-                exc,
-            )
-
-
-# =================================================
+# -------------------------------------------------
 # Conversation helpers
-# =================================================
+# -------------------------------------------------
 
-def _get_active_order_state(db: Session, sender_msisdn: str) -> dict | None:
+def _get_active_order_state(db: Session, sender: str) -> dict | None:
     try:
-        row = db.execute(
-            text(
-                """
-                SELECT *
-                FROM conversation_state
-                WHERE sender_msisdn = :sender
-                  AND active = true
-                  AND state_type = 'ORDER'
-                ORDER BY started_at DESC
-                LIMIT 1
-                """
-            ),
-            {"sender": sender_msisdn},
-        ).mappings().first()
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM conversation_state
+                    WHERE sender_msisdn = :sender
+                      AND active = TRUE
+                      AND state_type = 'ORDER'
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"sender": sender},
+            )
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
     except Exception:
         logger.exception(
             "ORDER_STATE_FETCH_FAIL | sender=%s",
-            sender_msisdn,
+            sender,
         )
         return None
 
@@ -159,7 +83,7 @@ def _close_order_state(db: Session, state_id: str) -> None:
             text(
                 """
                 UPDATE conversation_state
-                SET active = false,
+                SET active = FALSE,
                     completed_at = now()
                 WHERE id = :id
                 """
@@ -203,9 +127,9 @@ def _set_flavour(db: Session, state_id: str, flavour: str) -> None:
         )
 
 
-# =================================================
+# -------------------------------------------------
 # Main handler
-# =================================================
+# -------------------------------------------------
 
 def handle_order_message(
     *,
@@ -244,13 +168,13 @@ def handle_order_message(
         }
 
         if normalized in flavour_map:
-            flavour_code, flavour_label = flavour_map[normalized]
-            _set_flavour(db, state["id"], flavour_code)
+            code, label = flavour_map[normalized]
+            _set_flavour(db, state["id"], code)
 
             _send_text(
                 from_number,
                 f"✅ {state['item_name']}\n"
-                f"Flavour: {flavour_label}\n"
+                f"Flavour: {label}\n"
                 f"Price: R{state['total_amount']}\n\n"
                 "Reply YES to confirm\n"
                 "Reply NO to cancel"
@@ -296,8 +220,11 @@ def handle_order_message(
 
         _close_order_state(db, state["id"])
 
-        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=2)))
-        timestamp = now.strftime("%A, %Y-%m-%d · %Hh%M")
+        ts = (
+            datetime.now(timezone.utc)
+            .astimezone(timezone(timedelta(hours=2)))
+            .strftime("%A, %Y-%m-%d · %Hh%M")
+        )
 
         flavour_label = (
             "Hot" if state["flavour"] == "H"
@@ -305,22 +232,16 @@ def handle_order_message(
             else "Lemon & Herb"
         )
 
-
-
         staff_message = (
-            f"New Galitos Order | {timestamp} | "
+            f"New Galitos Order | {ts} | "
             f"Item: {state['item_name']} | "
             f"Flavour: {flavour_label} | "
             f"Total: R{state['total_amount']} | "
-                f"Customer: {from_number}"
-            )
+            f"Customer: {from_number}"
+        )
 
-
-
-
-
-        _notify_galitos_staff(
-            db,
+        notify_galitos_staff(
+            db=db,
             client_id=state["client_id"],
             message=staff_message,
         )
