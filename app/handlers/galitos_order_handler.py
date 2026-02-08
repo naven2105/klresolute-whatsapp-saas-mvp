@@ -55,13 +55,43 @@ def handle_order_message(
     ).mappings().first()
 
     if not state:
-        logger.info(
-            "ORDER_HANDLER_EXIT | reason=no_active_state | sender=%s",
-            from_number,
-        )
         return False
 
     normalized = (message_text or "").strip().upper()
+
+    # MENU = cancel order
+    if normalized == "MENU":
+        db.execute(
+            text(
+                """
+                UPDATE conversation_state
+                SET active = false,
+                    completed_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": state["id"]},
+        )
+        db.commit()
+        _send_text(from_number, "Order cancelled. Type MENU to start again.")
+        return True
+
+    # NO = cancel order
+    if normalized == "NO":
+        db.execute(
+            text(
+                """
+                UPDATE conversation_state
+                SET active = false,
+                    completed_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": state["id"]},
+        )
+        db.commit()
+        _send_text(from_number, "Order cancelled. Type MENU to start again.")
+        return True
 
     if normalized == "YES":
         order = OrderCreate(
@@ -113,11 +143,7 @@ def handle_order_message(
             message=staff_message,
         )
 
-        _send_text(
-            from_number,
-            "✅ Thank you! Your order has been received.\n\n"
-            "Type MENU to order again."
-        )
+        _send_text(from_number, "Thank you. Order received.")
         return True
 
     _send_text(from_number, "Reply YES to confirm or NO to cancel.")
