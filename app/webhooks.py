@@ -7,20 +7,6 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Inbound WhatsApp webhook entry point.
-
-Responsibilities (LOCKED):
-- Parse inbound Meta payload
-- Normalise MSISDNs
-- Guard DB availability
-- Deduplicate provider messages
-- Dispatch to module router
-- Fallback to Tier-1 routing
-
-This file MUST explain, via logs, why a message:
-- was ignored
-- was handled
-- was dispatched
-- fell through
 """
 
 import logging
@@ -66,19 +52,37 @@ def _normalise_msisdn(raw: str | None) -> Optional[str]:
 
 def _extract_message(payload: dict):
     try:
-        logger.info("PAYLOAD_RECEIVED")
+        logger.info(
+            "WEBHOOK_RAW_PAYLOAD_KEYS | keys=%s",
+            list(payload.keys()),
+        )
 
         entry = payload["entry"][0]["changes"][0]["value"]
-        messages = entry.get("messages")
+        logger.info(
+            "WEBHOOK_VALUE_KEYS | keys=%s",
+            list(entry.keys()),
+        )
 
+        messages = entry.get("messages")
         if not messages:
-            logger.warning("PAYLOAD_NO_MESSAGES")
+            logger.warning(
+                "PAYLOAD_NO_MESSAGES | has_statuses=%s",
+                bool(entry.get("statuses")),
+            )
             return None, None, None, None
 
         msg = messages[0]
         sender_raw = msg.get("from")
         provider_message_id = msg.get("id")
         business_raw = entry.get("metadata", {}).get("display_phone_number")
+
+        logger.info(
+            "MESSAGE_RAW_FIELDS | sender_raw=%s | business_raw=%s | pid=%s | msg_keys=%s",
+            sender_raw,
+            business_raw,
+            provider_message_id,
+            list(msg.keys()),
+        )
 
         sender = _normalise_msisdn(sender_raw)
         business = _normalise_msisdn(business_raw)
@@ -118,10 +122,11 @@ def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
 
         locked = bool(getattr(result, "rowcount", 0) == 1)
 
-        if locked:
-            logger.info("DEDUPE_LOCK_ACQUIRED | pid=%s", provider_message_id)
-        else:
-            logger.warning("DEDUPE_ALREADY_SEEN | pid=%s", provider_message_id)
+        logger.info(
+            "DEDUPE_RESULT | pid=%s | locked=%s",
+            provider_message_id,
+            locked,
+        )
 
         return locked
 
@@ -188,13 +193,20 @@ async def whatsapp_webhook(
 ):
     payload = await request.json()
 
+    logger.info(
+        "WEBHOOK_IN | content_length=%s",
+        request.headers.get("content-length"),
+    )
+
     msg, sender, business_msisdn, provider_message_id = _extract_message(payload)
 
     if not msg or not sender or not business_msisdn:
         logger.error(
-            "WEBHOOK_ABORT | reason=missing_fields | sender=%s | business=%s",
+            "WEBHOOK_ABORT_DETAIL | reason=missing_fields | msg=%s | sender=%s | business=%s | pid=%s",
+            bool(msg),
             sender,
             business_msisdn,
+            provider_message_id,
         )
         return Response(status_code=200)
 
@@ -225,9 +237,7 @@ async def whatsapp_webhook(
     except Exception:
         logger.exception("AUTO_CLOSE_FAIL")
 
-    # -----------------------------
     # Dispatch
-    # -----------------------------
     logger.info(
         "DISPATCH_CALL | sender=%s | business=%s | msg_type=%s",
         sender,
@@ -248,9 +258,7 @@ async def whatsapp_webhook(
         sender,
     )
 
-    # -----------------------------
     # Tier-1 fallback
-    # -----------------------------
     if not handled:
         body = (
             msg.get("text", {}).get("body", "").strip()
