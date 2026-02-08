@@ -130,7 +130,6 @@ def handle_order_message(
             )
             return True
 
-        # non-order input escape
         _send_text(
             from_number,
             "Please choose a flavour:\n"
@@ -173,6 +172,13 @@ def handle_order_message(
             f"Flavour: {flavour_label} | "
             f"Total: R{state['total_amount']} | "
             f"Customer: {from_number}"
+        )
+
+        # 🔴 PATCH: explicit proof this line is reached
+        logger.info(
+            "ORDER_STAFF_NOTIFY_CALLING | client_id=%s | state_id=%s",
+            state["client_id"],
+            state["id"],
         )
 
         notify_galitos_staff(
