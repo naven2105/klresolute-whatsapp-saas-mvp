@@ -1,4 +1,4 @@
-from __future__ import annotations
+    from __future__ import annotations
 
 """
 File: app/handlers/tier1_router.py
@@ -27,6 +27,7 @@ from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
 from app.handlers.admin_menu_builder import build_admin_menu
 from app.modules.status.reader import get_active_status
+from app.profiles.client_profile import ABOUT_TEXT
 
 from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands,
@@ -205,6 +206,17 @@ def handle_client_command(
             logger.error(
                 "CUSTOMER_BLOCKED | reason=client_id_missing | sender=%s",
                 sender_number,
+            )
+            return True
+
+        # ----------------------------------
+        # ABOUT (terminal Tier-1 command)
+        # ----------------------------------
+        if upper == "ABOUT":
+            _send_text(
+                business_number=business_number,
+                to_number=sender_number,
+                text_msg=ABOUT_TEXT,
             )
             return True
 
