@@ -226,6 +226,42 @@ def _resolve_integer_client_id(
         return None
 
 
+def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
+    """
+    Receive-only guard:
+    If sender is an active Galitos staff number, ignore inbound messages to prevent
+    opening a 24-hour session window and/or routing staff into customer menu flows.
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM galitos_staff
+                    WHERE msisdn = :msisdn
+                      AND is_active = true
+                    LIMIT 1
+                    """
+                ),
+                {"msisdn": sender_msisdn},
+            )
+            .first()
+        )
+
+        is_staff = bool(row)
+        logger.info(
+            "STAFF_INBOUND_CHECK | sender=%s | is_active_staff=%s",
+            sender_msisdn,
+            is_staff,
+        )
+        return is_staff
+
+    except Exception:
+        logger.exception("STAFF_INBOUND_CHECK_FAIL | sender=%s", sender_msisdn)
+        return False
+
+
 # -------------------------------------------------
 # Webhook
 # -------------------------------------------------
@@ -263,6 +299,17 @@ async def whatsapp_webhook(
         send_message(
             to_number=sender,
             text="⚠️ Service temporarily unavailable. Please try again shortly.",
+        )
+        return Response(status_code=200)
+
+    # -------------------------------------------------
+    # Receive-only guard: ignore Galitos staff inbound
+    # -------------------------------------------------
+    if _is_active_galitos_staff(db, sender_msisdn=sender):
+        logger.warning(
+            "WEBHOOK_ABORT | reason=staff_inbound_blocked | sender=%s | business=%s",
+            sender,
+            business_msisdn,
         )
         return Response(status_code=200)
 
