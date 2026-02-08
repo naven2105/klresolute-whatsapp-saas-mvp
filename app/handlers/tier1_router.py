@@ -1,4 +1,4 @@
-    from __future__ import annotations
+from __future__ import annotations
 
 """
 File: app/handlers/tier1_router.py
