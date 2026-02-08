@@ -17,11 +17,11 @@ logger = logging.getLogger("galitos_order_handler")
 _meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
-def _send_text(to_number: str, text: str) -> None:
-    logger.info("ORDER_SEND_TEXT | to=%s | text=%r", to_number, text)
+def _send_text(to_number: str, message_text: str) -> None:
+    logger.info("ORDER_SEND_TEXT | to=%s | text=%r", to_number, message_text)
     _meta_client.send_session_message(
         to_msisdn=to_number,
-        text=text,
+        text=message_text,
     )
 
 
@@ -29,14 +29,14 @@ def handle_order_message(
     *,
     db: Session,
     from_number: str,
-    text: str,
+    message_text: str,
     context: Dict[str, Any],
 ) -> bool:
 
     logger.info(
         "ORDER_HANDLER_ENTER | sender=%s | text=%r",
         from_number,
-        text,
+        message_text,
     )
 
     state = db.execute(
@@ -61,7 +61,7 @@ def handle_order_message(
         )
         return False
 
-    normalized = (text or "").strip().upper()
+    normalized = (message_text or "").strip().upper()
 
     if normalized == "YES":
         order = OrderCreate(
