@@ -7,6 +7,20 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Inbound WhatsApp webhook entry point.
+
+Responsibilities (LOCKED):
+- Parse inbound Meta payload
+- Normalise MSISDNs
+- Guard DB availability
+- Deduplicate provider messages
+- Dispatch to module router
+- Fallback to Tier-1 routing
+
+This file MUST explain, via logs, why a message:
+- was ignored
+- was handled
+- was dispatched
+- fell through
 """
 
 import logging
@@ -58,19 +72,49 @@ def _extract_message(payload: dict):
         )
 
         entry = payload["entry"][0]["changes"][0]["value"]
+
         logger.info(
             "WEBHOOK_VALUE_KEYS | keys=%s",
             list(entry.keys()),
         )
 
         messages = entry.get("messages")
-        if not messages:
+        statuses = entry.get("statuses")
+
+        # -------------------------
+        # STATUS-ONLY PAYLOAD
+        # -------------------------
+        if not messages and statuses:
+            meta = entry.get("metadata", {})
+            status = statuses[0]
+
             logger.warning(
-                "PAYLOAD_NO_MESSAGES | has_statuses=%s",
-                bool(entry.get("statuses")),
+                "PAYLOAD_STATUS_ONLY | "
+                "business_raw=%s | "
+                "recipient_id=%s | "
+                "status=%s | "
+                "status_id=%s | "
+                "timestamp=%s | "
+                "conversation=%s",
+                meta.get("display_phone_number"),
+                status.get("recipient_id"),
+                status.get("status"),
+                status.get("id"),
+                status.get("timestamp"),
+                status.get("conversation"),
             )
             return None, None, None, None
 
+        if not messages:
+            logger.warning(
+                "PAYLOAD_NO_MESSAGES | has_statuses=%s",
+                bool(statuses),
+            )
+            return None, None, None, None
+
+        # -------------------------
+        # MESSAGE PAYLOAD
+        # -------------------------
         msg = messages[0]
         sender_raw = msg.get("from")
         provider_message_id = msg.get("id")
