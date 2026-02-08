@@ -14,7 +14,6 @@ MVP RULE:
 
 STATUS:
 - Broadcast module is PAUSED
-- Replaced conceptually by Status / Announcement (to be implemented)
 """
 
 import logging
@@ -39,8 +38,9 @@ logger = logging.getLogger("inbound.dispatcher")
 def _reset_session(db: Session) -> None:
     try:
         db.rollback()
+        logger.debug("DISPATCH_DB_SESSION_RESET")
     except Exception:
-        pass
+        logger.debug("DISPATCH_DB_SESSION_RESET_SKIPPED")
 
 
 def _resolve_integer_client_id(
@@ -69,9 +69,16 @@ def _resolve_integer_client_id(
             .first()
         )
 
-        if not row or row["klresolute_client_id"] is None:
+        if not row:
             logger.error(
-                "DISPATCH_CLIENT_ID_INT_NOT_FOUND | business=%s",
+                "DISPATCH_CLIENT_ID_ROW_NOT_FOUND | business=%s",
+                business_msisdn,
+            )
+            return None
+
+        if row["klresolute_client_id"] is None:
+            logger.error(
+                "DISPATCH_CLIENT_ID_NULL | business=%s",
                 business_msisdn,
             )
             return None
@@ -98,6 +105,13 @@ def _resolve_integer_client_id(
 # -------------------------------------------------
 
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
+    logger.info(
+        "DISPATCH_ENTER | sender=%s | business=%s | msg_type=%s",
+        sender,
+        business_msisdn,
+        msg.get("type"),
+    )
+
     _reset_session(db)
 
     # ----------------------------------
@@ -110,7 +124,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     if resolved_client_id is None:
         logger.error(
-            "DISPATCH_ABORTED | reason=client_id_not_resolved | business=%s | sender=%s",
+            "DISPATCH_ABORTED | stage=client_id | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
@@ -122,46 +136,79 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
         logger.error(
-            "DISPATCH_ABORTED | reason=profile_not_resolved | business=%s | sender=%s",
+            "DISPATCH_ABORTED | stage=profile | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
         return True
 
+    logger.info(
+        "DISPATCH_PROFILE_OK | client_code=%s | modules=%s",
+        profile.client_code,
+        ",".join(profile.enabled_modules),
+    )
+
     # ----------------------------------
     # ORDERS (Galitos only)
     # ----------------------------------
+    logger.debug("DISPATCH_CHECK_ORDERS")
     if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
-        if orders_handler.handle(
+        logger.info("DISPATCH_ENTER_ORDERS")
+        handled = orders_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
-        ):
+        )
+        logger.info(
+            "DISPATCH_EXIT_ORDERS | handled=%s",
+            handled,
+        )
+        if handled:
             return True
+    else:
+        logger.info(
+            "DISPATCH_SKIP_ORDERS | client_code=%s | orders_enabled=%s",
+            profile.client_code,
+            "orders" in profile.enabled_modules,
+        )
 
     # ----------------------------------
     # INSPECTION (non-Galitos only)
     # ----------------------------------
+    logger.debug("DISPATCH_CHECK_INSPECTION")
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
-        if inspection_handler.handle(
+        logger.info("DISPATCH_ENTER_INSPECTION")
+        handled = inspection_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             profile_code=profile.client_code,
-        ):
+        )
+        logger.info(
+            "DISPATCH_EXIT_INSPECTION | handled=%s",
+            handled,
+        )
+        if handled:
             return True
 
     # ----------------------------------
     # SURVEY
     # ----------------------------------
+    logger.debug("DISPATCH_CHECK_SURVEY")
     if "survey" in profile.enabled_modules:
-        if survey_handler.handle(
+        logger.info("DISPATCH_ENTER_SURVEY")
+        handled = survey_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
-        ):
+        )
+        logger.info(
+            "DISPATCH_EXIT_SURVEY | handled=%s",
+            handled,
+        )
+        if handled:
             return True
 
     # ----------------------------------
@@ -183,7 +230,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         business_msisdn,
         profile.client_code,
     )
-
 
     return bool(
         tier1_handle(
