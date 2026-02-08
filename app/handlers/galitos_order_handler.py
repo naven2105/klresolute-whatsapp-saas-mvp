@@ -292,7 +292,6 @@ def handle_order_message(
                 drink_addon=state["drink_addon"],
                 addon_price=state["addon_price"],
                 total_amount=state["total_amount"],
-                confirmed_at=datetime.utcnow(),
             )
             create_order(db, order)
             logger.info(

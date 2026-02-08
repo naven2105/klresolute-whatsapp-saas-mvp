@@ -38,9 +38,12 @@ logger = logging.getLogger("inbound.dispatcher")
 def _reset_session(db: Session) -> None:
     try:
         db.rollback()
-        logger.debug("DISPATCH_DB_SESSION_RESET")
-    except Exception:
-        logger.debug("DISPATCH_DB_SESSION_RESET_SKIPPED")
+        logger.debug("DISPATCH_DB_SESSION_RESET | action=rollback")
+    except Exception as exc:
+        logger.debug(
+            "DISPATCH_DB_SESSION_RESET_SKIPPED | err=%s",
+            exc,
+        )
 
 
 def _resolve_integer_client_id(
@@ -51,6 +54,11 @@ def _resolve_integer_client_id(
     """
     Resolve MVP integer client_id via whatsapp_numbers.klresolute_client_id
     """
+    logger.info(
+        "DISPATCH_CLIENT_ID_LOOKUP_ENTER | business=%s",
+        business_msisdn,
+    )
+
     try:
         row = (
             db.execute(
@@ -71,21 +79,21 @@ def _resolve_integer_client_id(
 
         if not row:
             logger.error(
-                "DISPATCH_CLIENT_ID_ROW_NOT_FOUND | business=%s",
+                "DISPATCH_CLIENT_ID_LOOKUP_FAIL | reason=no_row | business=%s",
                 business_msisdn,
             )
             return None
 
         if row["klresolute_client_id"] is None:
             logger.error(
-                "DISPATCH_CLIENT_ID_NULL | business=%s",
+                "DISPATCH_CLIENT_ID_LOOKUP_FAIL | reason=null_client_id | business=%s",
                 business_msisdn,
             )
             return None
 
         client_id_int = int(row["klresolute_client_id"])
         logger.info(
-            "DISPATCH_CLIENT_ID_INT_RESOLVED | business=%s | client_id=%s",
+            "DISPATCH_CLIENT_ID_RESOLVED | business=%s | client_id=%s",
             business_msisdn,
             client_id_int,
         )
@@ -93,7 +101,7 @@ def _resolve_integer_client_id(
 
     except Exception as exc:
         logger.exception(
-            "DISPATCH_CLIENT_ID_INT_RESOLUTION_FAIL | business=%s | err=%s",
+            "DISPATCH_CLIENT_ID_LOOKUP_EXCEPTION | business=%s | err=%s",
             business_msisdn,
             exc,
         )
@@ -112,6 +120,14 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         msg.get("type"),
     )
 
+    if not msg:
+        logger.error(
+            "DISPATCH_ABORTED | reason=msg_none | sender=%s | business=%s",
+            sender,
+            business_msisdn,
+        )
+        return True
+
     _reset_session(db)
 
     # ----------------------------------
@@ -124,7 +140,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     if resolved_client_id is None:
         logger.error(
-            "DISPATCH_ABORTED | stage=client_id | business=%s | sender=%s",
+            "DISPATCH_ABORTED | stage=client_id_resolution | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
@@ -136,14 +152,14 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
         logger.error(
-            "DISPATCH_ABORTED | stage=profile | business=%s | sender=%s",
+            "DISPATCH_ABORTED | stage=profile_resolution | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
         return True
 
     logger.info(
-        "DISPATCH_PROFILE_OK | client_code=%s | modules=%s",
+        "DISPATCH_PROFILE_RESOLVED | client_code=%s | enabled_modules=%s",
         profile.client_code,
         ",".join(profile.enabled_modules),
     )
@@ -151,7 +167,12 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ----------------------------------
     # ORDERS (Galitos only)
     # ----------------------------------
-    logger.debug("DISPATCH_CHECK_ORDERS")
+    logger.info(
+        "DISPATCH_CHECK_ORDERS | client_code=%s | orders_enabled=%s",
+        profile.client_code,
+        "orders" in profile.enabled_modules,
+    )
+
     if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
         logger.info("DISPATCH_ENTER_ORDERS")
         handled = orders_handler.handle(
@@ -166,17 +187,16 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
         if handled:
             return True
-    else:
-        logger.info(
-            "DISPATCH_SKIP_ORDERS | client_code=%s | orders_enabled=%s",
-            profile.client_code,
-            "orders" in profile.enabled_modules,
-        )
 
     # ----------------------------------
     # INSPECTION (non-Galitos only)
     # ----------------------------------
-    logger.debug("DISPATCH_CHECK_INSPECTION")
+    logger.info(
+        "DISPATCH_CHECK_INSPECTION | client_code=%s | inspection_enabled=%s",
+        profile.client_code,
+        "inspection" in profile.enabled_modules,
+    )
+
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         logger.info("DISPATCH_ENTER_INSPECTION")
         handled = inspection_handler.handle(
@@ -195,7 +215,11 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ----------------------------------
     # SURVEY
     # ----------------------------------
-    logger.debug("DISPATCH_CHECK_SURVEY")
+    logger.info(
+        "DISPATCH_CHECK_SURVEY | survey_enabled=%s",
+        "survey" in profile.enabled_modules,
+    )
+
     if "survey" in profile.enabled_modules:
         logger.info("DISPATCH_ENTER_SURVEY")
         handled = survey_handler.handle(
@@ -216,7 +240,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ----------------------------------
     if "broadcast" in profile.enabled_modules:
         logger.warning(
-            "DISPATCH_MODULE_SKIPPED | module=broadcast | reason=paused | business=%s | sender=%s",
+            "DISPATCH_SKIP_BROADCAST | reason=paused | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
@@ -225,17 +249,23 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # Final fallback → Tier-1 router
     # ----------------------------------
     logger.info(
-        "DISPATCH_FALLTHROUGH_TO_TIER1 | sender=%s | business=%s | client_code=%s",
+        "DISPATCH_FALLTHROUGH | target=tier1 | sender=%s | business=%s",
         sender,
         business_msisdn,
-        profile.client_code,
+    )
+
+    body = (msg.get("text", {}) or {}).get("body", "")
+    logger.info(
+        "DISPATCH_TIER1_INPUT | sender=%s | body=%r",
+        sender,
+        body,
     )
 
     return bool(
         tier1_handle(
             db=db,
             sender_number=sender,
-            message_text=(msg.get("text", {}) or {}).get("body", ""),
+            message_text=body,
             msg=msg,
             resolved_client_id=str(resolved_client_id),
             resolved_business_number=business_msisdn,
