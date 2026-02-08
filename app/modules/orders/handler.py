@@ -66,7 +66,7 @@ def handle(
             galitos_orders.handle_order_message(
                 db=db,
                 from_number=sender,
-                text=body,
+                message_text=body,
                 context={"business_msisdn": business_msisdn},
             )
             return True
