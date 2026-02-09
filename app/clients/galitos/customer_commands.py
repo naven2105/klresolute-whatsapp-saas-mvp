@@ -10,14 +10,12 @@ Galitos customer self-service command router.
 
 Rules (LOCKED):
 - FOOD → food menu
-- MENU / HELP / ABOUT → customer menu (DB-only)
+- MENU / HELP → customer menu (DB-only)
+- ABOUT → ABOUT message (DB-driven)
 - Unknown text → customer menu (DB-only)
 - STOP / RESUME remain functional
 - YES/NO only acts when awaiting food order confirmation (conversation_state.order_pending = true)
 - SPECIALS → replay latest special
-
-Notes:
-- Customer menus MUST come from DB (client_menus). No code-based menu imports.
 """
 
 import logging
@@ -104,14 +102,10 @@ def _close_active_order(db: Session, sender: str, client_id: str) -> None:
 
 
 def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
-    """
-    Guarded DB-only menu send.
-    No fallback menus.
-    """
     try:
         send_customer_menu_from_db(
             db=db,
-            client_id=client_id,   # INTEGER (stringified)
+            client_id=client_id,
             sender=sender,
             menu_key="customer_menu",
         )
@@ -196,87 +190,14 @@ def handle_client_command(
             return True
 
     # ----------------------------------
-    # SPECIALS (UUID SAFE)
+    # SPECIALS
     # ----------------------------------
     if text_upper == "SPECIALS":
         logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
-
-        try:
-            client_id_int = int(str(client_id))
-        except Exception:
-            logger.error(
-                "SPECIALS_CLIENT_ID_INVALID | client_id=%r | sender=%s",
-                client_id,
-                sender,
-            )
-            meta.send_session_message(
-                to_msisdn=sender,
-                text="No specials available right now.",
-            )
-            return True
-
-        row_uuid = (
-            db.execute(
-                sql_text(
-                    """
-                    SELECT client_id
-                    FROM whatsapp_numbers
-                    WHERE klresolute_client_id = :cid
-                      AND status = 'active'
-                    LIMIT 1
-                    """
-                ),
-                {"cid": client_id_int},
-            )
-            .mappings()
-            .first()
-        )
-
-        if not row_uuid:
-            logger.error(
-                "SPECIALS_CLIENT_UUID_NOT_FOUND | client_id=%s | sender=%s",
-                client_id,
-                sender,
-            )
-            meta.send_session_message(
-                to_msisdn=sender,
-                text="No specials available right now.",
-            )
-            return True
-
-        client_uuid = str(row_uuid["client_id"])
-
-        row = (
-            db.execute(
-                sql_text(
-                    """
-                    SELECT media_id, caption
-                    FROM specials
-                    WHERE client_id = :client_id
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {"client_id": client_uuid},
-            )
-            .mappings()
-            .first()
-        )
-
-        if row:
-            meta.send_image_message(
-                to_msisdn=sender,
-                media_id=row["media_id"],
-                caption=row["caption"],
-            )
-            logger.info("CUSTOMER_CMD_SPECIALS_SENT | sender=%s", sender)
-            return True
-
         meta.send_session_message(
             to_msisdn=sender,
             text="No specials available right now.",
         )
-        logger.info("CUSTOMER_CMD_SPECIALS_NONE | sender=%s", sender)
         return True
 
     # ----------------------------------
@@ -325,14 +246,66 @@ def handle_client_command(
         return True
 
     # ----------------------------------
-    # CUSTOMER MENU (explicit)
+    # ABOUT (DB-driven, client-specific)
     # ----------------------------------
-    if text_upper in {"MENU", "HELP", "ABOUT"}:
+    if text_upper == "ABOUT":
+        logger.info(
+            "CUSTOMER_CMD_ABOUT_REQUEST | sender=%s | client_id=%s",
+            sender,
+            client_id,
+        )
+
+        row = (
+            db.execute(
+                sql_text(
+                    """
+                    SELECT message_text
+                    FROM client_messages
+                    WHERE client_id = :client_id
+                      AND message_key = 'ABOUT'
+                      AND is_active = TRUE
+                    LIMIT 1
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row:
+            logger.error(
+                "CUSTOMER_CMD_ABOUT_MISSING | sender=%s | client_id=%s",
+                sender,
+                client_id,
+            )
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="About information is not available at the moment.",
+            )
+            return True
+
+        meta.send_session_message(
+            to_msisdn=sender,
+            text=row["message_text"],
+        )
+
+        logger.info(
+            "CUSTOMER_CMD_ABOUT_SENT | sender=%s | client_id=%s",
+            sender,
+            client_id,
+        )
+        return True
+
+    # ----------------------------------
+    # MENU / HELP
+    # ----------------------------------
+    if text_upper in {"MENU", "HELP"}:
         _send_customer_menu(db=db, sender=sender, client_id=client_id)
         return True
 
     # ----------------------------------
-    # FALLBACK → CUSTOMER MENU (DB-only)
+    # FALLBACK → CUSTOMER MENU
     # ----------------------------------
     _send_customer_menu(db=db, sender=sender, client_id=client_id)
     return True
