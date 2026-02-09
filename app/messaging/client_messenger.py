@@ -1,20 +1,41 @@
+from __future__ import annotations
+
 """
 File: app/messaging/client_messenger.py
+Path: app/messaging/client_messenger.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Thin messaging helpers for client-facing messages.
-Supports both session messages and approved templates.
+
+Enhancement (ONLY):
+- Ensure outbound sender identity is resolved per client business.
+- Enforce explicit guards and logging so Render logs show:
+  - what was checked
+  - what was missing
+  - why execution continued or aborted
+
+No refactors.
+No removals.
+No semantic changes outside sender resolution.
 """
+
+import logging
+from sqlalchemy.orm import Session
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
+# ==================================================
+# Logging
+# ==================================================
+logger = logging.getLogger("client_messenger")
 
 
 def send_message(
     *,
+    db: Session,
+    business_msisdn: str,
     to_number: str,
     text: str | None = None,
     template_name: str | None = None,
@@ -23,29 +44,89 @@ def send_message(
     """
     Send a WhatsApp message to a client.
 
-    Supports:
-    - Session text messages (inside 24h window)
-    - Approved WhatsApp templates (guaranteed delivery)
-
-    Exactly one of `text` or `template_name` must be provided.
+    Guards:
+    - business_msisdn must be present
+    - db session must be present
+    - exactly one of text / template_name must be provided
     """
 
+    logger.info(
+        "SEND_MESSAGE_START | business=%s | to=%s | has_text=%s | has_template=%s",
+        business_msisdn,
+        to_number,
+        bool(text),
+        bool(template_name),
+    )
+
+    if not db:
+        logger.error(
+            "SEND_MESSAGE_ABORT | reason=db_missing | business=%s | to=%s",
+            business_msisdn,
+            to_number,
+        )
+        raise RuntimeError("DB session required for outbound messaging")
+
+    if not business_msisdn:
+        logger.error(
+            "SEND_MESSAGE_ABORT | reason=business_msisdn_missing | to=%s",
+            to_number,
+        )
+        raise RuntimeError("business_msisdn is required for outbound messaging")
+
     if text and template_name:
+        logger.error(
+            "SEND_MESSAGE_ABORT | reason=both_text_and_template | business=%s | to=%s",
+            business_msisdn,
+            to_number,
+        )
         raise ValueError("Provide either text or template_name, not both")
 
+    if not text and not template_name:
+        logger.error(
+            "SEND_MESSAGE_ABORT | reason=no_payload | business=%s | to=%s",
+            business_msisdn,
+            to_number,
+        )
+        raise ValueError("Either text or template_name must be provided")
+
+    logger.info(
+        "SEND_MESSAGE_SETTINGS_LOAD | business=%s",
+        business_msisdn,
+    )
+
+    settings = load_meta_settings(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
+
+    logger.info(
+        "SEND_MESSAGE_SETTINGS_OK | business=%s | phone_number_id_present=%s",
+        business_msisdn,
+        bool(settings.phone_number_id),
+    )
+
+    meta_client = MetaWhatsAppClient(settings=settings)
+
     if text:
-        _meta_client.send_session_message(
+        logger.info(
+            "SEND_MESSAGE_EXEC | type=session | business=%s | to=%s",
+            business_msisdn,
+            to_number,
+        )
+        meta_client.send_session_message(
             to_msisdn=to_number,
             text=text,
         )
         return
 
-    if template_name:
-        _meta_client.send_template(
-            to_msisdn=to_number,
-            template_name=template_name,
-            language_code=language_code,
-        )
-        return
-
-    raise ValueError("Either text or template_name must be provided")
+    logger.info(
+        "SEND_MESSAGE_EXEC | type=template | business=%s | to=%s | template=%s",
+        business_msisdn,
+        to_number,
+        template_name,
+    )
+    meta_client.send_template(
+        to_msisdn=to_number,
+        template_name=template_name,
+        language_code=language_code,
+    )
