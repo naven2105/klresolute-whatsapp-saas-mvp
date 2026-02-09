@@ -27,7 +27,6 @@ from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
 from app.handlers.admin_menu_builder import build_admin_menu
 from app.modules.status.reader import get_active_status
-from app.profiles.client_profile import ABOUT_TEXT
 
 from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands,
@@ -210,15 +209,15 @@ def handle_client_command(
             return True
 
         # ----------------------------------
-        # ABOUT (terminal Tier-1 command)
+        # ABOUT (recognised, delegated)
         # ----------------------------------
         if upper == "ABOUT":
-            _send_text(
-                business_number=business_number,
-                to_number=sender_number,
-                text_msg=ABOUT_TEXT,
+            logger.info(
+                "TIER1_ABOUT_DELEGATED | sender=%s | client_id=%s",
+                sender_number,
+                client_id_int,
             )
-            return True
+            # fall through intentionally
 
         _ensure_client_contact(
             db,
@@ -245,16 +244,23 @@ def handle_client_command(
                 text_msg=f"⚠️ NOTICE\n\n{status_text}\n\n———",
             )
 
-        return bool(
-            handle_customer_commands(
-                db=db,
-                sender=sender_number,
-                msg=msg
-                or {"type": "text", "text": {"body": message_text or ""}},
-                client_id=str(client_id_int),
-                business_msisdn=business_number or "",
-            )
+        handled = handle_customer_commands(
+            db=db,
+            sender=sender_number,
+            msg=msg
+            or {"type": "text", "text": {"body": message_text or ""}},
+            client_id=str(client_id_int),
+            business_msisdn=business_number or "",
         )
+
+        if not handled:
+            logger.warning(
+                "TIER1_CUSTOMER_UNHANDLED | sender=%s | text=%r",
+                sender_number,
+                message_text,
+            )
+
+        return bool(handled)
 
     except Exception:
         logger.exception(
