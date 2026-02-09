@@ -4,18 +4,6 @@ from __future__ import annotations
 File: app/clients/galitos/customer_commands.py
 Path: app/clients/galitos/customer_commands.py
 Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-Galitos customer self-service command router.
-
-Rules (LOCKED):
-- FOOD → food menu
-- MENU / HELP → customer menu (DB-only)
-- ABOUT → ABOUT message (DB-driven)
-- Unknown text → customer menu (DB-only)
-- STOP / RESUME remain functional
-- YES/NO only acts when awaiting food order confirmation (conversation_state.order_pending = true)
-- SPECIALS → replay latest special
 """
 
 import logging
@@ -102,25 +90,13 @@ def _close_active_order(db: Session, sender: str, client_id: str) -> None:
 
 
 def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
-    try:
-        send_customer_menu_from_db(
-            db=db,
-            client_id=client_id,   # INTEGER (stringified)
-            sender=sender,
-            menu_key="customer_menu",
-        )
-        logger.info(
-            "CUSTOMER_MENU_SENT | sender=%s | client_id=%s",
-            sender,
-            client_id,
-        )
-    except Exception:
-        logger.exception(
-            "CUSTOMER_MENU_FAILED | sender=%s | client_id=%s | menu_key=customer_menu",
-            sender,
-            client_id,
-        )
-        raise
+    send_customer_menu_from_db(
+        db=db,
+        client_id=client_id,
+        sender=sender,
+        menu_key="customer_menu",
+    )
+    logger.info("CUSTOMER_MENU_SENT | sender=%s | client_id=%s", sender, client_id)
 
 
 def handle_client_command(
@@ -150,197 +126,36 @@ def handle_client_command(
         client_id,
     )
 
-    # ----------------------------------
-    # FOOD FLOW (must be FIRST)
-    # ----------------------------------
+    # FOOD FLOW
     if handle_galitos_menu(
         db=db,
         sender_number=sender,
         message_text=text,
         client_id=client_id,
     ):
-        logger.info("CUSTOMER_CMD_HANDLED | path=food")
         return True
 
-    # ----------------------------------
-    # YES/NO: only when awaiting confirmation
-    # ----------------------------------
+    # YES / NO
     if text_upper in {"YES", "NO"}:
         state = _get_active_order_state(db, sender, client_id)
-
         if state and bool(state.get("order_pending")) is True:
             _close_active_order(db, sender, client_id)
 
-            if text_upper == "YES":
-                meta.send_session_message(
-                    to_msisdn=sender,
-                    text="✅ Thanks! Your Galitos order has been confirmed.",
-                )
-            else:
-                meta.send_session_message(
-                    to_msisdn=sender,
-                    text="❌ OK — your Galitos order was cancelled.",
-                )
-
-            logger.info(
-                "CUSTOMER_CMD_ORDER_CONFIRM | sender=%s | response=%s",
-                sender,
-                text_upper,
-            )
-            return True
-
-    # ----------------------------------
-    # SPECIALS (UUID SAFE)
-    # ----------------------------------
-    if text_upper == "SPECIALS":
-        logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
-
-        try:
-            client_id_int = int(str(client_id))
-        except Exception:
-            logger.error(
-                "SPECIALS_CLIENT_ID_INVALID | client_id=%r | sender=%s",
-                client_id,
-                sender,
-            )
             meta.send_session_message(
                 to_msisdn=sender,
-                text="No specials available right now.",
+                text="✅ Thanks! Your Galitos order has been confirmed."
+                if text_upper == "YES"
+                else "❌ OK — your Galitos order was cancelled.",
             )
             return True
 
-        row_uuid = (
-            db.execute(
-                sql_text(
-                    """
-                    SELECT client_id
-                    FROM whatsapp_numbers
-                    WHERE klresolute_client_id = :cid
-                      AND status = 'active'
-                    LIMIT 1
-                    """
-                ),
-                {"cid": client_id_int},
-            )
-            .mappings()
-            .first()
-        )
-
-        if not row_uuid:
-            logger.error(
-                "SPECIALS_CLIENT_UUID_NOT_FOUND | client_id=%s | sender=%s",
-                client_id,
-                sender,
-            )
-            meta.send_session_message(
-                to_msisdn=sender,
-                text="No specials available right now.",
-            )
-            return True
-
-        client_uuid = str(row_uuid["client_id"])
-
-        row = (
-            db.execute(
-                sql_text(
-                    """
-                    SELECT media_id, caption
-                    FROM specials
-                    WHERE client_id = :client_id
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {"client_id": client_uuid},
-            )
-            .mappings()
-            .first()
-        )
-
-        if row:
-            meta.send_image_message(
-                to_msisdn=sender,
-                media_id=row["media_id"],
-                caption=row["caption"],
-            )
-            logger.info("CUSTOMER_CMD_SPECIALS_SENT | sender=%s", sender)
-            return True
-
-        meta.send_session_message(
-            to_msisdn=sender,
-            text="No specials available right now.",
-        )
-        logger.info("CUSTOMER_CMD_SPECIALS_NONE | sender=%s", sender)
-        return True
-
-    # ----------------------------------
-    # STOP
-    # ----------------------------------
-    if text_upper == "STOP":
-        contact = (
-            db.query(Contact)
-            .filter(Contact.contact_number == sender)
-            .one_or_none()
-        )
-        if contact:
-            db.delete(contact)
-            db.commit()
-
-        meta.send_generic_business_update_template(
-            to_msisdn=sender,
-            blob_text="You have been removed. You will no longer receive updates.",
-        )
-        return True
-
-    # ----------------------------------
-    # RESUME
-    # ----------------------------------
-    if (
-        text_upper == "RESUME"
-        and not is_admin_message(
-            db=db,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        )
-    ):
-        existing = (
-            db.query(Contact)
-            .filter(Contact.contact_number == sender)
-            .one_or_none()
-        )
-        if not existing:
-            db.add(Contact(contact_number=sender))
-            db.commit()
-
-        meta.send_generic_business_update_template(
-            to_msisdn=sender,
-            blob_text="You have been added back. You will receive updates again.",
-        )
-        return True
-
-    # ----------------------------------
-    # ABOUT (DB-driven, UUID safe via whatsapp_numbers mapping)
-    # ----------------------------------
+    # ABOUT (UUID SAFE)
     if text_upper == "ABOUT":
         logger.info(
             "CUSTOMER_CMD_ABOUT_REQUEST | sender=%s | client_id=%s",
             sender,
             client_id,
         )
-
-        try:
-            client_id_int = int(str(client_id))
-        except Exception:
-            logger.error(
-                "ABOUT_CLIENT_ID_INVALID | client_id=%r | sender=%s",
-                client_id,
-                sender,
-            )
-            meta.send_session_message(
-                to_msisdn=sender,
-                text="About information is not available at the moment.",
-            )
-            return True
 
         row = (
             db.execute(
@@ -350,14 +165,14 @@ def handle_client_command(
                     FROM client_messages cm
                     JOIN whatsapp_numbers w
                       ON w.client_id = cm.client_id
-                    WHERE w.klresolute_client_id = :cid
+                    WHERE w.klresolute_client_id = :kl_client_id
                       AND w.status = 'active'
                       AND cm.message_key = 'ABOUT'
                       AND cm.is_active = TRUE
                     LIMIT 1
                     """
                 ),
-                {"cid": client_id_int},
+                {"kl_client_id": int(client_id)},
             )
             .mappings()
             .first()
@@ -387,15 +202,47 @@ def handle_client_command(
         )
         return True
 
-    # ----------------------------------
-    # CUSTOMER MENU (explicit)
-    # ----------------------------------
-    if text_upper in {"MENU", "HELP"}:
-        _send_customer_menu(db=db, sender=sender, client_id=client_id)
+    # STOP
+    if text_upper == "STOP":
+        contact = (
+            db.query(Contact)
+            .filter(Contact.contact_number == sender)
+            .one_or_none()
+        )
+        if contact:
+            db.delete(contact)
+            db.commit()
+
+        meta.send_generic_business_update_template(
+            to_msisdn=sender,
+            blob_text="You have been removed. You will no longer receive updates.",
+        )
         return True
 
-    # ----------------------------------
-    # FALLBACK → CUSTOMER MENU (DB-only)
-    # ----------------------------------
+    # RESUME
+    if (
+        text_upper == "RESUME"
+        and not is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        )
+    ):
+        existing = (
+            db.query(Contact)
+            .filter(Contact.contact_number == sender)
+            .one_or_none()
+        )
+        if not existing:
+            db.add(Contact(contact_number=sender))
+            db.commit()
+
+        meta.send_generic_business_update_template(
+            to_msisdn=sender,
+            blob_text="You have been added back. You will receive updates again.",
+        )
+        return True
+
+    # MENU / HELP / FALLBACK
     _send_customer_menu(db=db, sender=sender, client_id=client_id)
     return True
