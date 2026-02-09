@@ -24,6 +24,13 @@ from sqlalchemy import text
 
 logger = logging.getLogger("profiles.client_profile")
 
+# -------------------------------------------------------------------
+# Static text (import guard)
+# -------------------------------------------------------------------
+ABOUT_TEXT = (
+    "This business uses an automated WhatsApp assistant. "
+    "Reply with menu options or STOP to opt out."
+)
 
 # -------------------------------------------------------------------
 # Client Profile Model
@@ -52,15 +59,11 @@ def get_client_profile(
         return None
 
     try:
-        # Ensure clean session before reads
         try:
             db.rollback()
         except Exception:
             pass
 
-        # ----------------------------------
-        # Resolve client via whatsapp_numbers
-        # ----------------------------------
         client_row = (
             db.execute(
                 text(
@@ -89,9 +92,6 @@ def get_client_profile(
         client_id = str(client_row["client_id"])
         client_code = str(client_row["client_name"]).upper()
 
-        # ----------------------------------
-        # Enabled modules
-        # ----------------------------------
         modules = (
             db.execute(
                 text(
@@ -118,9 +118,6 @@ def get_client_profile(
                 client_code,
             )
 
-        # ----------------------------------
-        # Admin numbers
-        # ----------------------------------
         admins = (
             db.execute(
                 text(
