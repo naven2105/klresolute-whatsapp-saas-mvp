@@ -149,7 +149,7 @@ def handle_client_command(
             )
             return True
 
-    # ABOUT (UUID SAFE)
+    # ABOUT (DB text + code emojis)
     if text_upper == "ABOUT":
         logger.info(
             "CUSTOMER_CMD_ABOUT_REQUEST | sender=%s | client_id=%s",
@@ -190,9 +190,24 @@ def handle_client_command(
             )
             return True
 
+        about_text = (
+            "🔥 About Galitos\n\n"
+            f"{row['message_text']}\n\n"
+            "🕒 Trading Hours\n"
+            "Monday – Sunday: 10:00 – 21:00\n\n"
+            "📍 Location\n"
+            "Visit your nearest Galitos restaurant for sit-down or takeaway.\n\n"
+            "📦 What we offer\n"
+            "• Flame-grilled chicken\n"
+            "• Burgers, wraps & sides\n"
+            "• Takeaway & dine-in\n"
+            "• Daily specials\n\n"
+            "Reply MENU to continue."
+        )
+
         meta.send_session_message(
             to_msisdn=sender,
-            text=row["message_text"],
+            text=about_text,
         )
 
         logger.info(
