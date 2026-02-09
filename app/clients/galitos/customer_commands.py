@@ -105,7 +105,7 @@ def _send_customer_menu(*, db: Session, sender: str, client_id: str) -> None:
     try:
         send_customer_menu_from_db(
             db=db,
-            client_id=client_id,
+            client_id=client_id,   # INTEGER (stringified)
             sender=sender,
             menu_key="customer_menu",
         )
@@ -190,14 +190,87 @@ def handle_client_command(
             return True
 
     # ----------------------------------
-    # SPECIALS
+    # SPECIALS (UUID SAFE)
     # ----------------------------------
     if text_upper == "SPECIALS":
         logger.info("CUSTOMER_CMD_SPECIALS_REQUEST | sender=%s", sender)
+
+        try:
+            client_id_int = int(str(client_id))
+        except Exception:
+            logger.error(
+                "SPECIALS_CLIENT_ID_INVALID | client_id=%r | sender=%s",
+                client_id,
+                sender,
+            )
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="No specials available right now.",
+            )
+            return True
+
+        row_uuid = (
+            db.execute(
+                sql_text(
+                    """
+                    SELECT client_id
+                    FROM whatsapp_numbers
+                    WHERE klresolute_client_id = :cid
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id_int},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row_uuid:
+            logger.error(
+                "SPECIALS_CLIENT_UUID_NOT_FOUND | client_id=%s | sender=%s",
+                client_id,
+                sender,
+            )
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="No specials available right now.",
+            )
+            return True
+
+        client_uuid = str(row_uuid["client_id"])
+
+        row = (
+            db.execute(
+                sql_text(
+                    """
+                    SELECT media_id, caption
+                    FROM specials
+                    WHERE client_id = :client_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"client_id": client_uuid},
+            )
+            .mappings()
+            .first()
+        )
+
+        if row:
+            meta.send_image_message(
+                to_msisdn=sender,
+                media_id=row["media_id"],
+                caption=row["caption"],
+            )
+            logger.info("CUSTOMER_CMD_SPECIALS_SENT | sender=%s", sender)
+            return True
+
         meta.send_session_message(
             to_msisdn=sender,
             text="No specials available right now.",
         )
+        logger.info("CUSTOMER_CMD_SPECIALS_NONE | sender=%s", sender)
         return True
 
     # ----------------------------------
@@ -246,7 +319,7 @@ def handle_client_command(
         return True
 
     # ----------------------------------
-    # ABOUT (DB-driven, client-specific)
+    # ABOUT (DB-driven, UUID safe via whatsapp_numbers mapping)
     # ----------------------------------
     if text_upper == "ABOUT":
         logger.info(
@@ -255,19 +328,36 @@ def handle_client_command(
             client_id,
         )
 
+        try:
+            client_id_int = int(str(client_id))
+        except Exception:
+            logger.error(
+                "ABOUT_CLIENT_ID_INVALID | client_id=%r | sender=%s",
+                client_id,
+                sender,
+            )
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="About information is not available at the moment.",
+            )
+            return True
+
         row = (
             db.execute(
                 sql_text(
                     """
-                    SELECT message_text
-                    FROM client_messages
-                    WHERE client_id = :client_id
-                      AND message_key = 'ABOUT'
-                      AND is_active = TRUE
+                    SELECT cm.message_text
+                    FROM client_messages cm
+                    JOIN whatsapp_numbers w
+                      ON w.client_id = cm.client_id
+                    WHERE w.klresolute_client_id = :cid
+                      AND w.status = 'active'
+                      AND cm.message_key = 'ABOUT'
+                      AND cm.is_active = TRUE
                     LIMIT 1
                     """
                 ),
-                {"client_id": client_id},
+                {"cid": client_id_int},
             )
             .mappings()
             .first()
@@ -298,14 +388,14 @@ def handle_client_command(
         return True
 
     # ----------------------------------
-    # MENU / HELP
+    # CUSTOMER MENU (explicit)
     # ----------------------------------
     if text_upper in {"MENU", "HELP"}:
         _send_customer_menu(db=db, sender=sender, client_id=client_id)
         return True
 
     # ----------------------------------
-    # FALLBACK → CUSTOMER MENU
+    # FALLBACK → CUSTOMER MENU (DB-only)
     # ----------------------------------
     _send_customer_menu(db=db, sender=sender, client_id=client_id)
     return True
