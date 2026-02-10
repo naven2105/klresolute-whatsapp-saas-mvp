@@ -5,15 +5,23 @@ File: app/inbound_dispatcher.py
 Path: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
 
-LOCKED:
-- No DB writes
-- Behaviour defined by handlers
+ROLE (EXPLICIT & LOCKED):
+Inbound dispatcher and module router.
 
-MVP RULE:
-- resolved_client_id MUST be INTEGER (klresolute_client_id)
+RESPONSIBILITY:
+- Resolve client + profile
+- Route inbound messages to enabled modules
+- Delegate behaviour (no business logic here)
 
-STATUS:
+GUARD RAILS (MANDATORY):
+- MUST NEVER raise exceptions
+- MUST NEVER break caller flow
+- MUST fail safe and log clearly (Render-first)
+- MUST NOT mutate business behaviour
+
+NOTES:
 - Broadcast module is PAUSED
+- Specials admin upload is handled as a module
 """
 
 import logging
@@ -26,7 +34,9 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
-# from app.modules.broadcast import handler as broadcast_handler  # PAUSED
+from app.modules.specials.admin_specials_media_handler import (
+    handle_media_message as specials_media_handler,
+)
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -77,16 +87,9 @@ def _resolve_integer_client_id(
             .first()
         )
 
-        if not row:
+        if not row or row["klresolute_client_id"] is None:
             logger.error(
-                "DISPATCH_CLIENT_ID_LOOKUP_FAIL | reason=no_row | business=%s",
-                business_msisdn,
-            )
-            return None
-
-        if row["klresolute_client_id"] is None:
-            logger.error(
-                "DISPATCH_CLIENT_ID_LOOKUP_FAIL | reason=null_client_id | business=%s",
+                "DISPATCH_CLIENT_ID_LOOKUP_FAIL | business=%s",
                 business_msisdn,
             )
             return None
@@ -165,49 +168,61 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     )
 
     # ----------------------------------
-    # ORDERS (Galitos only)
+    # SPECIALS (ADMIN IMAGE UPLOAD)
     # ----------------------------------
-    logger.info(
-        "DISPATCH_CHECK_ORDERS | client_code=%s | orders_enabled=%s",
-        profile.client_code,
-        "orders" in profile.enabled_modules,
-    )
+    if (
+        msg.get("type") == "image"
+        and "specials" in profile.enabled_modules
+    ):
+        logger.info(
+            "DISPATCH_CHECK_SPECIALS | client_code=%s | specials_enabled=True",
+            profile.client_code,
+        )
+        try:
+            handled = specials_media_handler(
+                db=db,
+                sender=sender,
+                msg=msg,
+                client_id=resolved_client_id,
+                business_msisdn=business_msisdn,
+            )
+            logger.info(
+                "DISPATCH_EXIT_SPECIALS | handled=%s",
+                handled,
+            )
+            if handled:
+                return True
+        except Exception as exc:
+            logger.exception(
+                "DISPATCH_SPECIALS_FATAL | business=%s | sender=%s | err=%s",
+                business_msisdn,
+                sender,
+                exc,
+            )
+            return True
 
+    # ----------------------------------
+    # ORDERS
+    # ----------------------------------
     if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
-        logger.info("DISPATCH_ENTER_ORDERS")
         handled = orders_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
         )
-        logger.info(
-            "DISPATCH_EXIT_ORDERS | handled=%s",
-            handled,
-        )
         if handled:
             return True
 
     # ----------------------------------
-    # INSPECTION (non-Galitos only)
+    # INSPECTION
     # ----------------------------------
-    logger.info(
-        "DISPATCH_CHECK_INSPECTION | client_code=%s | inspection_enabled=%s",
-        profile.client_code,
-        "inspection" in profile.enabled_modules,
-    )
-
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
-        logger.info("DISPATCH_ENTER_INSPECTION")
         handled = inspection_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             profile_code=profile.client_code,
-        )
-        logger.info(
-            "DISPATCH_EXIT_INSPECTION | handled=%s",
-            handled,
         )
         if handled:
             return True
@@ -215,52 +230,20 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ----------------------------------
     # SURVEY
     # ----------------------------------
-    logger.info(
-        "DISPATCH_CHECK_SURVEY | survey_enabled=%s",
-        "survey" in profile.enabled_modules,
-    )
-
     if "survey" in profile.enabled_modules:
-        logger.info("DISPATCH_ENTER_SURVEY")
         handled = survey_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
         )
-        logger.info(
-            "DISPATCH_EXIT_SURVEY | handled=%s",
-            handled,
-        )
         if handled:
             return True
 
     # ----------------------------------
-    # BROADCAST (PAUSED)
-    # ----------------------------------
-    if "broadcast" in profile.enabled_modules:
-        logger.warning(
-            "DISPATCH_SKIP_BROADCAST | reason=paused | business=%s | sender=%s",
-            business_msisdn,
-            sender,
-        )
-
-    # ----------------------------------
     # Final fallback → Tier-1 router
     # ----------------------------------
-    logger.info(
-        "DISPATCH_FALLTHROUGH | target=tier1 | sender=%s | business=%s",
-        sender,
-        business_msisdn,
-    )
-
     body = (msg.get("text", {}) or {}).get("body", "")
-    logger.info(
-        "DISPATCH_TIER1_INPUT | sender=%s | body=%r",
-        sender,
-        body,
-    )
-
     return bool(
         tier1_handle(
             db=db,
