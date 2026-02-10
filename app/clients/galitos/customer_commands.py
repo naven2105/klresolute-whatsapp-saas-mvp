@@ -17,7 +17,7 @@ from app.menus.customer_menu_service import send_customer_menu_from_db
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 from app.utils.admin import is_admin_message
-from app.modules.specials.service import send_latest_special_to_customer  # <-- ADDED
+from app.modules.specials.service import send_latest_special_to_customer
 
 logger = logging.getLogger("galitos.customer_commands")
 
@@ -152,21 +152,51 @@ def handle_client_command(
 
     # SPECIALS (MENU-ONLY)
     if text_upper == "SPECIALS":
-        sent = send_latest_special_to_customer(
-            db=db,
-            client_uuid=client_id,
-            to_msisdn=sender,
+        logger.info(
+            "SPECIALS_REQUEST | sender=%s | client_id=%s",
+            sender,
+            client_id,
         )
 
-        if not sent:
+        try:
+            sent = send_latest_special_to_customer(
+                db=db,
+                client_uuid=client_id,
+                to_msisdn=sender,
+            )
+
+            if sent:
+                logger.info(
+                    "SPECIALS_SENT_OK | sender=%s | client_id=%s",
+                    sender,
+                    client_id,
+                )
+            else:
+                logger.info(
+                    "SPECIALS_NONE | sender=%s | client_id=%s",
+                    sender,
+                    client_id,
+                )
+                meta.send_session_message(
+                    to_msisdn=sender,
+                    text="🔥 No specials available at the moment.\nPlease check again later.",
+                )
+
+        except Exception as exc:
+            logger.exception(
+                "SPECIALS_FATAL | sender=%s | client_id=%s | err=%s",
+                sender,
+                client_id,
+                exc,
+            )
             meta.send_session_message(
                 to_msisdn=sender,
-                text="🔥 No specials available at the moment.\nPlease check again later.",
+                text="⚠️ Unable to retrieve specials right now. Please try again later.",
             )
 
         return True
 
-    # ABOUT (DB text + code emojis)
+    # ABOUT
     if text_upper == "ABOUT":
         logger.info(
             "CUSTOMER_CMD_ABOUT_REQUEST | sender=%s | client_id=%s",
