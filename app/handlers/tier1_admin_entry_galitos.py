@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 """
-File: app/handlers/tier1_admin_entry.py
-Path: app/handlers/tier1_admin_entry.py
+File: app/handlers/tier1_admin_entry_galitos.py
+Path: app/handlers/tier1_admin_entry_galitos.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Handle Tier-1 ADMIN flow only.
+Handle Tier-1 Galitos ADMIN flow only.
 
 GUARDS (LOCKED):
 - Admin-only entry

@@ -36,7 +36,7 @@ from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands,
 )
 
-from app.menus.admin.galitos_admin_menu import GALITOS_ADMIN_MENU
+from app.handlers.tier1_admin_entry_galitos import handle_admin_entry
 from app.services.contacts_service import add_contact
 
 logger = logging.getLogger("handlers.tier1_router")
@@ -150,27 +150,6 @@ def _parse_client_id(resolved_client_id: str | None) -> int | None:
         return None
 
 
-def _render_admin_menu(menu_def: dict) -> str:
-    """
-    Render hard-coded admin menu dict to text.
-    Guarded: never raises.
-    """
-    try:
-        lines: list[str] = [menu_def.get("title", "Admin Menu"), ""]
-
-        for section in menu_def.get("sections", []):
-            lines.append(section.get("title", ""))
-            for cmd in section.get("commands", []):
-                lines.append(f"• {cmd}")
-            lines.append("")
-
-        return "\n".join(lines).strip()
-
-    except Exception:
-        logger.exception("ADMIN_MENU_RENDER_FAIL")
-        return "⚠️ Admin menu unavailable. Please contact support."
-
-
 # -------------------------------------------------
 # Main handler
 # -------------------------------------------------
@@ -216,19 +195,18 @@ def handle_client_command(
         # =================================================
         if is_admin:
             logger.info(
-                "TIER1_ADMIN_MESSAGE | sender=%s | text=%r",
+                "TIER1_ADMIN_DELEGATE | sender=%s | text=%r",
                 sender_number,
                 message_text,
             )
 
-            admin_menu_text = _render_admin_menu(GALITOS_ADMIN_MENU)
-
-            _send_text(
-                business_number=business_number,
-                to_number=sender_number,
-                text_msg=admin_menu_text,
+            return handle_admin_entry(
+                db=db,
+                sender_number=sender_number,
+                message_text=message_text,
+                msg=msg,
+                business_msisdn=business_number,
             )
-            return True
 
         # =================================================
         # CUSTOMER PATH

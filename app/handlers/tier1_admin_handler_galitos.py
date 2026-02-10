@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 """
-File: app/handlers/tier1_admin_handler.py
-Path: app/handlers/tier1_admin_handler.py
+File: app/handlers/tier1_admin_handler_galitos.py
+Path: app/handlers/tier1_admin_handler_galitos.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Tier-1 Admin command handling.
+Tier-1 Galitos Admin command handling.
 
 Responsibilities:
 - Admin command routing
