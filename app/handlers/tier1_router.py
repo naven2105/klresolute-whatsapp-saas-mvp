@@ -8,6 +8,11 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Tier-1 Router (Client + Admin entry point)
 
+EXPLICIT ROLE:
+- Single canonical entry point for admin + customer routing
+- Admin menus are hard-coded per client
+- No DB-driven menu construction
+
 LOCKED GUARDS:
 - MUST NOT handle order flow
 - MUST NOT intercept YES / NO
@@ -25,14 +30,14 @@ from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
-from app.handlers.admin_menu_builder import build_admin_menu
 from app.modules.status.reader import get_active_status
 
 from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands,
 )
 
-from app.services.contacts_service import add_contact  # <-- PATCH (added)
+from app.menus.admin.galitos_admin_menu import GALITOS_ADMIN_MENU
+from app.services.contacts_service import add_contact
 
 logger = logging.getLogger("handlers.tier1_router")
 
@@ -49,11 +54,18 @@ def _send_text(*, business_number: str | None, to_number: str, text_msg: str) ->
         )
         return
 
-    meta = get_meta_client(business_msisdn=business_number)
-    meta.send_session_message(
-        to_msisdn=to_number,
-        text=text_msg,
-    )
+    try:
+        meta = get_meta_client(business_msisdn=business_number)
+        meta.send_session_message(
+            to_msisdn=to_number,
+            text=text_msg,
+        )
+    except Exception:
+        logger.exception(
+            "TIER1_SEND_FAIL | business=%s | to=%s",
+            business_number,
+            to_number,
+        )
 
 
 def _ensure_client_contact(
@@ -126,6 +138,7 @@ def _ensure_client_contact(
 
 def _parse_client_id(resolved_client_id: str | None) -> int | None:
     if not resolved_client_id:
+        logger.error("CLIENT_ID_PARSE_SKIP | reason=missing")
         return None
     try:
         return int(resolved_client_id)
@@ -135,6 +148,27 @@ def _parse_client_id(resolved_client_id: str | None) -> int | None:
             resolved_client_id,
         )
         return None
+
+
+def _render_admin_menu(menu_def: dict) -> str:
+    """
+    Render hard-coded admin menu dict to text.
+    Guarded: never raises.
+    """
+    try:
+        lines: list[str] = [menu_def.get("title", "Admin Menu"), ""]
+
+        for section in menu_def.get("sections", []):
+            lines.append(section.get("title", ""))
+            for cmd in section.get("commands", []):
+                lines.append(f"• {cmd}")
+            lines.append("")
+
+        return "\n".join(lines).strip()
+
+    except Exception:
+        logger.exception("ADMIN_MENU_RENDER_FAIL")
+        return "⚠️ Admin menu unavailable. Please contact support."
 
 
 # -------------------------------------------------
@@ -187,15 +221,12 @@ def handle_client_command(
                 message_text,
             )
 
-            admin_menu = build_admin_menu(
-                db=db,
-                business_msisdn=business_number,
-            )
+            admin_menu_text = _render_admin_menu(GALITOS_ADMIN_MENU)
 
             _send_text(
                 business_number=business_number,
                 to_number=sender_number,
-                text_msg=admin_menu,
+                text_msg=admin_menu_text,
             )
             return True
 
@@ -230,7 +261,6 @@ def handle_client_command(
                 sender_number,
                 client_id_int,
             )
-            # fall through intentionally
 
         _ensure_client_contact(
             db,

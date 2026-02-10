@@ -1,11 +1,32 @@
+from __future__ import annotations
+
 """
 File: app/menus/admin/galitos_admin_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Admin menu definition for Galitos (retail client).
-Full admin capabilities.
+
+EXPLICIT ROLE:
+- This file defines the Galitos admin menu ONLY
+- Menu is hard-coded by design
+- Menu text is instructional, not command-parsed
+- Specials are triggered by admin sending IMAGE + CAPTION only
+
+GUARD RAILS:
+- No dynamic behaviour
+- No DB access
+- No outbound messaging
+- Safe to import anywhere
+
+CHANGE NOTE:
+- Removed BROADCAST command reference
+- Reworded Specials to guidance-only (no command implication)
 """
+
+import logging
+
+logger = logging.getLogger("menus.admin.galitos")
 
 GALITOS_ADMIN_MENU = {
     "title": "🛠️ Galitos Admin Menu",
@@ -29,14 +50,13 @@ GALITOS_ADMIN_MENU = {
             "title": "✉️ Messaging",
             "commands": [
                 "SEND: <number> <message>",
-                "BROADCAST: <message>",
             ],
         },
         {
             "title": "🖼️ Specials",
             "commands": [
-                "SEND SPECIAL (image + caption)",
-                "REPLAY SPECIAL",
+                "Send image with caption to publish special",
+                "Latest special replaces previous one",
             ],
         },
         {
@@ -56,3 +76,5 @@ GALITOS_ADMIN_MENU = {
         },
     ],
 }
+
+logger.info("GALITOS_ADMIN_MENU_LOADED")
