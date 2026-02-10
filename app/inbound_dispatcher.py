@@ -35,7 +35,6 @@ from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 
-# Specials admin media handler (ADMIN IMAGE → SPECIAL)
 from app.modules.specials.admin_specials_media_handler import (
     handle_media_message as specials_media_handler,
 )
@@ -134,9 +133,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     _reset_session(db)
 
-    # ----------------------------------
-    # Resolve integer client_id (MVP)
-    # ----------------------------------
     resolved_client_id = _resolve_integer_client_id(
         db,
         business_msisdn=business_msisdn,
@@ -150,9 +146,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
         return True
 
-    # ----------------------------------
-    # Resolve profile (routing only)
-    # ----------------------------------
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
         logger.error(
@@ -170,9 +163,12 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     # ----------------------------------
     # SPECIALS (ADMIN IMAGE UPLOAD)
-    # MUST RUN BEFORE FALLBACK
     # ----------------------------------
-    if msg.get("type") == "image" and "specials" in profile.enabled_modules:
+    specials_enabled = any(
+        str(m).lower() == "specials" for m in (profile.enabled_modules or [])
+    )
+
+    if msg.get("type") == "image" and specials_enabled:
         logger.info(
             "DISPATCH_ENTER_SPECIALS | client_code=%s",
             profile.client_code,
@@ -200,9 +196,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             )
             return True
 
-    # ----------------------------------
-    # ORDERS
-    # ----------------------------------
     if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
         handled = orders_handler.handle(
             db=db,
@@ -213,9 +206,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
-    # ----------------------------------
-    # INSPECTION
-    # ----------------------------------
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         handled = inspection_handler.handle(
             db=db,
@@ -226,9 +216,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
-    # ----------------------------------
-    # SURVEY
-    # ----------------------------------
     if "survey" in profile.enabled_modules:
         handled = survey_handler.handle(
             db=db,
@@ -239,9 +226,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
-    # ----------------------------------
-    # Final fallback → Tier-1 router
-    # ----------------------------------
     body = (msg.get("text", {}) or {}).get("body", "")
     return bool(
         tier1_handle(

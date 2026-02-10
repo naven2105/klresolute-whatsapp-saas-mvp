@@ -12,6 +12,9 @@ GUARDS (LOCKED):
 - Admin-only entry
 - Must NOT handle customer flow
 - Must NOT intercept YES / NO
+- Admin must ALWAYS receive a response
+- MUST NEVER raise exceptions
+- MUST fail safe and log clearly (Render-friendly)
 """
 
 import logging
@@ -52,11 +55,18 @@ def _send_text(
     to_number: str,
     text_msg: str,
 ) -> None:
-    meta = get_meta_client(business_msisdn=business_msisdn)
-    meta.send_session_message(
-        to_msisdn=to_number,
-        text=text_msg,
-    )
+    try:
+        meta = get_meta_client(business_msisdn=business_msisdn)
+        meta.send_session_message(
+            to_msisdn=to_number,
+            text=text_msg,
+        )
+    except Exception:
+        logger.exception(
+            "ADMIN_SEND_FAIL | business=%s | to=%s",
+            business_msisdn,
+            to_number,
+        )
 
 
 def _admin_numbers(db: Session, *, business_msisdn: str) -> list[str]:
@@ -103,69 +113,92 @@ def handle_admin_entry(
     msg: dict | None,
     business_msisdn: str | None,
 ) -> bool:
-    if not business_msisdn:
-        logger.error(
-            "ADMIN_BLOCKED | reason=missing_business_msisdn | sender=%s",
-            sender_number,
-        )
-        return True
+    """
+    Returns True if handled.
 
-    upper = (message_text or "").strip().upper()
-
-    # ----------------------------------
-    # Survey auto-close (safe)
-    # ----------------------------------
+    GUARANTEE:
+    - Admin must ALWAYS receive a response.
+    - Never raises; never breaks caller.
+    """
     try:
-        closed = auto_close_expired_surveys(db, business_msisdn)
-        if closed:
-            summary = build_survey_summary_text(db, closed)
-            for admin in _admin_numbers(db, business_msisdn=business_msisdn):
-                _send_text(
-                    business_msisdn=business_msisdn,
-                    to_number=admin,
-                    text_msg=summary,
-                )
-    except Exception:
-        logger.exception(
-            "ADMIN_SURVEY_AUTOCLOSE_FAIL | business=%s",
-            business_msisdn,
-        )
-
-    # ----------------------------------
-    # Survey button replies
-    # ----------------------------------
-    if msg and msg.get("type") == "interactive":
-        try:
-            button_id = (
-                msg.get("interactive", {})
-                .get("button_reply", {})
-                .get("id")
-            )
-            if button_id:
-                active = get_active_survey(db, business_msisdn)
-                if active and record_response(
-                    db=db,
-                    survey=active,
-                    client_number=sender_number,
-                    button_id=button_id,
-                ):
-                    _send_text(
-                        business_msisdn=business_msisdn,
-                        to_number=sender_number,
-                        text_msg="Thank you for your response.",
-                    )
-            return True
-        except Exception:
-            logger.exception(
-                "ADMIN_SURVEY_RESPONSE_FAIL | sender=%s",
+        if not business_msisdn:
+            logger.error(
+                "ADMIN_BLOCKED | reason=missing_business_msisdn | sender=%s",
                 sender_number,
             )
             return True
 
-    # ----------------------------------
-    # Admin menu
-    # ----------------------------------
-    if upper == "MENU":
+        upper = (message_text or "").strip().upper()
+
+        # ----------------------------------
+        # Survey auto-close (safe)
+        # ----------------------------------
+        try:
+            closed = auto_close_expired_surveys(db, business_msisdn)
+            if closed:
+                summary = build_survey_summary_text(db, closed)
+                for admin in _admin_numbers(db, business_msisdn=business_msisdn):
+                    _send_text(
+                        business_msisdn=business_msisdn,
+                        to_number=admin,
+                        text_msg=summary,
+                    )
+        except Exception:
+            logger.exception(
+                "ADMIN_SURVEY_AUTOCLOSE_FAIL | business=%s",
+                business_msisdn,
+            )
+
+        # ----------------------------------
+        # Survey button replies
+        # ----------------------------------
+        if msg and msg.get("type") == "interactive":
+            try:
+                button_id = (
+                    msg.get("interactive", {})
+                    .get("button_reply", {})
+                    .get("id")
+                )
+                if button_id:
+                    active = get_active_survey(db, business_msisdn)
+                    if active and record_response(
+                        db=db,
+                        survey=active,
+                        client_number=sender_number,
+                        button_id=button_id,
+                    ):
+                        _send_text(
+                            business_msisdn=business_msisdn,
+                            to_number=sender_number,
+                            text_msg="Thank you for your response.",
+                        )
+                return True
+            except Exception:
+                logger.exception(
+                    "ADMIN_SURVEY_RESPONSE_FAIL | sender=%s",
+                    sender_number,
+                )
+                return True
+
+        # ----------------------------------
+        # Admin menu (explicit)
+        # ----------------------------------
+        if upper == "MENU":
+            _send_text(
+                business_msisdn=business_msisdn,
+                to_number=sender_number,
+                text_msg=ADMIN_MENU_TEXT,
+            )
+            return True
+
+        # ----------------------------------
+        # GUARANTEED RESPONSE (fallback)
+        # ----------------------------------
+        logger.info(
+            "ADMIN_NO_MATCH | sender=%s | text=%r | action=send_menu",
+            sender_number,
+            message_text,
+        )
         _send_text(
             business_msisdn=business_msisdn,
             to_number=sender_number,
@@ -173,9 +206,9 @@ def handle_admin_entry(
         )
         return True
 
-    logger.info(
-        "ADMIN_NO_MATCH | sender=%s | text=%r",
-        sender_number,
-        message_text,
-    )
-    return False
+    except Exception:
+        logger.exception(
+            "ADMIN_ENTRY_FATAL | sender=%s",
+            sender_number,
+        )
+        return True
