@@ -34,12 +34,13 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
+
+# ✅ PATCH: specials admin media handler
 from app.modules.specials.admin_specials_media_handler import (
     handle_media_message as specials_media_handler,
 )
 
 logger = logging.getLogger("inbound.dispatcher")
-
 
 # -------------------------------------------------
 # Helpers

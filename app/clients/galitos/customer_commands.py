@@ -17,7 +17,6 @@ from app.menus.customer_menu_service import send_customer_menu_from_db
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 from app.utils.admin import is_admin_message
-from app.modules.specials.service import send_latest_special_to_customer
 
 logger = logging.getLogger("galitos.customer_commands")
 
