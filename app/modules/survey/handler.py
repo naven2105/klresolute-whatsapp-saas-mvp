@@ -134,6 +134,8 @@ def handle(
 
         if recorded:
             send_message(
+                db=db,
+                business_msisdn=business_msisdn,
                 to_number=sender,
                 text=CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
             )
