@@ -4,15 +4,27 @@ from __future__ import annotations
 File: app/handlers/client_commands.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Purpose:
-Backward-compatible wrapper.
+ROLE (EXPLICIT & TEMPORARY):
+Backward-compatible re-export wrapper.
 
-NOTE:
-The canonical Tier 1 entry point has moved to:
-- app/handlers/tier1_router.py
+This module exists ONLY to preserve legacy imports while the
+dispatcher and downstream modules are progressively migrated.
 
-Keep this file to avoid breaking existing imports until the dispatcher and
-downstream modules are updated everywhere.
+CANONICAL ENTRY POINT:
+- app/handlers/tier1_router.py::handle_client_command
+
+HARD RULES:
+- MUST NOT add logic here
+- MUST NOT intercept, modify, or wrap calls
+- MUST NOT raise exceptions
+- MUST remain a direct pass-through
+
+GUARD RAIL:
+Any behavioural change here is considered a breaking change.
+
+REMOVAL CONDITION:
+This file may ONLY be removed once all imports across the codebase
+have been migrated to tier1_router.py.
 """
 
-from app.handlers.tier1_router import handle_client_command  # re-export
+from app.handlers.tier1_router import handle_client_command  # re-export (LOCKED)
