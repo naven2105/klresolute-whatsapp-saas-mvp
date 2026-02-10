@@ -35,7 +35,7 @@ from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 
-# ✅ PATCH: specials admin media handler
+# Specials admin media handler (ADMIN IMAGE → SPECIAL)
 from app.modules.specials.admin_specials_media_handler import (
     handle_media_message as specials_media_handler,
 )
@@ -170,13 +170,11 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     # ----------------------------------
     # SPECIALS (ADMIN IMAGE UPLOAD)
+    # MUST RUN BEFORE FALLBACK
     # ----------------------------------
-    if (
-        msg.get("type") == "image"
-        and "specials" in profile.enabled_modules
-    ):
+    if msg.get("type") == "image" and "specials" in profile.enabled_modules:
         logger.info(
-            "DISPATCH_CHECK_SPECIALS | client_code=%s | specials_enabled=True",
+            "DISPATCH_ENTER_SPECIALS | client_code=%s",
             profile.client_code,
         )
         try:
