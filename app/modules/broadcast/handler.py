@@ -8,7 +8,17 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Inbound entry point for Broadcast module.
 
-Responsibilities (LOCKED):
+STATUS:
+⚠️ ARCHIVED / LEGACY
+
+Context:
+- The Broadcast feature has been retired.
+- Customer outbound communication is now handled via the
+  general customer messaging infrastructure.
+- This handler is retained for backward compatibility and
+  historical reference only.
+
+Responsibilities (HISTORICAL):
 - Decide if inbound message is a broadcast command
 - Validate admin permission (DB-driven)
 - Persist broadcast intent
@@ -41,6 +51,10 @@ def handle(
 ) -> bool:
     """
     Entry point for Broadcast module.
+
+    NOTE:
+    This module is ARCHIVED. Behaviour is preserved only to
+    avoid breaking existing routing while migration completes.
     """
 
     # ----------------------------------
@@ -56,7 +70,7 @@ def handle(
     msg_type = msg.get("type")
 
     # ----------------------------------
-    # TEXT broadcast
+    # TEXT broadcast (ARCHIVED)
     # ----------------------------------
     if msg_type == "text":
         body = msg.get("text", {}).get("body", "").strip()
@@ -81,14 +95,14 @@ def handle(
         )
 
         logger.info(
-            "BROADCAST_TEXT_HANDLED | business=%s | sender=%s",
+            "BROADCAST_TEXT_HANDLED (ARCHIVED) | business=%s | sender=%s",
             business_msisdn,
             sender,
         )
         return True
 
     # ----------------------------------
-    # IMAGE broadcast (specials)
+    # IMAGE broadcast (specials) (ARCHIVED)
     # ----------------------------------
     if msg_type == "image":
         image = msg.get("image", {})
@@ -107,7 +121,7 @@ def handle(
         )
 
         logger.info(
-            "BROADCAST_IMAGE_HANDLED | business=%s | sender=%s",
+            "BROADCAST_IMAGE_HANDLED (ARCHIVED) | business=%s | sender=%s",
             business_msisdn,
             sender,
         )

@@ -17,6 +17,7 @@ from app.menus.customer_menu_service import send_customer_menu_from_db
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 from app.utils.admin import is_admin_message
+from app.modules.specials.service import send_latest_special_to_customer  # <-- ADDED
 
 logger = logging.getLogger("galitos.customer_commands")
 
@@ -148,6 +149,22 @@ def handle_client_command(
                 else "❌ OK — your Galitos order was cancelled.",
             )
             return True
+
+    # SPECIALS (MENU-ONLY)
+    if text_upper == "SPECIALS":
+        sent = send_latest_special_to_customer(
+            db=db,
+            client_uuid=client_id,
+            to_msisdn=sender,
+        )
+
+        if not sent:
+            meta.send_session_message(
+                to_msisdn=sender,
+                text="🔥 No specials available at the moment.\nPlease check again later.",
+            )
+
+        return True
 
     # ABOUT (DB text + code emojis)
     if text_upper == "ABOUT":

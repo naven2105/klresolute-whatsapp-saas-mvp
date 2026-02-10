@@ -7,6 +7,16 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 Whitelist of approved broadcast templates.
+
+STATUS:
+⚠️ ARCHIVED / LEGACY
+
+Context:
+- The Broadcast feature has been retired.
+- Customer outbound communication is now handled via the
+  general customer messaging infrastructure.
+- These templates are no longer actively enforced or used.
+- Retained for historical reference and backward traceability.
 """
 
 BROADCAST_TEMPLATES = {

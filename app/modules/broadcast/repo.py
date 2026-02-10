@@ -8,11 +8,23 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Persistence layer for Broadcast module.
 
-Responsibilities (LOCKED):
+STATUS:
+⚠️ ARCHIVED / LEGACY
+
+Context:
+- The Broadcast feature has been retired.
+- The `broadcasts` table has been archived/removed.
+- Customer outbound communication is now handled via the
+  general customer messaging infrastructure.
+- This repository remains only for historical reference
+  and backward traceability.
+
+Responsibilities (HISTORICAL):
 - Store broadcast intent (text / image)
 - Resolve recipient MSISDNs
-- NO outbound messaging
-- NO permission logic
+
+NO outbound messaging.
+NO permission logic.
 """
 
 import logging
@@ -23,7 +35,7 @@ logger = logging.getLogger("module.broadcast.repo")
 
 
 # -------------------------------------------------
-# Persist broadcasts
+# Persist broadcasts (ARCHIVED)
 # -------------------------------------------------
 
 def save_text_broadcast(
@@ -34,7 +46,14 @@ def save_text_broadcast(
     text: str,
 ) -> int:
     """
+    ARCHIVED / LEGACY
+
     Persist a text broadcast.
+
+    NOTE:
+    - The `broadcasts` table is no longer authoritative.
+    - This function is retained only to avoid breaking
+      legacy call paths during migration.
     """
 
     row = db.execute(
@@ -65,7 +84,7 @@ def save_text_broadcast(
     db.commit()
 
     broadcast_id = row.id
-    logger.info("BROADCAST_TEXT_SAVED | id=%s", broadcast_id)
+    logger.info("BROADCAST_TEXT_SAVED (ARCHIVED) | id=%s", broadcast_id)
     return broadcast_id
 
 
@@ -78,6 +97,8 @@ def save_image_broadcast(
     caption: str | None,
 ) -> int:
     """
+    ARCHIVED / LEGACY
+
     Persist an image broadcast.
     """
 
@@ -112,12 +133,12 @@ def save_image_broadcast(
     db.commit()
 
     broadcast_id = row.id
-    logger.info("BROADCAST_IMAGE_SAVED | id=%s", broadcast_id)
+    logger.info("BROADCAST_IMAGE_SAVED (ARCHIVED) | id=%s", broadcast_id)
     return broadcast_id
 
 
 # -------------------------------------------------
-# Recipients
+# Recipients (ARCHIVED)
 # -------------------------------------------------
 
 def get_broadcast_recipients(
@@ -125,6 +146,8 @@ def get_broadcast_recipients(
     business_msisdn: str,
 ) -> list[str]:
     """
+    ARCHIVED / LEGACY
+
     Resolve all opted-in recipients for a business.
     """
 
@@ -147,7 +170,7 @@ def get_broadcast_recipients(
     recipients = [r["contact_number"] for r in rows]
 
     logger.info(
-        "BROADCAST_RECIPIENTS | business=%s | count=%s",
+        "BROADCAST_RECIPIENTS (ARCHIVED) | business=%s | count=%s",
         business_msisdn,
         len(recipients),
     )

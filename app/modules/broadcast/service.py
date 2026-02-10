@@ -8,11 +8,20 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Broadcast service layer.
 
-Responsibilities (LOCKED):
+STATUS:
+⚠️ ARCHIVED / LEGACY
+
+Context:
+- Original broadcast mechanism has been retired.
+- Customer outbound communication is now handled via the
+  general customer messaging infrastructure.
+- This module is retained for reference and backward traceability only.
+
+Responsibilities (HISTORICAL):
 - Persist broadcast intent
 - Resolve recipients
 - Delegate outbound delivery
-- Serve latest specials to customers
+- Serve latest specials to customers (LEGACY – no longer authoritative)
 - NO inbound parsing
 - NO permission checks
 """
@@ -31,7 +40,7 @@ logger = logging.getLogger("module.broadcast.service")
 
 
 # -------------------------------------------------
-# TEXT broadcast
+# TEXT broadcast (ARCHIVED)
 # -------------------------------------------------
 
 def handle_text_broadcast(
@@ -58,11 +67,15 @@ def handle_text_broadcast(
                 text=text,
             )
         except Exception:
-            logger.exception("BROADCAST_TEXT_SEND_FAIL | id=%s | to=%s", broadcast_id, msisdn)
+            logger.exception(
+                "BROADCAST_TEXT_SEND_FAIL | id=%s | to=%s",
+                broadcast_id,
+                msisdn,
+            )
 
 
 # -------------------------------------------------
-# IMAGE broadcast (specials push)
+# IMAGE broadcast (specials push) (ARCHIVED)
 # -------------------------------------------------
 
 def handle_image_broadcast(
@@ -92,11 +105,15 @@ def handle_image_broadcast(
                 caption=caption,
             )
         except Exception:
-            logger.exception("BROADCAST_IMAGE_SEND_FAIL | id=%s | to=%s", broadcast_id, msisdn)
+            logger.exception(
+                "BROADCAST_IMAGE_SEND_FAIL | id=%s | to=%s",
+                broadcast_id,
+                msisdn,
+            )
 
 
 # -------------------------------------------------
-# CUSTOMER: request latest special
+# CUSTOMER: request latest special (ARCHIVED)
 # -------------------------------------------------
 
 def send_latest_special_to_customer(
@@ -106,30 +123,13 @@ def send_latest_special_to_customer(
     to_msisdn: str,
 ) -> bool:
     """
-    Send the most recent IMAGE broadcast (special) to a customer.
+    LEGACY / ARCHIVED
+
+    Previously sent the most recent IMAGE broadcast (special) to a customer.
+
+    NOTE:
+    - Broadcasts table has been retired.
+    - This function is no longer a valid source of truth.
+    - Kept only to avoid breaking imports while migration completes.
     """
-    row = db.execute(
-        """
-        SELECT media_id, body
-        FROM broadcasts
-        WHERE business_msisdn = :business
-          AND type = 'IMAGE'
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        {"business": business_msisdn},
-    ).mappings().first()
-
-    if not row:
-        return False
-
-    meta = get_meta_client()
-    meta.send_image_message(
-        to_msisdn=to_msisdn,
-        media_id=row["media_id"],
-        caption=row["body"],
-    )
-
-    return True
-
-
+    return False
