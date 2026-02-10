@@ -32,6 +32,8 @@ from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands,
 )
 
+from app.services.contacts_service import add_contact  # <-- PATCH (added)
+
 logger = logging.getLogger("handlers.tier1_router")
 
 
@@ -207,6 +209,17 @@ def handle_client_command(
                 sender_number,
             )
             return True
+
+        # ----------------------------------
+        # GLOBAL CONTACT AUTO-JOIN (SILENT)
+        # ----------------------------------
+        try:
+            add_contact(db, msisdn=sender_number)
+        except Exception:
+            logger.exception(
+                "CONTACT_AUTO_JOIN_FAIL | sender=%s",
+                sender_number,
+            )
 
         # ----------------------------------
         # ABOUT (recognised, delegated)
