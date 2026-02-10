@@ -1,17 +1,31 @@
 from __future__ import annotations
 
 """
-File: app/handlers/media_handler.py
+File: app/modules/specials/admin_specials_media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Purpose:
-Handle admin image messages for SPECIALS.
+ROLE (EXPLICIT & LOCKED):
+Admin → SPECIALS creation handler.
 
-RULE (LOCKED):
-- Admin sends image + caption → SPECIAL
-- Stored in specials table (latest wins)
-- Immediately pushed to all customers
-- Can be replayed later via "SPECIALS"
+This handler processes ADMIN IMAGE messages and interprets them
+as SPECIALS for clients whose customer menu exposes the SPECIALS feature.
+
+BUSINESS MEANING:
+- Admin sends image (+ optional caption)
+- Image is stored as the latest SPECIAL (latest wins)
+- SPECIAL is immediately pushed to customers
+- SPECIAL can later be replayed via customer menu
+
+GUARD RAILS (MANDATORY):
+- MUST NEVER raise exceptions
+- MUST NEVER break or interrupt caller flow
+- MUST return True once image is consumed
+- MUST fail safely and log clearly (Render-friendly)
+
+NON-GOALS:
+- Not a generic media handler
+- Not customer-facing
+- Not a broadcast system
 """
 
 import logging
@@ -26,7 +40,7 @@ from app.utils.admin import is_admin_message
 # Logging
 # -------------------------------------------------
 
-logger = logging.getLogger("media_handler")
+logger = logging.getLogger("specials.admin_media")
 
 DEFAULT_CAPTION = "Today’s specials"
 
@@ -34,6 +48,10 @@ DEFAULT_CAPTION = "Today’s specials"
 def _resolve_client_uuid(db: Session, *, client_id_int: int) -> str | None:
     """
     Resolve UUID client_id from integer klresolute_client_id.
+
+    Guarded:
+    - Returns None on any failure
+    - Never raises
     """
     try:
         row = (
@@ -55,7 +73,7 @@ def _resolve_client_uuid(db: Session, *, client_id_int: int) -> str | None:
 
         if not row:
             logger.error(
-                "MEDIA_CLIENT_UUID_NOT_FOUND | client_id_int=%s",
+                "SPECIALS_CLIENT_UUID_NOT_FOUND | client_id_int=%s",
                 client_id_int,
             )
             return None
@@ -64,7 +82,7 @@ def _resolve_client_uuid(db: Session, *, client_id_int: int) -> str | None:
 
     except Exception as exc:
         logger.exception(
-            "MEDIA_CLIENT_UUID_RESOLUTION_FAIL | client_id_int=%s | err=%s",
+            "SPECIALS_CLIENT_UUID_RESOLUTION_FAIL | client_id_int=%s | err=%s",
             client_id_int,
             exc,
         )
@@ -80,12 +98,15 @@ def handle_media_message(
     business_msisdn: str,
 ) -> bool:
     """
-    Returns True if message was handled.
-    Returns False if message is NOT an image.
+    Admin image entry point for SPECIALS.
+
+    Returns:
+    - False → not an image (caller may continue routing)
+    - True  → image consumed (success or safe failure)
     """
 
     logger.info(
-        "MEDIA_HANDLER_ENTER | sender=%s | msg_type=%s | client_id=%s",
+        "SPECIALS_MEDIA_ENTER | sender=%s | msg_type=%s | client_id=%s",
         sender,
         msg.get("type"),
         client_id,
@@ -95,7 +116,7 @@ def handle_media_message(
     # Only images handled here
     # -------------------------------------------------
     if msg.get("type") != "image":
-        logger.debug("MEDIA_HANDLER_SKIP | not image")
+        logger.debug("SPECIALS_MEDIA_SKIP | reason=not_image")
         return False
 
     # -------------------------------------------------
@@ -107,7 +128,7 @@ def handle_media_message(
         business_msisdn=business_msisdn,
     ):
         logger.warning(
-            "MEDIA_HANDLER_REJECT | non-admin sender=%s",
+            "SPECIALS_MEDIA_REJECT | reason=non_admin | sender=%s",
             sender,
         )
         return True  # consumed but ignored
@@ -119,7 +140,7 @@ def handle_media_message(
         client_id_int = int(str(client_id))
     except Exception:
         logger.error(
-            "MEDIA_CLIENT_ID_INVALID | client_id=%r",
+            "SPECIALS_CLIENT_ID_INVALID | raw_client_id=%r",
             client_id,
         )
         return True
@@ -138,14 +159,14 @@ def handle_media_message(
     caption = msg["image"].get("caption") or DEFAULT_CAPTION
 
     logger.info(
-        "MEDIA_HANDLER_IMAGE | sender=%s | media_id=%s | caption=%r",
+        "SPECIALS_MEDIA_IMAGE | sender=%s | media_id=%s | caption=%r",
         sender,
         media_id,
         caption,
     )
 
     # -------------------------------------------------
-    # Store SPECIAL (latest wins) — UUID SAFE
+    # Store SPECIAL (latest wins)
     # -------------------------------------------------
     try:
         db.execute(
@@ -174,14 +195,14 @@ def handle_media_message(
         db.commit()
 
         logger.info(
-            "MEDIA_HANDLER_DB_OK | client_uuid=%s | media_id=%s",
+            "SPECIALS_DB_INSERT_OK | client_uuid=%s | media_id=%s",
             client_uuid,
             media_id,
         )
 
     except Exception as exc:
         logger.error(
-            "MEDIA_HANDLER_DB_FAIL | client_uuid=%s | media_id=%s | error=%s",
+            "SPECIALS_DB_INSERT_FAIL | client_uuid=%s | media_id=%s | err=%s",
             client_uuid,
             media_id,
             exc,
@@ -218,13 +239,13 @@ def handle_media_message(
         )
 
         logger.info(
-            "MEDIA_HANDLER_BROADCAST_BEGIN | recipients=%s",
+            "SPECIALS_PUSH_BEGIN | recipients=%s",
             len(contacts),
         )
 
     except Exception as exc:
         logger.error(
-            "MEDIA_HANDLER_CONTACT_FETCH_FAIL | error=%s",
+            "SPECIALS_CONTACT_FETCH_FAIL | err=%s",
             exc,
             exc_info=True,
         )
@@ -244,14 +265,14 @@ def handle_media_message(
         except Exception as exc:
             failed += 1
             logger.error(
-                "MEDIA_HANDLER_SEND_FAIL | to=%s | error=%s",
+                "SPECIALS_SEND_FAIL | to=%s | err=%s",
                 c.contact_number,
                 exc,
                 exc_info=True,
             )
 
     logger.info(
-        "MEDIA_HANDLER_BROADCAST_DONE | sent=%s | failed=%s",
+        "SPECIALS_PUSH_DONE | sent=%s | failed=%s",
         sent,
         failed,
     )
@@ -268,13 +289,13 @@ def handle_media_message(
             ),
         )
         logger.info(
-            "MEDIA_HANDLER_ADMIN_CONFIRM_OK | sender=%s",
+            "SPECIALS_ADMIN_CONFIRM_OK | sender=%s",
             sender,
         )
 
     except Exception as exc:
         logger.error(
-            "MEDIA_HANDLER_ADMIN_CONFIRM_FAIL | sender=%s | error=%s",
+            "SPECIALS_ADMIN_CONFIRM_FAIL | sender=%s | err=%s",
             sender,
             exc,
             exc_info=True,
