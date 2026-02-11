@@ -60,9 +60,7 @@ def _resolve_uuid_client_id(
     *,
     business_msisdn: str,
 ) -> str | None:
-    """
-    Correct UUID resolution for feedback.
-    """
+
     row = (
         db.execute(
             text(
@@ -120,6 +118,25 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             if uuid_client_id is None:
                 return True
 
+            # 🔹 PATCH: Resolve admin numbers correctly
+            admin_rows = (
+                db.execute(
+                    text(
+                        """
+                        SELECT msisdn
+                        FROM client_admins
+                        WHERE client_code = :code
+                          AND is_active = true
+                        """
+                    ),
+                    {"code": profile.client_code},
+                )
+                .mappings()
+                .all()
+            )
+
+            admin_numbers = {row["msisdn"] for row in admin_rows}
+
             handled = handle_feedback_message(
                 db=db,
                 sender_number=sender,
@@ -127,7 +144,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 media_id=None,
                 media_type=None,
                 client_id=uuid_client_id,
-                admin_numbers=set(),
+                admin_numbers=admin_numbers,
             )
 
             return bool(handled)
