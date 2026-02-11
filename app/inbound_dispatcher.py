@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-"""
-File: app/inbound_dispatcher.py
-Path: app/inbound_dispatcher.py
-Project: KLResolute WhatsApp SaaS MVP
-"""
-
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -33,11 +27,8 @@ def _reset_session(db: Session) -> None:
     try:
         db.rollback()
         logger.debug("DISPATCH_DB_SESSION_RESET | action=rollback")
-    except Exception as exc:
-        logger.debug(
-            "DISPATCH_DB_SESSION_RESET_SKIPPED | err=%s",
-            exc,
-        )
+    except Exception:
+        logger.debug("DISPATCH_DB_SESSION_RESET_SKIPPED")
 
 
 def _resolve_integer_client_id(
@@ -76,21 +67,56 @@ def _resolve_integer_client_id(
             )
             return None
 
-        client_id_int = int(row["klresolute_client_id"])
+        return int(row["klresolute_client_id"])
 
-        logger.info(
-            "DISPATCH_CLIENT_ID_RESOLVED | business=%s | client_id=%s",
+    except Exception:
+        logger.exception(
+            "DISPATCH_CLIENT_ID_LOOKUP_EXCEPTION | business=%s",
             business_msisdn,
-            client_id_int,
+        )
+        return None
+
+
+def _resolve_uuid_client_id(db: Session, integer_client_id: int) -> str | None:
+    """
+    Resolve UUID client_id from clients table using integer id.
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM clients
+                    WHERE klresolute_client_id = :int_id
+                    LIMIT 1
+                    """
+                ),
+                {"int_id": integer_client_id},
+            )
+            .mappings()
+            .first()
         )
 
-        return client_id_int
+        if not row:
+            logger.error(
+                "DISPATCH_UUID_LOOKUP_FAIL | integer_id=%s",
+                integer_client_id,
+            )
+            return None
 
-    except Exception as exc:
+        logger.info(
+            "DISPATCH_UUID_RESOLVED | integer_id=%s | uuid=%s",
+            integer_client_id,
+            row["id"],
+        )
+
+        return str(row["id"])
+
+    except Exception:
         logger.exception(
-            "DISPATCH_CLIENT_ID_LOOKUP_EXCEPTION | business=%s | err=%s",
-            business_msisdn,
-            exc,
+            "DISPATCH_UUID_LOOKUP_EXCEPTION | integer_id=%s",
+            integer_client_id,
         )
         return None
 
@@ -140,82 +166,32 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
         return True
 
-    logger.info(
-        "DISPATCH_PROFILE_RESOLVED | client_code=%s | enabled_modules=%s",
-        profile.client_code,
-        ",".join(profile.enabled_modules),
-    )
-
-    # ----------------------------------
-    # SPECIALS (ADMIN IMAGE UPLOAD)
-    # ----------------------------------
-    specials_enabled = any(
-        str(m).lower() == "specials" for m in (profile.enabled_modules or [])
-    )
-
-    if msg.get("type") == "image" and specials_enabled:
-        logger.info(
-            "DISPATCH_ENTER_SPECIALS | client_code=%s",
-            profile.client_code,
-        )
-        try:
-            handled = specials_media_handler(
-                db=db,
-                sender=sender,
-                msg=msg,
-                client_id=resolved_client_id,
-                business_msisdn=business_msisdn,
-            )
-            logger.info(
-                "DISPATCH_EXIT_SPECIALS | handled=%s",
-                handled,
-            )
-            if handled:
-                return True
-        except Exception as exc:
-            logger.exception(
-                "DISPATCH_SPECIALS_FATAL | business=%s | sender=%s | err=%s",
-                business_msisdn,
-                sender,
-                exc,
-            )
-            return True
-
     # ----------------------------------
     # FEEDBACK
     # ----------------------------------
     if msg.get("type") == "text":
         body_text = (msg.get("text", {}) or {}).get("body", "")
         if body_text.strip().lower().startswith("feedback"):
-            logger.info(
-                "DISPATCH_ENTER_FEEDBACK | sender=%s | business=%s",
-                sender,
-                business_msisdn,
+
+            uuid_client_id = _resolve_uuid_client_id(
+                db,
+                resolved_client_id,
             )
-            try:
-                handled = handle_feedback_message(
-                    db=db,
-                    sender_number=sender,
-                    message_text=body_text,
-                    media_id=None,
-                    media_type=None,
-                    client_id=resolved_client_id,
-                    admin_numbers=set(),
-                )
-                logger.info(
-                    "DISPATCH_EXIT_FEEDBACK | handled=%s",
-                    handled,
-                )
-                if handled:
-                    return True
-            except Exception as exc:
-                logger.exception(
-                    "DISPATCH_FEEDBACK_FATAL | business=%s | sender=%s | err=%s",
-                    business_msisdn,
-                    sender,
-                    exc,
-                )
+
+            if uuid_client_id is None:
                 return True
+
+            handled = handle_feedback_message(
+                db=db,
+                sender_number=sender,
+                message_text=body_text,
+                media_id=None,
+                media_type=None,
+                client_id=uuid_client_id,
+                admin_numbers=set(),
+            )
+
+            return bool(handled)
 
     # ----------------------------------
     # ORDERS
@@ -256,9 +232,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
-    # ----------------------------------
-    # TIER 1 FALLBACK
-    # ----------------------------------
     body = (msg.get("text", {}) or {}).get("body", "")
 
     return bool(
