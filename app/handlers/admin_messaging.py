@@ -140,5 +140,13 @@ def handle_admin_messaging(
 
         return True
 
-    logger.debug("ADMIN_MSG_FALLTHROUGH")
-    return False
+    logger.info("ADMIN_MSG_UNKNOWN_COMMAND | sender=%s", sender_number)
+
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_number,
+        text="Unknown admin command.\n\nType MENU to view options.",
+    )
+
+    return True
