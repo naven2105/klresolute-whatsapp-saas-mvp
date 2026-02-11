@@ -118,7 +118,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             if uuid_client_id is None:
                 return True
 
-            # 🔹 PATCH: Resolve admin numbers correctly
+            # 🔴 NEW: resolve admin numbers via client_admins
             admin_rows = (
                 db.execute(
                     text(
