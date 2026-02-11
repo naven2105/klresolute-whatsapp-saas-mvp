@@ -7,6 +7,7 @@ Purpose:
 Send weekly WhatsApp engagement summary to FOOD outlet admins only.
 Triggered by Render Cron (Friday 18h00).
 
+
 Rules (LOCKED):
 - Single transport gateway only (client_messenger.send_message)
 - No direct Meta client usage
