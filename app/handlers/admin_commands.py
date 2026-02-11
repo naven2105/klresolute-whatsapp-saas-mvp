@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session
 
 from app.handlers.admin_surveys import handle_admin_surveys
 from app.handlers.admin_messaging import handle_admin_messaging
-from app.handlers.admin_menu import handle_admin_menu
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("admin_commands")
@@ -157,23 +156,6 @@ def handle_admin_command(
     except Exception as exc:
         logger.error(
             "ADMIN_ROUTER_MESSAGING_FAIL | error=%s",
-            exc,
-            exc_info=True,
-        )
-        return True
-
-    try:
-        if handle_admin_menu(
-            sender_number=sender_number,
-            message_text=message_text,
-            db=db,
-            business_msisdn=business_msisdn,
-        ):
-            logger.info("ADMIN_ROUTER_HANDLED | handler=menu")
-            return True
-    except Exception as exc:
-        logger.error(
-            "ADMIN_ROUTER_MENU_FAIL | error=%s",
             exc,
             exc_info=True,
         )
