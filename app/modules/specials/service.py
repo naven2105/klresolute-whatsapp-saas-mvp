@@ -4,18 +4,13 @@ from __future__ import annotations
 File: app/modules/specials/service.py
 Project: KLResolute WhatsApp SaaS MVP
 
-ROLE (EXPLICIT & LOCKED):
+ROLE:
 Customer-facing SPECIALS retrieval service.
 
-RESPONSIBILITY:
-- Retrieve latest SPECIAL from specials table
-- Send image + caption to customer
+GUARDS:
 - Never raise
 - Never break caller
-- Fail safe with logging
-
-SOURCE OF TRUTH:
-- specials table (client_id UUID based)
+- Log clearly
 """
 
 import logging
@@ -27,6 +22,50 @@ from app.outbound.factory import get_meta_client
 logger = logging.getLogger("specials.service")
 
 
+def _resolve_client_uuid(
+    db: Session,
+    *,
+    klresolute_client_id: str,
+) -> str | None:
+    """
+    Convert INTEGER klresolute_client_id -> UUID client_id
+    """
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT client_id
+                    FROM whatsapp_numbers
+                    WHERE klresolute_client_id = :cid
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"cid": int(klresolute_client_id)},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row:
+            logger.error(
+                "SPECIALS_UUID_NOT_FOUND | klresolute_client_id=%s",
+                klresolute_client_id,
+            )
+            return None
+
+        return str(row["client_id"])
+
+    except Exception as exc:
+        logger.exception(
+            "SPECIALS_UUID_RESOLUTION_FAIL | klresolute_client_id=%s | err=%s",
+            klresolute_client_id,
+            exc,
+        )
+        return None
+
+
 def send_latest_special_to_customer(
     *,
     db: Session,
@@ -34,22 +73,28 @@ def send_latest_special_to_customer(
     to_msisdn: str,
 ) -> bool:
     """
+    Sends latest SPECIAL to customer.
+
     Returns:
-        True  → special sent
-        False → no special found
+    - True  -> special sent
+    - False -> no special found
     """
 
-    logger.info(
-        "SPECIALS_SERVICE_ENTER | client_uuid=%s | to=%s",
-        client_uuid,
-        to_msisdn,
-    )
-
-    if not client_uuid:
-        logger.error("SPECIALS_SERVICE_ABORT | reason=missing_client_uuid")
-        return False
-
     try:
+        # ----------------------------------------
+        # Resolve UUID from integer ID
+        # ----------------------------------------
+        resolved_uuid = _resolve_client_uuid(
+            db,
+            klresolute_client_id=client_uuid,
+        )
+
+        if not resolved_uuid:
+            return False
+
+        # ----------------------------------------
+        # Fetch latest special
+        # ----------------------------------------
         row = (
             db.execute(
                 text(
@@ -61,7 +106,7 @@ def send_latest_special_to_customer(
                     LIMIT 1
                     """
                 ),
-                {"client_id": client_uuid},
+                {"client_id": resolved_uuid},
             )
             .mappings()
             .first()
@@ -69,32 +114,26 @@ def send_latest_special_to_customer(
 
         if not row:
             logger.info(
-                "SPECIALS_SERVICE_NONE_FOUND | client_uuid=%s",
-                client_uuid,
+                "SPECIALS_NONE_FOUND | client_uuid=%s",
+                resolved_uuid,
             )
             return False
 
-        media_id = row["media_id"]
-        caption = row["caption"]
-
-        logger.info(
-            "SPECIALS_SERVICE_FOUND | client_uuid=%s | media_id=%s",
-            client_uuid,
-            media_id,
-        )
-
+        # ----------------------------------------
+        # Send image
+        # ----------------------------------------
         meta = get_meta_client()
 
         meta.send_image_message(
             to_msisdn=to_msisdn,
-            media_id=media_id,
-            caption=caption,
+            media_id=row["media_id"],
+            caption=row["caption"],
         )
 
         logger.info(
-            "SPECIALS_SERVICE_SENT | to=%s | media_id=%s",
+            "SPECIALS_SENT | to=%s | client_uuid=%s",
             to_msisdn,
-            media_id,
+            resolved_uuid,
         )
 
         return True
