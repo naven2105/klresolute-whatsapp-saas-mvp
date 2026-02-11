@@ -13,6 +13,7 @@ from sqlalchemy import text as sql_text
 from app.models import Contact
 from app.outbound.factory import get_meta_client
 
+from app.modules.specials.service import send_latest_special_to_customer
 from app.menus.customer_menu_service import send_customer_menu_from_db
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
