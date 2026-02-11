@@ -3,15 +3,6 @@ from __future__ import annotations
 """
 File: app/handlers/feedback_handler.py
 Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-Handle customer feedbacks.
-
-RULES (LOCKED):
-- Customer-facing only
-- Append-only (no updates)
-- Stores into feedbacks table (existing schema)
-- ALL admin notifications use Meta template klr_admin_alert_v1
 """
 
 import logging
@@ -19,23 +10,12 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import load_meta_settings
+from app.messaging.transport import send_template
 
-
-# -------------------------------------------------
-# Logging
-# -------------------------------------------------
 
 logger = logging.getLogger("feedback_handler")
 logger.setLevel(logging.INFO)
 
-
-# -------------------------------------------------
-# Setup
-# -------------------------------------------------
-
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 ADMIN_TEMPLATE_NAME = "klr_admin_alert_v1"
 CUSTOMER_ACK_TEMPLATE_NAME = "generic_business_update"
@@ -53,7 +33,7 @@ def _send_customer_ack(to_number: str) -> None:
     )
 
     try:
-        result = _meta_client.send_template(
+        result = send_template(
             to_msisdn=to_number,
             template_name=CUSTOMER_ACK_TEMPLATE_NAME,
             language_code="en_US",
@@ -63,17 +43,15 @@ def _send_customer_ack(to_number: str) -> None:
         )
 
         logger.info(
-            "FEEDBACK_ACK_SENT | customer=%s | result=%s",
+            "FEEDBACK_ACK_SENT | customer=%s | message_id=%s",
             to_number,
-            result,
+            getattr(result, "message_id", None),
         )
 
-    except Exception as exc:
-        logger.error(
-            "FEEDBACK_ACK_FAIL | customer=%s | error=%s",
+    except Exception:
+        logger.exception(
+            "FEEDBACK_ACK_FAIL | customer=%s",
             to_number,
-            exc,
-            exc_info=True,
         )
 
 
@@ -85,7 +63,7 @@ def _send_admin_alert(to_number: str, alert_text: str) -> None:
     )
 
     try:
-        result = _meta_client.send_template(
+        result = send_template(
             to_msisdn=to_number,
             template_name=ADMIN_TEMPLATE_NAME,
             language_code="en_US",
@@ -93,17 +71,15 @@ def _send_admin_alert(to_number: str, alert_text: str) -> None:
         )
 
         logger.info(
-            "ADMIN_ALERT_SENT | admin=%s | result=%s",
+            "ADMIN_ALERT_SENT | admin=%s | message_id=%s",
             to_number,
-            result,
+            getattr(result, "message_id", None),
         )
 
-    except Exception as exc:
-        logger.error(
-            "ADMIN_ALERT_FAIL | admin=%s | error=%s",
+    except Exception:
+        logger.exception(
+            "ADMIN_ALERT_FAIL | admin=%s",
             to_number,
-            exc,
-            exc_info=True,
         )
 
 
@@ -121,13 +97,6 @@ def handle_feedback_message(
     client_id,
     admin_numbers: set[str],
 ) -> bool:
-    """
-    Stores feedback and notifies admin via template.
-
-    Returns:
-        True  -> feedback handled
-        False -> ignore
-    """
 
     logger.info(
         "FEEDBACK_ENTER | from=%s | client_id=%s | has_text=%s | has_media=%s",
@@ -141,9 +110,6 @@ def handle_feedback_message(
         logger.info("FEEDBACK_IGNORED | reason=no_text_no_media")
         return False
 
-    # -------------------------------
-    # Store feedback
-    # -------------------------------
     try:
         db.execute(
             text(
@@ -182,24 +148,16 @@ def handle_feedback_message(
             sender_number,
         )
 
-    except Exception as exc:
-        logger.error(
-            "FEEDBACK_STORE_FAIL | client_id=%s | from=%s | error=%s",
+    except Exception:
+        logger.exception(
+            "FEEDBACK_STORE_FAIL | client_id=%s | from=%s",
             client_id,
             sender_number,
-            exc,
-            exc_info=True,
         )
-        return True  # still handled, but logged
+        return True
 
-    # -------------------------------
-    # Customer acknowledgement (TEMPLATE)
-    # -------------------------------
     _send_customer_ack(sender_number)
 
-    # -------------------------------
-    # Admin notification (TEMPLATE)
-    # -------------------------------
     alert_text = (
         f"New feedback received\n"
         f"From: {sender_number}\n"
