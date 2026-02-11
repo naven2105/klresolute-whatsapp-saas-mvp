@@ -145,3 +145,5 @@ def notify_galitos_staff(
                 client_id,
                 msisdn,
             )
+
+            
