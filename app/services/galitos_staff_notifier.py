@@ -4,12 +4,9 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import load_meta_settings
+from app.messaging.transport import send_business_update
 
 logger = logging.getLogger("galitos_staff_notifier")
-
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
 def notify_galitos_staff(
@@ -64,19 +61,17 @@ def notify_galitos_staff(
                 r.msisdn,
             )
 
-            result = _meta_client.send_generic_business_update_template(
+            result = send_business_update(
                 to_msisdn=r.msisdn,
                 blob_text=message,
             )
 
             logger.info(
                 "ORDER_STAFF_NOTIFY_META_RESPONSE | "
-                "client_id=%s | msisdn=%s | success=%s | message_id=%s | error=%s",
+                "client_id=%s | msisdn=%s | message_id=%s",
                 client_id,
                 r.msisdn,
-                getattr(result, "success", None),
                 getattr(result, "message_id", None),
-                getattr(result, "error", None),
             )
 
         except Exception:
