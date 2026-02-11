@@ -4,8 +4,6 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.messaging.transport import send_business_update
-
 logger = logging.getLogger("galitos_staff_notifier")
 
 
