@@ -21,9 +21,11 @@ GUARD RAILS:
 - Must never block non-survey admin commands
 - Messaging failures must not break flow
 
-NOTE:
-- Survey business logic lives in survey_service
-- This file orchestrates only
+ARCHITECTURE NOTE (TRANSPORT EXCEPTION):
+- Surveys intentionally use direct Meta client for interactive button messages.
+- This is an APPROVED transport exception.
+- Reason: Interactive button messaging is not supported by generic template gateway.
+- Any future transport refactor MUST preserve this explicit exception.
 """
 
 import logging
@@ -51,15 +53,7 @@ from app.modules.survey.survey_constants import (
 
 from app.utils.admin import is_admin_message
 
-# -------------------------------------------------
-# Logging
-# -------------------------------------------------
-
 logger = logging.getLogger("admin_surveys")
-
-# -------------------------------------------------
-# Regex
-# -------------------------------------------------
 
 _SURVEY_TYPED_RE = re.compile(
     r"^\s*survey\s+(sentiment|frequency|helpfulness)\s*:\s*(.+)\s*$",
@@ -71,28 +65,14 @@ _SURVEY_DEFAULT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -------------------------------------------------
-# Helpers
-# -------------------------------------------------
 
 def _sanitize_template_text(text: str) -> str:
-    """
-    Meta template params MUST:
-    - not contain newlines
-    - not contain tabs
-    - not contain multiple spaces
-    """
     if not text:
         return ""
-
     text = text.replace("\n", " ").replace("\t", " ")
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
-
-# -------------------------------------------------
-# Handler
-# -------------------------------------------------
 
 def handle_admin_surveys(
     *,
@@ -101,11 +81,6 @@ def handle_admin_surveys(
     message_text: str,
     business_msisdn: str,
 ) -> bool:
-    """
-    Handle admin-issued survey commands.
-    Returns True if the message was handled.
-    Never raises.
-    """
 
     logger.info("SURVEY_ENTER | sender=%s | raw=%r", sender_number, message_text)
 
@@ -119,19 +94,23 @@ def handle_admin_surveys(
             return False
 
         meta = get_meta_client()
+
         text_clean = (message_text or "").strip()
         upper = text_clean.upper()
         business_number = business_msisdn
 
         logger.info("SURVEY_CLEAN | clean=%r | upper=%r", text_clean, upper)
 
-        # ----------------------------------
-        # AUTO-CLOSE expired survey (silent)
-        # ----------------------------------
+        # -------------------------------------------------
+        # AUTO CLOSE (silent)
+        # -------------------------------------------------
         try:
             closed = auto_close_expired_surveys(db, business_number)
             if closed:
-                logger.info("SURVEY_AUTO_CLOSED | survey_id=%s", closed.id)
+                logger.info(
+                    "SURVEY_AUTO_CLOSED | survey_id=%s | SURVEY_TRANSPORT_EXCEPTION",
+                    closed.id,
+                )
                 summary = build_survey_summary_text(db, closed)
                 meta.send_generic_business_update_template(
                     to_msisdn=sender_number,
@@ -140,11 +119,10 @@ def handle_admin_surveys(
         except Exception as exc:
             logger.exception("SURVEY_AUTO_CLOSE_FAIL | err=%s", exc)
 
-        # ----------------------------------
-        # CLOSE SURVEY
-        # ----------------------------------
+        # -------------------------------------------------
+        # CLOSE
+        # -------------------------------------------------
         if upper == SURVEY_COMMAND_END:
-            logger.info("SURVEY_CLOSE_REQUEST")
 
             active = get_active_survey(db, business_number)
             if not active:
@@ -157,7 +135,6 @@ def handle_admin_surveys(
                 return True
 
             close_survey(db, active, manual=True)
-            logger.info("SURVEY_CLOSED | survey_id=%s", active.id)
 
             summary = build_survey_summary_text(db, active)
 
@@ -171,11 +148,16 @@ def handle_admin_surveys(
                 blob_text="Survey closed successfully.",
             )
 
+            logger.info(
+                "SURVEY_CLOSED | survey_id=%s | SURVEY_TRANSPORT_EXCEPTION",
+                active.id,
+            )
+
             return True
 
-        # ----------------------------------
-        # START SURVEY (typed / default)
-        # ----------------------------------
+        # -------------------------------------------------
+        # START
+        # -------------------------------------------------
         m = _SURVEY_TYPED_RE.match(text_clean)
         if m:
             survey_type = m.group(1).upper()
@@ -183,16 +165,9 @@ def handle_admin_surveys(
         else:
             m2 = _SURVEY_DEFAULT_RE.match(text_clean)
             if not m2:
-                logger.info("SURVEY_NO_MATCH")
                 return False
             survey_type = "SENTIMENT"
             question = m2.group(1).strip()
-
-        logger.info(
-            "SURVEY_START_REQUEST | type=%s | question=%r",
-            survey_type,
-            question,
-        )
 
         active_existing = get_active_survey(db, business_number)
         if active_existing:
@@ -219,14 +194,16 @@ def handle_admin_surveys(
         )
 
         if not started or not survey:
-            logger.warning("SURVEY_START_FAILED | business=%s", business_number)
             return True
 
-        logger.info("SURVEY_STARTED | survey_id=%s", survey.id)
+        logger.info(
+            "SURVEY_STARTED | survey_id=%s | SURVEY_TRANSPORT_EXCEPTION",
+            survey.id,
+        )
 
-        # ----------------------------------
-        # Send to customers
-        # ----------------------------------
+        # -------------------------------------------------
+        # SEND INTERACTIVE (APPROVED EXCEPTION)
+        # -------------------------------------------------
         buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
 
         admin_numbers = {
@@ -251,7 +228,7 @@ def handle_admin_surveys(
         )
 
         logger.info(
-            "SURVEY_SEND_BEGIN | survey_id=%s | recipients=%s",
+            "SURVEY_SEND_BEGIN | survey_id=%s | recipients=%s | SURVEY_TRANSPORT_EXCEPTION",
             survey.id,
             len(contacts),
         )
@@ -271,7 +248,6 @@ def handle_admin_surveys(
             ),
         )
 
-        logger.info("SURVEY_ADMIN_CONFIRM_SENT | survey_id=%s", survey.id)
         return True
 
     except Exception as exc:
