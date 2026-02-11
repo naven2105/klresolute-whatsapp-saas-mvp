@@ -9,21 +9,20 @@ Purpose:
 Notify Galitos staff of confirmed customer orders.
 
 Responsibilities (LOCKED):
-- Fetch active staff for a klresolute_client_id
+- Fetch active staff for a klresolute_client_id (integer)
+- Resolve correct business_msisdn (UUID client link)
 - Send notification to each staff member
 - Log every decision and failure
+- Use SINGLE transport gateway (client_messenger)
 """
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import load_meta_settings
+from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("galitos.staff.notifier")
-
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 
 def notify_galitos_staff(
@@ -38,6 +37,45 @@ def notify_galitos_staff(
         len(message),
     )
 
+    # -------------------------------------------------
+    # Resolve business_msisdn (required by gateway)
+    # -------------------------------------------------
+    try:
+        business_row = (
+            db.execute(
+                text(
+                    """
+                    SELECT destination_number
+                    FROM whatsapp_numbers
+                    WHERE klresolute_client_id = :client_id
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            .mappings()
+            .first()
+        )
+    except Exception:
+        logger.exception(
+            "STAFF_NOTIFY_BUSINESS_LOOKUP_FAIL | client_id=%s",
+            client_id,
+        )
+        return
+
+    if not business_row:
+        logger.error(
+            "STAFF_NOTIFY_ABORT | reason=no_business_number | client_id=%s",
+            client_id,
+        )
+        return
+
+    business_msisdn = business_row["destination_number"]
+
+    # -------------------------------------------------
+    # Fetch active staff
+    # -------------------------------------------------
     try:
         rows = (
             db.execute(
@@ -74,6 +112,9 @@ def notify_galitos_staff(
         len(rows),
     )
 
+    # -------------------------------------------------
+    # Send via single transport gateway
+    # -------------------------------------------------
     for r in rows:
         msisdn = r["msisdn"]
 
@@ -84,16 +125,18 @@ def notify_galitos_staff(
                 msisdn,
             )
 
-            resp = _meta_client.send_generic_business_update_template(
-                to_msisdn=msisdn,
-                blob_text=message,
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=msisdn,
+                template_name="generic_business_update",
+                language_code="en_US",
             )
 
             logger.info(
-                "STAFF_NOTIFY_SENT | client_id=%s | msisdn=%s | resp=%r",
+                "STAFF_NOTIFY_SENT | client_id=%s | msisdn=%s",
                 client_id,
                 msisdn,
-                resp,
             )
 
         except Exception:
