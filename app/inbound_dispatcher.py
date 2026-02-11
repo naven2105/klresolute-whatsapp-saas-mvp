@@ -4,24 +4,6 @@ from __future__ import annotations
 File: app/inbound_dispatcher.py
 Path: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
-
-ROLE (EXPLICIT & LOCKED):
-Inbound dispatcher and module router.
-
-RESPONSIBILITY:
-- Resolve client + profile
-- Route inbound messages to enabled modules
-- Delegate behaviour (no business logic here)
-
-GUARD RAILS (MANDATORY):
-- MUST NEVER raise exceptions
-- MUST NEVER break caller flow
-- MUST fail safe and log clearly (Render-first)
-- MUST NOT mutate business behaviour
-
-NOTES:
-- Broadcast module is PAUSED
-- Specials admin upload is handled as a module
 """
 
 import logging
@@ -30,6 +12,7 @@ from sqlalchemy import text
 
 from app.profiles.client_profile import get_client_profile
 from app.handlers.tier1_router import handle_client_command as tier1_handle
+from app.handlers.feedback_handler import handle_feedback_message
 
 from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
@@ -40,6 +23,7 @@ from app.modules.specials.admin_specials_media_handler import (
 )
 
 logger = logging.getLogger("inbound.dispatcher")
+
 
 # -------------------------------------------------
 # Helpers
@@ -61,9 +45,7 @@ def _resolve_integer_client_id(
     *,
     business_msisdn: str,
 ) -> int | None:
-    """
-    Resolve MVP integer client_id via whatsapp_numbers.klresolute_client_id
-    """
+
     logger.info(
         "DISPATCH_CLIENT_ID_LOOKUP_ENTER | business=%s",
         business_msisdn,
@@ -95,11 +77,13 @@ def _resolve_integer_client_id(
             return None
 
         client_id_int = int(row["klresolute_client_id"])
+
         logger.info(
             "DISPATCH_CLIENT_ID_RESOLVED | business=%s | client_id=%s",
             business_msisdn,
             client_id_int,
         )
+
         return client_id_int
 
     except Exception as exc:
@@ -116,6 +100,7 @@ def _resolve_integer_client_id(
 # -------------------------------------------------
 
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
+
     logger.info(
         "DISPATCH_ENTER | sender=%s | business=%s | msg_type=%s",
         sender,
@@ -196,6 +181,45 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             )
             return True
 
+    # ----------------------------------
+    # FEEDBACK
+    # ----------------------------------
+    if msg.get("type") == "text":
+        body_text = (msg.get("text", {}) or {}).get("body", "")
+        if body_text.strip().lower().startswith("feedback"):
+            logger.info(
+                "DISPATCH_ENTER_FEEDBACK | sender=%s | business=%s",
+                sender,
+                business_msisdn,
+            )
+            try:
+                handled = handle_feedback_message(
+                    db=db,
+                    sender_number=sender,
+                    message_text=body_text,
+                    media_id=None,
+                    media_type=None,
+                    client_id=resolved_client_id,
+                    admin_numbers=set(),
+                )
+                logger.info(
+                    "DISPATCH_EXIT_FEEDBACK | handled=%s",
+                    handled,
+                )
+                if handled:
+                    return True
+            except Exception as exc:
+                logger.exception(
+                    "DISPATCH_FEEDBACK_FATAL | business=%s | sender=%s | err=%s",
+                    business_msisdn,
+                    sender,
+                    exc,
+                )
+                return True
+
+    # ----------------------------------
+    # ORDERS
+    # ----------------------------------
     if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
         handled = orders_handler.handle(
             db=db,
@@ -206,6 +230,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
+    # ----------------------------------
+    # INSPECTION
+    # ----------------------------------
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         handled = inspection_handler.handle(
             db=db,
@@ -216,6 +243,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
+    # ----------------------------------
+    # SURVEY
+    # ----------------------------------
     if "survey" in profile.enabled_modules:
         handled = survey_handler.handle(
             db=db,
@@ -226,7 +256,11 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         if handled:
             return True
 
+    # ----------------------------------
+    # TIER 1 FALLBACK
+    # ----------------------------------
     body = (msg.get("text", {}) or {}).get("body", "")
+
     return bool(
         tier1_handle(
             db=db,
