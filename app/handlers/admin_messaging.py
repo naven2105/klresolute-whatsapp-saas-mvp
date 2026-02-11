@@ -8,9 +8,9 @@ Purpose:
 Admin messaging commands only.
 
 Scope (LOCKED):
-- SEND
 - BROADCAST
-- PAUSE / RESUME outbound
+- NO SEND
+- NO PAUSE / RESUME
 - NO surveys
 - NO admin menu text
 
@@ -62,80 +62,6 @@ def handle_admin_messaging(
     profile = get_client_profile(business_msisdn, db=db)
     if not profile:
         logger.error("ADMIN_MSG_ABORT | profile_missing")
-        return True
-
-    # -------------------------------------------------
-    # PAUSE
-    # -------------------------------------------------
-    if upper == "PAUSE":
-        logger.info("ADMIN_MSG_PAUSE_REQUEST")
-
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_number,
-            text="⏸️ Outbound messaging paused.",
-        )
-        return True
-
-    # -------------------------------------------------
-    # RESUME
-    # -------------------------------------------------
-    if upper == "RESUME":
-        logger.info("ADMIN_MSG_RESUME_REQUEST")
-
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_number,
-            text="▶️ Outbound messaging resumed.",
-        )
-        return True
-
-    # -------------------------------------------------
-    # SEND
-    # -------------------------------------------------
-    if upper.startswith("SEND "):
-        logger.info("ADMIN_MSG_SEND_REQUEST")
-
-        parts = text_body.split(maxsplit=2)
-        if len(parts) < 3:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_number,
-                text="❗ Usage: SEND <number> <message>",
-            )
-            return True
-
-        _, to_number, body = parts
-
-        try:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=to_number,
-                text=body,
-            )
-
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_number,
-                text=f"✅ Message sent to {to_number}",
-            )
-
-        except Exception as exc:
-            logger.exception(
-                "ADMIN_MSG_SEND_FAIL | to=%s",
-                to_number,
-            )
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_number,
-                text="⚠️ Send failed (see logs).",
-            )
         return True
 
     # -------------------------------------------------
@@ -204,6 +130,12 @@ def handle_admin_messaging(
             business_msisdn=business_msisdn,
             to_number=sender_number,
             text=f"📣 Broadcast complete. Sent={sent}, Failed={failed}",
+        )
+
+        logger.info(
+            "ADMIN_MSG_BROADCAST_DONE | sent=%s | failed=%s",
+            sent,
+            failed,
         )
 
         return True
