@@ -5,13 +5,13 @@ File: app/menus/customer_menu_service.py
 Path: app/menus/customer_menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
-
 Purpose:
 DB-backed customer menu sender.
 
 RULE (MVP):
 - Accept INTEGER client_id from Tier-1
 - Resolve UUID client_id internally for client_menus
+- Use single transport gateway
 """
 
 import logging
@@ -19,8 +19,8 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.factory import get_meta_client
-from app.menus.menu_renderer import render_menu_text  # ✅ unified renderer
+from app.menus.menu_renderer import render_menu_text
+from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("menus.customer_menu_service")
 
@@ -30,9 +30,6 @@ def _resolve_client_uuid(
     *,
     client_id_int: int,
 ) -> str | None:
-    """
-    Resolve UUID client_id from integer klresolute_client_id.
-    """
     try:
         row = (
             db.execute(
@@ -69,6 +66,47 @@ def _resolve_client_uuid(
         return None
 
 
+def _resolve_business_number(
+    db: Session,
+    *,
+    client_id_int: int,
+) -> str | None:
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT destination_number
+                    FROM whatsapp_numbers
+                    WHERE klresolute_client_id = :cid
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"cid": client_id_int},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row:
+            logger.error(
+                "MENU_BUSINESS_NUMBER_NOT_FOUND | client_id_int=%s",
+                client_id_int,
+            )
+            return None
+
+        return row["destination_number"]
+
+    except Exception as exc:
+        logger.exception(
+            "MENU_BUSINESS_RESOLUTION_FAIL | client_id_int=%s | err=%s",
+            client_id_int,
+            exc,
+        )
+        return None
+
+
 def send_customer_menu_from_db(
     *,
     db: Session,
@@ -76,19 +114,13 @@ def send_customer_menu_from_db(
     sender: str,
     menu_key: str = "customer_menu",
 ) -> None:
-    """
-    Send customer menu using DB-backed menu.
-    client_id is INTEGER (stringified) from Tier-1.
-    """
+
     logger.info(
         "MENU_SERVICE_ENTER | client_id=%r | type=%s",
         client_id,
         type(client_id).__name__,
     )
 
-    # ----------------------------------
-    # Guard + parse integer client_id
-    # ----------------------------------
     try:
         client_id_int = int(str(client_id))
     except Exception:
@@ -98,9 +130,6 @@ def send_customer_menu_from_db(
         )
         return
 
-    # ----------------------------------
-    # Resolve UUID for menu lookup
-    # ----------------------------------
     client_uuid = _resolve_client_uuid(
         db,
         client_id_int=client_id_int,
@@ -109,9 +138,14 @@ def send_customer_menu_from_db(
     if not client_uuid:
         return
 
-    # ----------------------------------
-    # Fetch menu JSON
-    # ----------------------------------
+    business_msisdn = _resolve_business_number(
+        db,
+        client_id_int=client_id_int,
+    )
+
+    if not business_msisdn:
+        return
+
     row = (
         db.execute(
             text(
@@ -138,14 +172,12 @@ def send_customer_menu_from_db(
         )
         return
 
-    # ----------------------------------
-    # Render + send
-    # ----------------------------------
     text_out = render_menu_text(row["menu_json"])
-    meta = get_meta_client()
 
-    meta.send_session_message(
-        to_msisdn=sender,
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender,
         text=text_out,
     )
 
