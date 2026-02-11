@@ -10,9 +10,6 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.messaging.transport import send_template
-
-
 logger = logging.getLogger("feedback_handler")
 logger.setLevel(logging.INFO)
 
