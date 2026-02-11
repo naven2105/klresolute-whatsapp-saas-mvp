@@ -159,9 +159,9 @@ def handle_feedback_message(
     _send_customer_ack(sender_number)
 
     alert_text = (
-        f"New feedback received\n"
-        f"From: {sender_number}\n"
-        f"Message: {message_text or 'Media received'}"
+        f"New feedback received | "
+        f"From: {sender_number} | "
+        f"Message: {(message_text or 'Media received').replace('\n', ' ').strip()}"
     )
 
     if not admin_numbers:
