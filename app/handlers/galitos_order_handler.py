@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from app.services.order_service import create_order, OrderCreate
 from app.services.galitos_staff_notifier import notify_galitos_staff
-from app.messaging.transport import send_session
+from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("galitos_order_handler")
 
@@ -19,9 +19,11 @@ ORDER_TIMEOUT_MINUTES = 10
 
 def _send_text(to_number: str, message_text: str) -> None:
     logger.info("ORDER_SEND_TEXT | to=%s | text=%r", to_number, message_text)
-    send_session(
-        to_msisdn=to_number,
-        text=message_text,
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=...,
+        text=...
     )
 
 
