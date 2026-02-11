@@ -9,12 +9,9 @@ from sqlalchemy import text
 
 from app.services.order_service import create_order, OrderCreate
 from app.services.galitos_staff_notifier import notify_galitos_staff
-from app.outbound.meta import MetaWhatsAppClient
-from app.outbound.settings import load_meta_settings
+from app.messaging.transport import send_session
 
 logger = logging.getLogger("galitos_order_handler")
-
-_meta_client = MetaWhatsAppClient(settings=load_meta_settings())
 
 # safety: auto-expire orders after 10 minutes
 ORDER_TIMEOUT_MINUTES = 10
@@ -22,7 +19,7 @@ ORDER_TIMEOUT_MINUTES = 10
 
 def _send_text(to_number: str, message_text: str) -> None:
     logger.info("ORDER_SEND_TEXT | to=%s | text=%r", to_number, message_text)
-    _meta_client.send_session_message(
+    send_session(
         to_msisdn=to_number,
         text=message_text,
     )
@@ -174,7 +171,6 @@ def handle_order_message(
             f"Customer: {from_number}"
         )
 
-        # 🔴 PATCH: explicit proof this line is reached
         logger.info(
             "ORDER_STAFF_NOTIFY_CALLING | client_id=%s | state_id=%s",
             state["client_id"],
