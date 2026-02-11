@@ -4,16 +4,15 @@ from __future__ import annotations
 File: app/jobs/galitos_weekly_whatsapp_report.py
 
 Purpose:
-Send weekly WhatsApp engagement summary to FOOD outlet admins only.
+Send weekly WhatsApp engagement summary to GALITOS admins only.
 Triggered by Render Cron (Friday 18h00).
-
 
 Rules (LOCKED):
 - Single transport gateway only (client_messenger.send_message)
 - No direct Meta client usage
 - No ADMIN_ALLOWLIST
 - Per-business isolation
-- GALITOS only (food vertical)
+- GALITOS only
 """
 
 import logging
@@ -25,20 +24,20 @@ from app.db import SessionLocal
 from app.models import EventLog
 from app.messaging.client_messenger import send_message
 
-logger = logging.getLogger("jobs.weekly_report")
+logger = logging.getLogger("jobs.galitos_weekly_report")
 
 
 def send_weekly_whatsapp_report() -> None:
     db = SessionLocal()
 
     try:
-        logger.info("WEEKLY_REPORT_START")
+        logger.info("GALITOS_WEEKLY_REPORT_START")
 
         end = datetime.utcnow()
         start = end - timedelta(days=7)
 
         # -------------------------------------------------
-        # Fetch all active business numbers
+        # Fetch GALITOS business only
         # -------------------------------------------------
         businesses = (
             db.execute(
@@ -46,11 +45,11 @@ def send_weekly_whatsapp_report() -> None:
                     """
                     SELECT wn.destination_number,
                            wn.client_id,
-                           wn.klresolute_client_id,
                            c.client_name
                     FROM whatsapp_numbers wn
                     JOIN clients c ON c.client_id = wn.client_id
                     WHERE wn.status = 'active'
+                      AND UPPER(c.client_name) = 'GALITOS'
                     """
                 )
             )
@@ -58,35 +57,28 @@ def send_weekly_whatsapp_report() -> None:
             .all()
         )
 
-        logger.info("WEEKLY_REPORT_BUSINESSES_FOUND | count=%s", len(businesses))
+        logger.info(
+            "GALITOS_WEEKLY_REPORT_BUSINESSES_FOUND | count=%s",
+            len(businesses),
+        )
 
         for b in businesses:
 
             business_msisdn = b["destination_number"]
             client_uuid = b["client_id"]
-            client_name = b["client_name"]
-
-            # -------------------------------------------------
-            # Only FOOD vertical (GALITOS)
-            # -------------------------------------------------
-            if (client_name or "").upper() != "GALITOS":
-                logger.info(
-                    "WEEKLY_REPORT_SKIP | business=%s | reason=not_food_vertical",
-                    business_msisdn,
-                )
-                continue
 
             logger.info(
-                "WEEKLY_REPORT_PROCESS | business=%s",
+                "GALITOS_WEEKLY_REPORT_PROCESS | business=%s",
                 business_msisdn,
             )
 
             # -------------------------------------------------
-            # Engagement counts (last 7 days)
+            # Engagement counts (STRICTLY per client_uuid)
             # -------------------------------------------------
             hours_count = (
                 db.query(EventLog)
                 .filter(
+                    EventLog.client_id == client_uuid,
                     EventLog.event_type == "inbound_keyword",
                     EventLog.event_detail == "keyword_hours",
                     EventLog.event_timestamp >= start,
@@ -97,6 +89,7 @@ def send_weekly_whatsapp_report() -> None:
             specials_count = (
                 db.query(EventLog)
                 .filter(
+                    EventLog.client_id == client_uuid,
                     EventLog.event_type == "inbound_keyword",
                     EventLog.event_detail == "keyword_specials",
                     EventLog.event_timestamp >= start,
@@ -107,6 +100,7 @@ def send_weekly_whatsapp_report() -> None:
             total_engagement = (
                 db.query(EventLog)
                 .filter(
+                    EventLog.client_id == client_uuid,
                     EventLog.event_type.in_(
                         ["inbound_keyword", "hours_reply_sent", "specials_reply_sent"]
                     ),
@@ -124,7 +118,7 @@ def send_weekly_whatsapp_report() -> None:
             )
 
             # -------------------------------------------------
-            # Resolve active admins
+            # Resolve active GALITOS admins
             # -------------------------------------------------
             admin_rows = (
                 db.execute(
@@ -132,11 +126,10 @@ def send_weekly_whatsapp_report() -> None:
                         """
                         SELECT msisdn
                         FROM client_admins
-                        WHERE client_code = :code
+                        WHERE client_code = 'GALITOS'
                           AND is_active = TRUE
                         """
-                    ),
-                    {"code": client_name},
+                    )
                 )
                 .mappings()
                 .all()
@@ -144,14 +137,13 @@ def send_weekly_whatsapp_report() -> None:
 
             if not admin_rows:
                 logger.warning(
-                    "WEEKLY_REPORT_NO_ADMINS | business=%s",
+                    "GALITOS_WEEKLY_REPORT_NO_ADMINS | business=%s",
                     business_msisdn,
                 )
                 continue
 
             logger.info(
-                "WEEKLY_REPORT_ADMIN_COUNT | business=%s | count=%s",
-                business_msisdn,
+                "GALITOS_WEEKLY_REPORT_ADMIN_COUNT | count=%s",
                 len(admin_rows),
             )
 
@@ -168,22 +160,20 @@ def send_weekly_whatsapp_report() -> None:
                     )
 
                     logger.info(
-                        "WEEKLY_REPORT_SENT | business=%s | admin=%s",
-                        business_msisdn,
+                        "GALITOS_WEEKLY_REPORT_SENT | admin=%s",
                         admin["msisdn"],
                     )
 
                 except Exception:
                     logger.exception(
-                        "WEEKLY_REPORT_SEND_FAIL | business=%s | admin=%s",
-                        business_msisdn,
+                        "GALITOS_WEEKLY_REPORT_SEND_FAIL | admin=%s",
                         admin["msisdn"],
                     )
 
-        logger.info("WEEKLY_REPORT_COMPLETE")
+        logger.info("GALITOS_WEEKLY_REPORT_COMPLETE")
 
     except Exception:
-        logger.exception("WEEKLY_REPORT_FATAL")
+        logger.exception("GALITOS_WEEKLY_REPORT_FATAL")
 
     finally:
         db.close()
