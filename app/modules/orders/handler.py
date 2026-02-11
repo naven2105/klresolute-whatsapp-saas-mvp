@@ -72,7 +72,11 @@ def handle(
             return True
 
         if upper in ("ORDER", "FOOD"):
-            send_food_menu(sender)
+            send_food_menu(
+                db=db,
+                business_msisdn=business_msisdn,
+                sender=sender,
+            )
             return True
 
         if body.isdigit():
@@ -141,7 +145,11 @@ def handle(
                 name,
             )
 
-            ask_for_flavour(sender)
+            ask_for_flavour(
+                db=db,
+                business_msisdn=business_msisdn,
+                sender=sender,
+            )
             return True
 
         return False
@@ -149,7 +157,11 @@ def handle(
     except IntegrityError:
         db.rollback()
         logger.warning("ORDERS_INTEGRITY_RECOVERED | sender=%s", sender)
-        ask_for_flavour(sender)
+        ask_for_flavour(
+            db=db,
+            business_msisdn=business_msisdn,
+            sender=sender,
+        )
         return True
 
     except Exception:

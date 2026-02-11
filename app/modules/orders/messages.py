@@ -10,17 +10,21 @@ Outbound messaging helpers for Orders module.
 
 Rules (LOCKED):
 - Messaging only
-- No DB access
+- No SQL
 """
 
 import logging
+from sqlalchemy.orm import Session
+
 from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("module.orders.messages")
 
 
-def send_food_menu(sender: str) -> None:
+def send_food_menu(*, db: Session, business_msisdn: str, sender: str) -> None:
     send_message(
+        db=db,
+        business_msisdn=business_msisdn,
         to_number=sender,
         text=(
             "🍗 Galitos Food Menu\n\n"
@@ -33,8 +37,10 @@ def send_food_menu(sender: str) -> None:
     logger.info("ORDERS_MENU_SENT | sender=%s", sender)
 
 
-def ask_for_flavour(sender: str) -> None:
+def ask_for_flavour(*, db: Session, business_msisdn: str, sender: str) -> None:
     send_message(
+        db=db,
+        business_msisdn=business_msisdn,
         to_number=sender,
         text=(
             "Please choose a flavour:\n"
@@ -46,7 +52,7 @@ def ask_for_flavour(sender: str) -> None:
     logger.info("ORDERS_FLAVOUR_PROMPT_SENT | sender=%s", sender)
 
 
-def notify_staff(staff: list[str], order: dict) -> None:
+def notify_staff(*, db: Session, business_msisdn: str, staff: list[str], order: dict) -> None:
     msg = (
         "📢 New Galitos Order\n\n"
         f"Item: {order.get('item_name')}\n"
@@ -57,7 +63,12 @@ def notify_staff(staff: list[str], order: dict) -> None:
 
     for msisdn in staff:
         try:
-            send_message(to_number=msisdn, text=msg)
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=msisdn,
+                text=msg,
+            )
             logger.info(
                 "ORDERS_STAFF_SENT | order_id=%s | staff=%s",
                 order.get("id"),
