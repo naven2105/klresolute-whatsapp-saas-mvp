@@ -18,17 +18,43 @@ GUARD RAILS:
 - No DB access
 - No outbound messaging
 - Safe to import anywhere
-
-CHANGE NOTE:
-- Removed BROADCAST command reference
-- Reworded Specials to guidance-only (no command implication)
 """
 
 import logging
 
 logger = logging.getLogger("menus.admin.galitos")
 
+# Single source of truth for the admin menu text (canonical).
+# Handlers must not hardcode menu text.
+_GALITOS_ADMIN_MENU_TEXT = (
+    "🛠️ Admin Menu\n\n"
+    "📊 Surveys\n\n"
+    "Start surveys (one active at a time):\n\n"
+    "SURVEY SENTIMENT: <question>\n"
+    "👍 Like   😐 Neutral   👎 Dislike\n\n"
+    "SURVEY FREQUENCY: <question>\n"
+    "🔁 Often   ➖ Sometimes   ⏳ Rarely\n\n"
+    "SURVEY HELPFULNESS: <question>\n"
+    "✅ Helpful   😐 Neutral   ❌ Not Helpful\n\n"
+    "END SURVEY\n\n"
+    "Notes:\n"
+    "• Surveys auto-close in 24 hours\n"
+    "• Starting a new survey closes the previous one\n"
+    "• Survey results are shared with admins when the survey closes\n\n"
+    "────────────────\n\n"
+    "🎯 Special\n\n"
+    "Send an image with a caption to activate a new special.\n\n"
+    "Notes:\n"
+    "• Only ONE special at a time\n"
+    "• A new image replaces the previous one\n"
+    "• Customers use “specials” to view the latest special"
+)
+
 GALITOS_ADMIN_MENU = {
+    # Preferred canonical representation for exact WhatsApp output
+    "text": _GALITOS_ADMIN_MENU_TEXT,
+
+    # Kept for backwards compatibility / future structured formatting
     "title": "🛠️ Galitos Admin Menu",
     "sections": [
         {

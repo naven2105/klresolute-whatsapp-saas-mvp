@@ -45,6 +45,12 @@ def _format_admin_menu(menu: dict) -> str:
     No DB.
     No outbound logic.
     """
+    # If menu provides a canonical ready-to-send text, use it as-is.
+    text_block = menu.get("text")
+    if isinstance(text_block, str) and text_block.strip():
+        return text_block.strip()
+
+    # Fallback: structured format (kept for compatibility)
     lines: list[str] = []
 
     title = menu.get("title")
