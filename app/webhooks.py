@@ -47,6 +47,9 @@ logger = logging.getLogger("webhooks")
 MAGEN_BUSINESS_NUMBER = "27631016099"
 MAGEN_INTERNAL_ONLY_MESSAGE = "This bot is for Magen internal use only."
 
+# Galitos business number (for scoped staff guard)
+GALITOS_BUSINESS_NUMBER = "27735534607"
+
 
 # -------------------------------------------------
 # Helpers
@@ -103,7 +106,7 @@ def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
             "MAGEN_STAFF_CHECK_FAIL | sender=%s",
             sender_msisdn,
         )
-        return False  # Fail safe
+        return False
 
 
 def _extract_message(payload: dict):
@@ -321,7 +324,6 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
-    # DB guard
     try:
         db.execute(text("SELECT 1"))
         logger.info("DB_OK")
@@ -335,17 +337,14 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
-    # 🔒 Magen Strict Internal Enforcement
+    # 🔒 Magen Enforcement
     if business_msisdn == MAGEN_BUSINESS_NUMBER:
-
         if not _is_active_magen_staff(db, sender_msisdn=sender):
-
             logger.warning(
                 "MAGEN_UNAUTHORISED_ATTEMPT | sender=%s | business=%s",
                 sender,
                 business_msisdn,
             )
-
             try:
                 send_message(
                     db=db,
@@ -358,13 +357,10 @@ async def whatsapp_webhook(
                     "MAGEN_UNAUTHORISED_SEND_FAIL | sender=%s",
                     sender,
                 )
-
             return Response(status_code=200)
 
-    # -------------------------------------------------
-    # Receive-only guard: ignore Galitos staff inbound
-    # -------------------------------------------------
-    if _is_active_galitos_staff(db, sender_msisdn=sender):
+    # ✅ Scoped Galitos Guard (FIX)
+    if business_msisdn == GALITOS_BUSINESS_NUMBER and _is_active_galitos_staff(db, sender_msisdn=sender):
         logger.warning(
             "WEBHOOK_ABORT | reason=staff_inbound_blocked | sender=%s | business=%s",
             sender,
@@ -372,7 +368,6 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
-    # Dedupe
     if not _try_lock_provider_message(db, provider_message_id):
         logger.warning(
             "WEBHOOK_ABORT | reason=duplicate | pid=%s",
@@ -380,14 +375,12 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
-    # Maintenance
     try:
         auto_close_expired_inspections(db)
         logger.info("AUTO_CLOSE_CHECK_DONE")
     except Exception:
         logger.exception("AUTO_CLOSE_FAIL")
 
-    # Dispatch
     logger.info(
         "DISPATCH_CALL | sender=%s | business=%s | msg_type=%s",
         sender,
@@ -408,7 +401,6 @@ async def whatsapp_webhook(
         sender,
     )
 
-    # Tier-1 fallback
     if not handled:
         body = (
             msg.get("text", {}).get("body", "").strip()
@@ -428,18 +420,7 @@ async def whatsapp_webhook(
                 business_msisdn=business_msisdn,
             )
 
-            if client_id_int is None:
-                logger.error(
-                    "FALLBACK_ABORT | reason=client_id_not_resolved | sender=%s",
-                    sender,
-                )
-            else:
-                logger.info(
-                    "FALLBACK_TIER1_CALL | sender=%s | client_id=%s",
-                    sender,
-                    client_id_int,
-                )
-
+            if client_id_int is not None:
                 handle_client_command(
                     db=db,
                     sender_number=sender,
