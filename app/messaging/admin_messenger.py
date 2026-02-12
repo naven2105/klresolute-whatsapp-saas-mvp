@@ -9,20 +9,24 @@ Purpose:
 - Acts as the "UI" for admin commands
 """
 
-from app.outbound.factory import get_meta_client
+from sqlalchemy.orm import Session
+from app.messaging.client_messenger import send_message
 
 
 class AdminMessenger:
-    def __init__(self):
-        self._client = get_meta_client()
+    def __init__(self, *, db: Session, business_msisdn: str):
+        self._db = db
+        self._business_msisdn = business_msisdn
 
     def confirm(self, to_msisdn: str, text: str) -> None:
         """
         Send a confirmation message to an admin.
         Emoji + short text only.
         """
-        self._client.send_session_message(
-            to_msisdn=to_msisdn,
+        send_message(
+            db=self._db,
+            business_msisdn=self._business_msisdn,
+            to_number=to_msisdn,
             text=text,
         )
 
