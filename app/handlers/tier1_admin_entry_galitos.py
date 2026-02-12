@@ -21,7 +21,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.factory import get_meta_client
+from app.messaging.client_messenger import send_message
 from app.survey import (
     auto_close_expired_surveys,
     get_active_survey,
@@ -72,11 +72,13 @@ def _send_text(
     business_msisdn: str,
     to_number: str,
     text_msg: str,
+    db: Session,
 ) -> None:
     try:
-        meta = get_meta_client(business_msisdn=business_msisdn)
-        meta.send_session_message(
-            to_msisdn=to_number,
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=to_number,
             text=text_msg,
         )
     except Exception:
@@ -160,6 +162,7 @@ def handle_admin_entry(
                         business_msisdn=business_msisdn,
                         to_number=admin,
                         text_msg=summary,
+                        db=db,
                     )
         except Exception:
             logger.exception(
@@ -189,6 +192,7 @@ def handle_admin_entry(
                             business_msisdn=business_msisdn,
                             to_number=sender_number,
                             text_msg="Thank you for your response.",
+                            db=db,
                         )
                 return True
             except Exception:
@@ -206,6 +210,7 @@ def handle_admin_entry(
                 business_msisdn=business_msisdn,
                 to_number=sender_number,
                 text_msg=ADMIN_MENU_TEXT,
+                db=db,
             )
             return True
 
@@ -221,6 +226,7 @@ def handle_admin_entry(
             business_msisdn=business_msisdn,
             to_number=sender_number,
             text_msg=ADMIN_MENU_TEXT,
+            db=db,
         )
         return True
 
