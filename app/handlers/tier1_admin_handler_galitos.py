@@ -22,7 +22,7 @@ GUARD RAILS:
 import logging
 from sqlalchemy.orm import Session
 
-from app.outbound.factory import get_meta_client
+from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("handlers.tier1_admin_handler")
 
@@ -59,8 +59,6 @@ def handle_admin_command(
     text = (message_text or "").strip()
     upper = text.upper()
 
-    meta = get_meta_client(business_msisdn=business_msisdn)
-
     logger.info(
         "ADMIN_CMD_ENTER | sender=%s | text=%r | business=%s",
         sender_number,
@@ -72,8 +70,10 @@ def handle_admin_command(
     # Explicit MENU
     # ----------------------------------
     if upper == "MENU":
-        meta.send_session_message(
-            to_msisdn=sender_number,
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_number,
             text=ADMIN_MENU_TEXT,
         )
         logger.info("ADMIN_MENU_SENT | sender=%s", sender_number)
@@ -100,8 +100,10 @@ def handle_admin_command(
         text,
     )
 
-    meta.send_session_message(
-        to_msisdn=sender_number,
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_number,
         text=ADMIN_MENU_TEXT,
     )
     return True
