@@ -28,7 +28,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.outbound.factory import get_meta_client
+from app.messaging.client_messenger import send_message
 from app.utils.admin import is_admin_message
 from app.modules.status.reader import get_active_status
 
@@ -46,7 +46,7 @@ logger = logging.getLogger("handlers.tier1_router")
 # Helpers
 # -------------------------------------------------
 
-def _send_text(*, business_number: str | None, to_number: str, text_msg: str) -> None:
+def _send_text(*, business_number: str | None, to_number: str, text_msg: str, db: Session) -> None:
     if not business_number:
         logger.error(
             "TIER1_SEND_BLOCKED | reason=missing_business_number | to=%s",
@@ -55,9 +55,10 @@ def _send_text(*, business_number: str | None, to_number: str, text_msg: str) ->
         return
 
     try:
-        meta = get_meta_client(business_msisdn=business_number)
-        meta.send_session_message(
-            to_msisdn=to_number,
+        send_message(
+            db=db,
+            business_msisdn=business_number,
+            to_number=to_number,
             text=text_msg,
         )
     except Exception:
@@ -230,9 +231,6 @@ def handle_client_command(
                 sender_number,
             )
 
-        # ----------------------------------
-        # ABOUT (recognised, delegated)
-        # ----------------------------------
         if upper == "ABOUT":
             logger.info(
                 "TIER1_ABOUT_DELEGATED | sender=%s | client_id=%s",
@@ -263,6 +261,7 @@ def handle_client_command(
                 business_number=business_number,
                 to_number=sender_number,
                 text_msg=f"⚠️ NOTICE\n\n{status_text}\n\n———",
+                db=db,
             )
 
         handled = handle_customer_commands(
