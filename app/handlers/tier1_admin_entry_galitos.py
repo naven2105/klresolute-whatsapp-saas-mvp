@@ -29,43 +29,42 @@ from app.survey import (
     build_survey_summary_text,
 )
 
+from app.menus.admin.galitos_admin_menu import GALITOS_ADMIN_MENU
+
 logger = logging.getLogger("handlers.tier1.admin")
-
-
-ADMIN_MENU_TEXT = (
-    "🛠️ Admin Menu\n\n"
-    "📊 Surveys\n"
-    "⚪ No active survey\n\n"
-    "Start surveys (one active at a time):\n\n"
-    "SURVEY SENTIMENT: <question>\n"
-    "👍 Like   😐 Neutral   👎 Dislike\n\n"
-    "SURVEY FREQUENCY: <question>\n"
-    "🔁 Often   ➖ Sometimes   ⏳ Rarely\n\n"
-    "SURVEY HELPFULNESS: <question>\n"
-    "✅ Helpful   😐 Neutral   ❌ Not Helpful\n\n"
-    "END SURVEY\n\n"
-    "Notes:\n"
-    "• Surveys auto-close in 24 hours\n"
-    "• Starting a new survey closes the previous one\n"
-    "• Survey results are shared with admins when the survey closes\n\n"
-    "────────────────\n\n"
-    "🎯 Specials\n"
-    "SPECIAL: <caption>\n\n"
-    "Notes:\n"
-    "• Only ONE special at a time\n"
-    "• A new special replaces the previous one\n"
-    "• Customers can only access the latest special\n"
-    "• Send to a single customer only\n\n"
-    "────────────────\n\n"
-    "⚙️ System\n"
-    "STATUS: <message>\n"
-    "CLEAR STATUS"
-)
 
 
 # -------------------------------------------------
 # Helpers
 # -------------------------------------------------
+
+def _format_admin_menu(menu: dict) -> str:
+    """
+    Converts GALITOS_ADMIN_MENU dictionary into WhatsApp text.
+    Pure formatter.
+    No DB.
+    No outbound logic.
+    """
+    lines: list[str] = []
+
+    title = menu.get("title")
+    if title:
+        lines.append(title)
+        lines.append("")
+
+    for section in menu.get("sections", []):
+        section_title = section.get("title")
+        if section_title:
+            lines.append(section_title)
+
+        commands = section.get("commands", [])
+        for cmd in commands:
+            lines.append(f"• {cmd}")
+
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
 
 def _send_text(
     *,
@@ -209,7 +208,7 @@ def handle_admin_entry(
             _send_text(
                 business_msisdn=business_msisdn,
                 to_number=sender_number,
-                text_msg=ADMIN_MENU_TEXT,
+                text_msg=_format_admin_menu(GALITOS_ADMIN_MENU),
                 db=db,
             )
             return True
@@ -225,7 +224,7 @@ def handle_admin_entry(
         _send_text(
             business_msisdn=business_msisdn,
             to_number=sender_number,
-            text_msg=ADMIN_MENU_TEXT,
+            text_msg=_format_admin_menu(GALITOS_ADMIN_MENU),
             db=db,
         )
         return True
