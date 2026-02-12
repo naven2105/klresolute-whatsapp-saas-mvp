@@ -4,23 +4,6 @@ from __future__ import annotations
 File: app/webhooks.py
 Path: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-Inbound WhatsApp webhook entry point.
-
-Responsibilities (LOCKED):
-- Parse inbound Meta payload
-- Normalise MSISDNs
-- Guard DB availability
-- Deduplicate provider messages
-- Dispatch to module router
-- Fallback to Tier-1 routing
-
-This file MUST explain, via logs, why a message:
-- was ignored
-- was handled
-- was dispatched
-- fell through
 """
 
 import logging
@@ -42,11 +25,10 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 
 # -------------------------------------------------
-# CONSTANTS
+# 🔒 Magen Internal Enforcement Constants (PATCH)
 # -------------------------------------------------
-
 MAGEN_BUSINESS_NUMBER = "27631016099"
-MAGEN_UNAUTHORISED_MESSAGE = "This bot is for Magen internal use only."
+MAGEN_INTERNAL_ONLY_MESSAGE = "This bot is for Magen internal use only."
 
 
 # -------------------------------------------------
@@ -71,6 +53,9 @@ def _normalise_msisdn(raw: str | None) -> Optional[str]:
     return None
 
 
+# -------------------------------------------------
+# 🔒 Magen Whitelist Check (PATCH)
+# -------------------------------------------------
 def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
     try:
         row = (
@@ -92,7 +77,7 @@ def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
         is_staff = bool(row)
 
         logger.info(
-            "MAGEN_STAFF_CHECK | sender=%s | is_active_staff=%s",
+            "MAGEN_STAFF_CHECK | sender=%s | is_active=%s",
             sender_msisdn,
             is_staff,
         )
@@ -104,7 +89,7 @@ def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
             "MAGEN_STAFF_CHECK_FAIL | sender=%s",
             sender_msisdn,
         )
-        return False  # Fail-safe: treat as unauthorised
+        return False  # Fail safe → treat as unauthorised
 
 
 def _extract_message(payload: dict):
@@ -183,6 +168,117 @@ def _extract_message(payload: dict):
         return None, None, None, None
 
 
+def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
+    if not provider_message_id:
+        logger.warning("DEDUPE_SKIP | reason=no_provider_message_id")
+        return True
+
+    try:
+        result = db.execute(
+            text(
+                """
+                INSERT INTO inbound_message_dedupe (provider_message_id)
+                VALUES (:pid)
+                ON CONFLICT (provider_message_id) DO NOTHING
+                """
+            ),
+            {"pid": provider_message_id},
+        )
+        db.commit()
+
+        locked = bool(getattr(result, "rowcount", 0) == 1)
+
+        logger.info(
+            "DEDUPE_RESULT | pid=%s | locked=%s",
+            provider_message_id,
+            locked,
+        )
+
+        return locked
+
+    except Exception:
+        db.rollback()
+        logger.exception("DEDUPE_LOCK_FAIL | pid=%s", provider_message_id)
+        return True
+
+
+def _resolve_integer_client_id(
+    db: Session,
+    *,
+    business_msisdn: str,
+) -> int | None:
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT klresolute_client_id
+                    FROM whatsapp_numbers
+                    WHERE destination_number = :business
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_msisdn},
+            )
+            .mappings()
+            .first()
+        )
+
+        if not row or row["klresolute_client_id"] is None:
+            logger.error(
+                "CLIENT_ID_INT_NOT_FOUND | business=%s",
+                business_msisdn,
+            )
+            return None
+
+        logger.info(
+            "CLIENT_ID_INT_RESOLVED | business=%s | client_id=%s",
+            business_msisdn,
+            row["klresolute_client_id"],
+        )
+
+        return int(row["klresolute_client_id"])
+
+    except Exception:
+        logger.exception(
+            "CLIENT_ID_INT_LOOKUP_FAIL | business=%s",
+            business_msisdn,
+        )
+        return None
+
+
+def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM galitos_staff
+                    WHERE msisdn = :msisdn
+                      AND is_active = true
+                    LIMIT 1
+                    """
+                ),
+                {"msisdn": sender_msisdn},
+            )
+            .first()
+        )
+
+        is_staff = bool(row)
+        logger.info(
+            "STAFF_INBOUND_CHECK | sender=%s | is_active_staff=%s",
+            sender_msisdn,
+            is_staff,
+        )
+        return is_staff
+
+    except Exception:
+        logger.exception("STAFF_INBOUND_CHECK_FAIL | sender=%s", sender_msisdn)
+        return False
+
+
 # -------------------------------------------------
 # Webhook
 # -------------------------------------------------
@@ -211,9 +307,7 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
-    # -------------------------------------------------
-    # DB Guard
-    # -------------------------------------------------
+    # DB guard
     try:
         db.execute(text("SELECT 1"))
         logger.info("DB_OK")
@@ -226,16 +320,12 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     # -------------------------------------------------
-    # 🔒 MAGEN STRICT INTERNAL ENFORCEMENT
+    # 🔒 Magen Strict Internal Enforcement (PATCH)
     # -------------------------------------------------
     if business_msisdn == MAGEN_BUSINESS_NUMBER:
 
-        is_authorised = _is_active_magen_staff(
-            db,
-            sender_msisdn=sender,
-        )
+        if not _is_active_magen_staff(db, sender_msisdn=sender):
 
-        if not is_authorised:
             logger.warning(
                 "MAGEN_UNAUTHORISED_ATTEMPT | sender=%s | business=%s",
                 sender,
@@ -245,7 +335,7 @@ async def whatsapp_webhook(
             try:
                 send_message(
                     to_number=sender,
-                    text=MAGEN_UNAUTHORISED_MESSAGE,
+                    text=MAGEN_INTERNAL_ONLY_MESSAGE,
                 )
             except Exception:
                 logger.exception(
@@ -256,8 +346,32 @@ async def whatsapp_webhook(
             return Response(status_code=200)
 
     # -------------------------------------------------
-    # Dispatch (only reached if authorised or non-Magen)
+    # Receive-only guard: ignore Galitos staff inbound
     # -------------------------------------------------
+    if _is_active_galitos_staff(db, sender_msisdn=sender):
+        logger.warning(
+            "WEBHOOK_ABORT | reason=staff_inbound_blocked | sender=%s | business=%s",
+            sender,
+            business_msisdn,
+        )
+        return Response(status_code=200)
+
+    # Dedupe
+    if not _try_lock_provider_message(db, provider_message_id):
+        logger.warning(
+            "WEBHOOK_ABORT | reason=duplicate | pid=%s",
+            provider_message_id,
+        )
+        return Response(status_code=200)
+
+    # Maintenance
+    try:
+        auto_close_expired_inspections(db)
+        logger.info("AUTO_CLOSE_CHECK_DONE")
+    except Exception:
+        logger.exception("AUTO_CLOSE_FAIL")
+
+    # Dispatch
     logger.info(
         "DISPATCH_CALL | sender=%s | business=%s | msg_type=%s",
         sender,
@@ -293,8 +407,6 @@ async def whatsapp_webhook(
         )
 
         if body.upper() not in ("YES", "NO"):
-            from app.webhooks import _resolve_integer_client_id  # existing function
-
             client_id_int = _resolve_integer_client_id(
                 db,
                 business_msisdn=business_msisdn,
