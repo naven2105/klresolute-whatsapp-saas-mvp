@@ -4,6 +4,23 @@ from __future__ import annotations
 File: app/webhooks.py
 Path: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+Inbound WhatsApp webhook entry point.
+
+Responsibilities (LOCKED):
+- Parse inbound Meta payload
+- Normalise MSISDNs
+- Guard DB availability
+- Deduplicate provider messages
+- Dispatch to module router
+- Fallback to Tier-1 routing
+
+This file MUST explain, via logs, why a message:
+- was ignored
+- was handled
+- was dispatched
+- fell through
 """
 
 import logging
@@ -25,7 +42,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 
 # -------------------------------------------------
-# 🔒 Magen Internal Enforcement Constants (PATCH)
+# 🔒 Magen Internal Enforcement Constants
 # -------------------------------------------------
 MAGEN_BUSINESS_NUMBER = "27631016099"
 MAGEN_INTERNAL_ONLY_MESSAGE = "This bot is for Magen internal use only."
@@ -53,9 +70,6 @@ def _normalise_msisdn(raw: str | None) -> Optional[str]:
     return None
 
 
-# -------------------------------------------------
-# 🔒 Magen Whitelist Check (PATCH)
-# -------------------------------------------------
 def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
     try:
         row = (
@@ -89,7 +103,7 @@ def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
             "MAGEN_STAFF_CHECK_FAIL | sender=%s",
             sender_msisdn,
         )
-        return False  # Fail safe → treat as unauthorised
+        return False  # Fail safe
 
 
 def _extract_message(payload: dict):
@@ -314,14 +328,14 @@ async def whatsapp_webhook(
     except OperationalError:
         logger.critical("DB_UNAVAILABLE | sender=%s", sender)
         send_message(
+            db=db,
+            business_msisdn=business_msisdn,
             to_number=sender,
             text="⚠️ Service temporarily unavailable. Please try again shortly.",
         )
         return Response(status_code=200)
 
-    # -------------------------------------------------
-    # 🔒 Magen Strict Internal Enforcement (PATCH)
-    # -------------------------------------------------
+    # 🔒 Magen Strict Internal Enforcement
     if business_msisdn == MAGEN_BUSINESS_NUMBER:
 
         if not _is_active_magen_staff(db, sender_msisdn=sender):
@@ -334,6 +348,8 @@ async def whatsapp_webhook(
 
             try:
                 send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
                     to_number=sender,
                     text=MAGEN_INTERNAL_ONLY_MESSAGE,
                 )
