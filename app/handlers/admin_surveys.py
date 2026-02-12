@@ -35,6 +35,7 @@ from sqlalchemy import text
 
 from app.models import Contact
 from app.outbound.factory import get_meta_client
+from app.messaging.client_messenger import send_message
 
 from app.modules.survey.survey_service import (
     start_survey,
@@ -93,7 +94,7 @@ def handle_admin_surveys(
             logger.info("SURVEY_SKIP | reason=not_admin")
             return False
 
-        meta = get_meta_client()
+        meta = get_meta_client()  # Only used for interactive exception
 
         text_clean = (message_text or "").strip()
         upper = text_clean.upper()
@@ -112,9 +113,12 @@ def handle_admin_surveys(
                     closed.id,
                 )
                 summary = build_survey_summary_text(db, closed)
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text=_sanitize_template_text(summary),
+
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_number,
+                    text=_sanitize_template_text(summary),
                 )
         except Exception as exc:
             logger.exception("SURVEY_AUTO_CLOSE_FAIL | err=%s", exc)
@@ -126,9 +130,11 @@ def handle_admin_surveys(
 
             active = get_active_survey(db, business_number)
             if not active:
-                meta.send_generic_business_update_template(
-                    to_msisdn=sender_number,
-                    blob_text=_sanitize_template_text(
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_number,
+                    text=_sanitize_template_text(
                         ADMIN_SURVEY_NO_ACTIVE_TEMPLATE
                     ),
                 )
@@ -138,14 +144,18 @@ def handle_admin_surveys(
 
             summary = build_survey_summary_text(db, active)
 
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=_sanitize_template_text(summary),
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_number,
+                text=_sanitize_template_text(summary),
             )
 
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text="Survey closed successfully.",
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_number,
+                text="Survey closed successfully.",
             )
 
             logger.info(
@@ -171,9 +181,11 @@ def handle_admin_surveys(
 
         active_existing = get_active_survey(db, business_number)
         if active_existing:
-            meta.send_generic_business_update_template(
-                to_msisdn=sender_number,
-                blob_text=_sanitize_template_text(
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_number,
+                text=_sanitize_template_text(
                     ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE.format(
                         question=active_existing.question,
                         hours_remaining=int(
@@ -241,9 +253,11 @@ def handle_admin_surveys(
                 buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
             )
 
-        meta.send_generic_business_update_template(
-            to_msisdn=sender_number,
-            blob_text=_sanitize_template_text(
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_number,
+            text=_sanitize_template_text(
                 ADMIN_SURVEY_STARTED_TEMPLATE.format(question=question)
             ),
         )
