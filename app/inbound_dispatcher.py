@@ -118,7 +118,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             if uuid_client_id is None:
                 return True
 
-            # 🔴 NEW: resolve admin numbers via client_admins
             admin_rows = (
                 db.execute(
                     text(
@@ -148,6 +147,20 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             )
 
             return bool(handled)
+
+    # ----------------------------------
+    # SPECIALS (ADMIN MEDIA)  ← ADDED
+    # ----------------------------------
+    if "specials" in profile.enabled_modules:
+        handled = specials_media_handler(
+            db=db,
+            sender=sender,
+            msg=msg,
+            client_id=resolved_client_id,
+            business_msisdn=business_msisdn,
+        )
+        if handled:
+            return True
 
     # ----------------------------------
     # ORDERS
