@@ -1,12 +1,30 @@
 from __future__ import annotations
 
+"""
+File: app/services/galitos_staff_notifier.py
+Path: app/services/galitos_staff_notifier.py
+Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+Notify Galitos staff when a customer order is confirmed.
+
+Rules:
+- MUST always use Meta template (never session message)
+- MUST resolve business_msisdn via whatsapp_numbers
+- MUST fail safely (no exceptions propagated)
+- MUST log clearly for debugging
+"""
+
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.messaging.client_messenger import send_message
+from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("galitos_staff_notifier")
+
+# Approved template for staff order alerts
+STAFF_TEMPLATE_NAME = "generic_business_update"
 
 
 def notify_galitos_staff(
@@ -22,7 +40,7 @@ def notify_galitos_staff(
     )
 
     # -------------------------------------------------
-    # Resolve business_msisdn (required by gateway)
+    # Resolve business_msisdn
     # -------------------------------------------------
     try:
         business_row = (
@@ -97,23 +115,25 @@ def notify_galitos_staff(
         return
 
     # -------------------------------------------------
-    # Send via single transport gateway
+    # Send via TEMPLATE (always)
     # -------------------------------------------------
+    meta = get_meta_client(business_msisdn=business_msisdn)
+
     for r in rows:
         msisdn = r["msisdn"]
 
         try:
             logger.info(
-                "ORDER_STAFF_NOTIFY_SEND | client_id=%s | msisdn=%s",
+                "ORDER_STAFF_NOTIFY_SEND_TEMPLATE | client_id=%s | msisdn=%s",
                 client_id,
                 msisdn,
             )
 
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=msisdn,
-                text=message,
+            meta.send_template(
+                to_msisdn=msisdn,
+                template_name=STAFF_TEMPLATE_NAME,
+                language_code="en_US",
+                body_params=[message],
             )
 
             logger.info(
