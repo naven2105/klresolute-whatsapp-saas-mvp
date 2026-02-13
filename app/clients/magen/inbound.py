@@ -58,6 +58,8 @@ def handle_inbound(
     # ----------------------------------
     if not is_active_staff(db, msisdn=sender):
         send_message(
+            db=db,
+            business_msisdn=business_msisdn,
             to_number=sender,
             text=(
                 "Magen Security WhatsApp\n"
@@ -80,6 +82,8 @@ def handle_inbound(
         if text_body == "done":
             if not active:
                 send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
                     to_number=sender,
                     text="No active inspection to close.",
                 )
@@ -89,6 +93,8 @@ def handle_inbound(
 
             # --- Guaranteed ACK via template (Magen only) ---
             send_message(
+                db=db,
+                business_msisdn=business_msisdn,
                 to_number=sender,
                 template_name="magen_inspection_completed",
                 language_code="en_US",
@@ -158,13 +164,22 @@ def handle_inbound(
         return True
 
     # ----------------------------------
-    # TEXT NOTE
+    # TEXT NOTE / STAFF MENU
     # ----------------------------------
     if msg_type == "text":
         if not active:
             send_message(
+                db=db,
+                business_msisdn=business_msisdn,
                 to_number=sender,
-                text="Send a photo or location to start an inspection.",
+                text=(
+                    "Magen Inspection Bot\n\n"
+                    "• Send a photo to start a new inspection.\n"
+                    "• Send location if required.\n"
+                    "• Send notes anytime during an active inspection.\n"
+                    "• Send DONE to close the inspection.\n\n"
+                    "Inspections auto-close after 5 minutes of inactivity."
+                ),
             )
             return True
 
