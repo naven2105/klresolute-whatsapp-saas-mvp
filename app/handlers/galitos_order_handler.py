@@ -17,14 +17,22 @@ logger = logging.getLogger("galitos_order_handler")
 ORDER_TIMEOUT_MINUTES = 10
 
 
-def _send_text(to_number: str, message_text: str) -> None:
+def _send_text(*, db: Session, business_msisdn: str, to_number: str, message_text: str) -> None:
     logger.info("ORDER_SEND_TEXT | to=%s | text=%r", to_number, message_text)
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=...,
-        text=...
-    )
+
+    if not business_msisdn:
+        logger.error("ORDER_SEND_TEXT_SKIP | reason=missing_business_msisdn | to=%s", to_number)
+        return
+
+    try:
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=to_number,
+            text=message_text,
+        )
+    except Exception:
+        logger.exception("ORDER_SEND_TEXT_FAIL | to=%s", to_number)
 
 
 def _close_order_state(db: Session, state_id: str, reason: str) -> None:
@@ -50,6 +58,8 @@ def handle_order_message(
     message_text: str,
     context: Dict[str, Any],
 ) -> bool:
+
+    business_msisdn = (context or {}).get("business_msisdn")
 
     logger.info(
         "ORDER_HANDLER_ENTER | sender=%s | text=%r",
@@ -81,7 +91,12 @@ def handle_order_message(
         now_utc = datetime.now(timezone.utc)
         if now_utc - started_at > timedelta(minutes=ORDER_TIMEOUT_MINUTES):
             _close_order_state(db, state["id"], "timeout")
-            _send_text(from_number, "Your previous order expired. Type MENU to start again.")
+            _send_text(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=from_number,
+                message_text="Your previous order expired. Type MENU to start again.",
+            )
             return True
 
     normalized = (message_text or "").strip().upper()
@@ -89,12 +104,22 @@ def handle_order_message(
     # --- escape / cancel ---
     if normalized == "MENU":
         _close_order_state(db, state["id"], "menu_cancel")
-        _send_text(from_number, "Order cancelled. Type MENU to start again.")
+        _send_text(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=from_number,
+            message_text="Order cancelled. Type MENU to start again.",
+        )
         return True
 
     if normalized == "NO":
         _close_order_state(db, state["id"], "user_cancel")
-        _send_text(from_number, "Order cancelled. Type MENU to start again.")
+        _send_text(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=from_number,
+            message_text="Order cancelled. Type MENU to start again.",
+        )
         return True
 
     # --- flavour selection ---
@@ -120,22 +145,30 @@ def handle_order_message(
             db.commit()
 
             _send_text(
-                from_number,
-                f"{state['item_name']}\n"
-                f"Flavour: {flavour_label}\n"
-                f"Price: R{state['total_amount']}\n\n"
-                "Reply YES to confirm\n"
-                "Reply NO to cancel"
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=from_number,
+                message_text=(
+                    f"{state['item_name']}\n"
+                    f"Flavour: {flavour_label}\n"
+                    f"Price: R{state['total_amount']}\n\n"
+                    "Reply YES to confirm\n"
+                    "Reply NO to cancel"
+                ),
             )
             return True
 
         _send_text(
-            from_number,
-            "Please choose a flavour:\n"
-            "1. Lemon & Herb\n"
-            "2. Mild\n"
-            "3. Hot\n\n"
-            "Or reply MENU to cancel."
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=from_number,
+            message_text=(
+                "Please choose a flavour:\n"
+                "1. Lemon & Herb\n"
+                "2. Mild\n"
+                "3. Hot\n\n"
+                "Or reply MENU to cancel."
+            ),
         )
         return True
 
@@ -185,12 +218,19 @@ def handle_order_message(
             message=staff_message,
         )
 
-        _send_text(from_number, "Thank you. Order received.")
+        _send_text(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=from_number,
+            message_text="Thank you. Order received.",
+        )
         return True
 
     # --- fallback escape ---
     _send_text(
-        from_number,
-        "Reply YES to confirm, NO to cancel, or MENU to start again."
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=from_number,
+        message_text="Reply YES to confirm, NO to cancel, or MENU to start again.",
     )
     return True
