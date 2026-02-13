@@ -20,14 +20,21 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
-from app.clients.magen.workers.pdf_worker import generate_and_send_inspection_pdf
 
-from app.clients.magen.inspection_service import (
+from app.clients.magen.inspection.workers.pdf_worker import (
+    generate_and_send_inspection_pdf,
+)
+
+from app.clients.magen.inspection.service import (
     get_active_inspection,
     start_inspection,
     close_inspection,
 )
-from app.clients.magen.inspection_events_repo import insert_event
+
+from app.clients.magen.inspection.events_repo import (
+    insert_event,
+)
+
 from app.clients.magen.staff_repo import is_active_staff
 
 logger = logging.getLogger("clients.magen")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/clients/magen/inspection_events_repo.py
-Path: app/clients/magen/inspection_events_repo.py
+File: app/clients/magen/inspection/events_repo.py
+Path: app/clients/magen/inspection/events_repo.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:

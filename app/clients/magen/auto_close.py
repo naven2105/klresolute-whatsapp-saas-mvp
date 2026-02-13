@@ -21,7 +21,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.clients.magen.workers.pdf_worker import (
+from app.clients.magen.inspection.workers.pdf_worker import (
     generate_and_send_inspection_pdf,
 )
 
