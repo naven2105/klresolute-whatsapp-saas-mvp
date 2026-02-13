@@ -144,12 +144,13 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 media_type=None,
                 client_id=uuid_client_id,
                 admin_numbers=admin_numbers,
+                business_msisdn=business_msisdn,  # ← ADDED
             )
 
             return bool(handled)
 
     # ----------------------------------
-    # SPECIALS (ADMIN MEDIA)  ← ADDED
+    # SPECIALS (ADMIN MEDIA)
     # ----------------------------------
     if "specials" in profile.enabled_modules:
         handled = specials_media_handler(

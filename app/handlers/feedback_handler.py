@@ -10,6 +10,8 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from app.outbound.factory import get_meta_client
+
 logger = logging.getLogger("feedback_handler")
 logger.setLevel(logging.INFO)
 
@@ -22,7 +24,7 @@ CUSTOMER_ACK_TEMPLATE_NAME = "generic_business_update"
 # Outbound helpers
 # -------------------------------------------------
 
-def _send_customer_ack(to_number: str) -> None:
+def _send_customer_ack(to_number: str, business_msisdn: str) -> None:
     logger.info(
         "FEEDBACK_ACK_ATTEMPT | customer=%s | template=%s",
         to_number,
@@ -30,7 +32,9 @@ def _send_customer_ack(to_number: str) -> None:
     )
 
     try:
-        result = send_template(
+        meta = get_meta_client(business_msisdn=business_msisdn)
+
+        result = meta.send_template(
             to_msisdn=to_number,
             template_name=CUSTOMER_ACK_TEMPLATE_NAME,
             language_code="en_US",
@@ -40,9 +44,9 @@ def _send_customer_ack(to_number: str) -> None:
         )
 
         logger.info(
-            "FEEDBACK_ACK_SENT | customer=%s | message_id=%s",
+            "FEEDBACK_ACK_SENT | customer=%s | status=%s",
             to_number,
-            getattr(result, "message_id", None),
+            result.status_code,
         )
 
     except Exception:
@@ -52,7 +56,7 @@ def _send_customer_ack(to_number: str) -> None:
         )
 
 
-def _send_admin_alert(to_number: str, alert_text: str) -> None:
+def _send_admin_alert(to_number: str, alert_text: str, business_msisdn: str) -> None:
     logger.info(
         "ADMIN_ALERT_ATTEMPT | admin=%s | template=%s",
         to_number,
@@ -60,7 +64,9 @@ def _send_admin_alert(to_number: str, alert_text: str) -> None:
     )
 
     try:
-        result = send_template(
+        meta = get_meta_client(business_msisdn=business_msisdn)
+
+        result = meta.send_template(
             to_msisdn=to_number,
             template_name=ADMIN_TEMPLATE_NAME,
             language_code="en_US",
@@ -68,9 +74,9 @@ def _send_admin_alert(to_number: str, alert_text: str) -> None:
         )
 
         logger.info(
-            "ADMIN_ALERT_SENT | admin=%s | message_id=%s",
+            "ADMIN_ALERT_SENT | admin=%s | status=%s",
             to_number,
-            getattr(result, "message_id", None),
+            result.status_code,
         )
 
     except Exception:
@@ -93,6 +99,7 @@ def handle_feedback_message(
     media_type: str | None,
     client_id,
     admin_numbers: set[str],
+    business_msisdn: str,
 ) -> bool:
 
     logger.info(
@@ -153,7 +160,7 @@ def handle_feedback_message(
         )
         return True
 
-    _send_customer_ack(sender_number)
+    _send_customer_ack(sender_number, business_msisdn)
 
     clean_message = (message_text or "Media received").replace("\n", " ").strip()
 
@@ -169,7 +176,7 @@ def handle_feedback_message(
         logger.info("ADMIN_ALERT_TARGETS | count=%s", len(admin_numbers))
 
     for admin in admin_numbers:
-        _send_admin_alert(admin, alert_text)
+        _send_admin_alert(admin, alert_text, business_msisdn)
 
     logger.info("FEEDBACK_COMPLETE | from=%s", sender_number)
     return True
