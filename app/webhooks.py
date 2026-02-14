@@ -5,6 +5,8 @@ File: app/webhooks.py
 Path: app/webhooks.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Inbound WhatsApp webhook entry point.
 
@@ -219,17 +221,20 @@ def _try_lock_provider_message(db: Session, provider_message_id: str) -> bool:
         return True
 
 
-def _resolve_integer_client_id(
+def _resolve_uuid_client_id(
     db: Session,
     *,
     business_msisdn: str,
-) -> int | None:
+) -> str | None:
+    """
+    UUID-only identity resolution (post-migration).
+    """
     try:
         row = (
             db.execute(
                 text(
                     """
-                    SELECT klresolute_client_id
+                    SELECT client_id
                     FROM whatsapp_numbers
                     WHERE destination_number = :business
                       AND status = 'active'
@@ -242,24 +247,24 @@ def _resolve_integer_client_id(
             .first()
         )
 
-        if not row or row["klresolute_client_id"] is None:
+        if not row or not row.get("client_id"):
             logger.error(
-                "CLIENT_ID_INT_NOT_FOUND | business=%s",
+                "CLIENT_ID_UUID_NOT_FOUND | business=%s",
                 business_msisdn,
             )
             return None
 
         logger.info(
-            "CLIENT_ID_INT_RESOLVED | business=%s | client_id=%s",
+            "CLIENT_ID_UUID_RESOLVED | business=%s | client_id=%s",
             business_msisdn,
-            row["klresolute_client_id"],
+            row["client_id"],
         )
 
-        return int(row["klresolute_client_id"])
+        return str(row["client_id"])
 
     except Exception:
         logger.exception(
-            "CLIENT_ID_INT_LOOKUP_FAIL | business=%s",
+            "CLIENT_ID_UUID_LOOKUP_FAIL | business=%s",
             business_msisdn,
         )
         return None
@@ -415,18 +420,18 @@ async def whatsapp_webhook(
         )
 
         if body.upper() not in ("YES", "NO"):
-            client_id_int = _resolve_integer_client_id(
+            client_id_uuid = _resolve_uuid_client_id(
                 db,
                 business_msisdn=business_msisdn,
             )
 
-            if client_id_int is not None:
+            if client_id_uuid is not None:
                 handle_client_command(
                     db=db,
                     sender_number=sender,
                     message_text=body,
                     msg=msg,
-                    resolved_client_id=str(client_id_int),
+                    resolved_client_id=client_id_uuid,
                     resolved_business_number=business_msisdn,
                 )
 
