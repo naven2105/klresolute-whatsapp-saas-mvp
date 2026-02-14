@@ -5,13 +5,16 @@ File: app/menus/customer_menu_service.py
 Path: app/menus/customer_menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 DB-backed customer menu sender.
 
-RULE (MVP):
-- Accept INTEGER client_id from Tier-1
-- Resolve UUID client_id internally for client_menus
-- Use single transport gateway
+RULE (UPDATED):
+- Accept UUID client_id
+- No integer resolution
+- No klresolute_client_id usage
+- Single identity model (UUID only)
 """
 
 import logging
@@ -25,51 +28,10 @@ from app.messaging.client_messenger import send_message
 logger = logging.getLogger("menus.customer_menu_service")
 
 
-def _resolve_client_uuid(
-    db: Session,
-    *,
-    client_id_int: int,
-) -> str | None:
-    try:
-        row = (
-            db.execute(
-                text(
-                    """
-                    SELECT client_id
-                    FROM whatsapp_numbers
-                    WHERE klresolute_client_id = :cid
-                      AND status = 'active'
-                    LIMIT 1
-                    """
-                ),
-                {"cid": client_id_int},
-            )
-            .mappings()
-            .first()
-        )
-
-        if not row:
-            logger.error(
-                "MENU_CLIENT_UUID_NOT_FOUND | client_id_int=%s",
-                client_id_int,
-            )
-            return None
-
-        return str(row["client_id"])
-
-    except Exception as exc:
-        logger.exception(
-            "MENU_CLIENT_UUID_RESOLUTION_FAIL | client_id_int=%s | err=%s",
-            client_id_int,
-            exc,
-        )
-        return None
-
-
 def _resolve_business_number(
     db: Session,
     *,
-    client_id_int: int,
+    client_id: str,
 ) -> str | None:
     try:
         row = (
@@ -78,12 +40,12 @@ def _resolve_business_number(
                     """
                     SELECT destination_number
                     FROM whatsapp_numbers
-                    WHERE klresolute_client_id = :cid
+                    WHERE client_id = :client_id
                       AND status = 'active'
                     LIMIT 1
                     """
                 ),
-                {"cid": client_id_int},
+                {"client_id": client_id},
             )
             .mappings()
             .first()
@@ -91,8 +53,8 @@ def _resolve_business_number(
 
         if not row:
             logger.error(
-                "MENU_BUSINESS_NUMBER_NOT_FOUND | client_id_int=%s",
-                client_id_int,
+                "MENU_BUSINESS_NUMBER_NOT_FOUND | client_id=%s",
+                client_id,
             )
             return None
 
@@ -100,8 +62,8 @@ def _resolve_business_number(
 
     except Exception as exc:
         logger.exception(
-            "MENU_BUSINESS_RESOLUTION_FAIL | client_id_int=%s | err=%s",
-            client_id_int,
+            "MENU_BUSINESS_RESOLUTION_FAIL | client_id=%s | err=%s",
+            client_id,
             exc,
         )
         return None
@@ -116,31 +78,18 @@ def send_customer_menu_from_db(
 ) -> None:
 
     logger.info(
-        "MENU_SERVICE_ENTER | client_id=%r | type=%s",
+        "MENU_SERVICE_ENTER | client_id=%s | type=%s",
         client_id,
         type(client_id).__name__,
     )
 
-    try:
-        client_id_int = int(str(client_id))
-    except Exception:
-        logger.error(
-            "MENU_CLIENT_ID_INVALID | client_id=%r",
-            client_id,
-        )
-        return
-
-    client_uuid = _resolve_client_uuid(
-        db,
-        client_id_int=client_id_int,
-    )
-
-    if not client_uuid:
+    if not client_id:
+        logger.error("MENU_CLIENT_ID_MISSING")
         return
 
     business_msisdn = _resolve_business_number(
         db,
-        client_id_int=client_id_int,
+        client_id=client_id,
     )
 
     if not business_msisdn:
@@ -158,7 +107,7 @@ def send_customer_menu_from_db(
                 LIMIT 1
                 """
             ),
-            {"client_id": client_uuid, "menu_key": menu_key},
+            {"client_id": client_id, "menu_key": menu_key},
         )
         .mappings()
         .first()
@@ -166,8 +115,8 @@ def send_customer_menu_from_db(
 
     if not row:
         logger.error(
-            "MENU_NOT_FOUND | client_uuid=%s | key=%s",
-            client_uuid,
+            "MENU_NOT_FOUND | client_id=%s | key=%s",
+            client_id,
             menu_key,
         )
         return
@@ -182,7 +131,7 @@ def send_customer_menu_from_db(
     )
 
     logger.info(
-        "MENU_SENT | client_uuid=%s | sender=%s",
-        client_uuid,
+        "MENU_SENT | client_id=%s | sender=%s",
+        client_id,
         sender,
     )
