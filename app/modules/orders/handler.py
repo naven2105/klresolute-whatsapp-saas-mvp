@@ -5,6 +5,8 @@ File: app/modules/orders/handler.py
 Path: app/modules/orders/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Orders module entry point.
 
@@ -12,6 +14,7 @@ Rules (LOCKED):
 - Routing only
 - No SQL except INSERT
 - Delegate continuation to galitos_order_handler
+- UUID client_id only
 """
 
 import logging
@@ -22,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from app.handlers import galitos_order_handler as galitos_orders
 from app.modules.orders.db import (
     get_active_order_state,
-    get_klresolute_client_id,
+    get_client_uuid,
     get_active_staff_numbers,
 )
 from app.modules.orders.messages import (
@@ -94,7 +97,7 @@ def handle(
                 )
                 return False
 
-            client_id = get_klresolute_client_id(db, business_msisdn)
+            client_id = get_client_uuid(db, business_msisdn)
             if client_id is None:
                 return True
 
@@ -140,9 +143,10 @@ def handle(
             db.commit()
 
             logger.info(
-                "ORDERS_STATE_CREATED | sender=%s | item=%s",
+                "ORDERS_STATE_CREATED | sender=%s | item=%s | client_id=%s",
                 sender,
                 name,
+                client_id,
             )
 
             ask_for_flavour(

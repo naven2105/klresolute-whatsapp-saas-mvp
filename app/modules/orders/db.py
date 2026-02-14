@@ -5,6 +5,8 @@ File: app/modules/orders/db.py
 Path: app/modules/orders/db.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Database access helpers for Orders module.
 
@@ -12,6 +14,7 @@ Rules (LOCKED):
 - READ helpers only
 - No messaging
 - No business logic
+- UUID client_id only
 """
 
 import logging
@@ -53,12 +56,15 @@ def get_active_order_state(db: Session, sender: str) -> dict | None:
     return dict(row)
 
 
-def get_klresolute_client_id(db: Session, business_msisdn: str) -> int | None:
+def get_client_uuid(db: Session, business_msisdn: str) -> str | None:
+    """
+    UUID-only client resolution.
+    """
     row = (
         db.execute(
             text(
                 """
-                SELECT klresolute_client_id
+                SELECT client_id
                 FROM whatsapp_numbers
                 WHERE destination_number = :business
                   AND status = 'active'
@@ -71,19 +77,20 @@ def get_klresolute_client_id(db: Session, business_msisdn: str) -> int | None:
         .first()
     )
 
-    if not row or row.get("klresolute_client_id") is None:
+    if not row or not row.get("client_id"):
         logger.error(
-            "ORDERS_CLIENT_ID_LOOKUP_FAIL | business=%s",
+            "ORDERS_CLIENT_UUID_LOOKUP_FAIL | business=%s",
             business_msisdn,
         )
         return None
 
     logger.info(
-        "ORDERS_CLIENT_ID_RESOLVED | business=%s | client_id=%s",
+        "ORDERS_CLIENT_UUID_RESOLVED | business=%s | client_id=%s",
         business_msisdn,
-        row["klresolute_client_id"],
+        row["client_id"],
     )
-    return row["klresolute_client_id"]
+
+    return str(row["client_id"])
 
 
 def get_active_staff_numbers(db: Session) -> list[str]:
