@@ -5,6 +5,8 @@ File: app/handlers/tier1_router.py
 Path: app/handlers/tier1_router.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Tier-1 Router (Client + Admin entry point)
 
@@ -19,9 +21,9 @@ LOCKED GUARDS:
 - MUST NOT require profile DB for orders
 - Admin must ALWAYS receive a response
 
-DB TRUTH:
-- client_contacts.client_id is INTEGER
-- Tier-1 only uses resolved integer client_id
+DB TRUTH (UPDATED):
+- client_contacts.client_id is UUID
+- Tier-1 uses resolved UUID client_id only
 """
 
 import logging
@@ -72,7 +74,7 @@ def _send_text(*, business_number: str | None, to_number: str, text_msg: str, db
 def _ensure_client_contact(
     db: Session,
     *,
-    client_id: int,
+    client_id: str,
     contact_number: str,
 ) -> None:
     try:
@@ -137,20 +139,6 @@ def _ensure_client_contact(
         )
 
 
-def _parse_client_id(resolved_client_id: str | None) -> int | None:
-    if not resolved_client_id:
-        logger.error("CLIENT_ID_PARSE_SKIP | reason=missing")
-        return None
-    try:
-        return int(resolved_client_id)
-    except Exception:
-        logger.exception(
-            "CLIENT_ID_PARSE_FAIL | raw=%r",
-            resolved_client_id,
-        )
-        return None
-
-
 # -------------------------------------------------
 # Main handler
 # -------------------------------------------------
@@ -212,8 +200,7 @@ def handle_client_command(
         # =================================================
         # CUSTOMER PATH
         # =================================================
-        client_id_int = _parse_client_id(resolved_client_id)
-        if client_id_int is None:
+        if not resolved_client_id:
             logger.error(
                 "CUSTOMER_BLOCKED | reason=client_id_missing | sender=%s",
                 sender_number,
@@ -235,12 +222,12 @@ def handle_client_command(
             logger.info(
                 "TIER1_ABOUT_DELEGATED | sender=%s | client_id=%s",
                 sender_number,
-                client_id_int,
+                resolved_client_id,
             )
 
         _ensure_client_contact(
             db,
-            client_id=client_id_int,
+            client_id=resolved_client_id,
             contact_number=sender_number,
         )
 
@@ -269,7 +256,7 @@ def handle_client_command(
             sender=sender_number,
             msg=msg
             or {"type": "text", "text": {"body": message_text or ""}},
-            client_id=str(client_id_int),
+            client_id=resolved_client_id,
             business_msisdn=business_number or "",
         )
 
