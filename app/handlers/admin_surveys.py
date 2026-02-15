@@ -94,7 +94,10 @@ def handle_admin_surveys(
             logger.info("SURVEY_SKIP | reason=not_admin")
             return False
 
-        meta = get_meta_client(business_msisdn=business_msisdn)
+        meta = get_meta_client(
+            db=db,
+            business_msisdn=business_msisdn,
+        )
 
         text_clean = (message_text or "").strip()
         upper = text_clean.upper()
