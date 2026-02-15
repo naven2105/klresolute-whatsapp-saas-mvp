@@ -43,22 +43,15 @@ def handle_media_message(
         client_id,
     )
 
-    # Defensive rollback
     try:
         db.rollback()
     except Exception:
         logger.exception("SPECIALS_DB_RESET_FAIL | sender=%s", sender)
 
-    # -------------------------------------------------
-    # Only images handled here
-    # -------------------------------------------------
     if msg.get("type") != "image":
         logger.debug("SPECIALS_MEDIA_SKIP | reason=not_image")
         return False
 
-    # -------------------------------------------------
-    # Admin-only rule
-    # -------------------------------------------------
     if not is_admin_message(
         db=db,
         sender=sender,
@@ -70,16 +63,16 @@ def handle_media_message(
         )
         return True
 
-    # -------------------------------------------------
-    # UUID client_id only
-    # -------------------------------------------------
     client_uuid = str(client_id)
 
     if not client_uuid:
         logger.error("SPECIALS_CLIENT_ID_INVALID | raw=%r", client_id)
         return True
 
-    meta = get_meta_client(business_msisdn=business_msisdn)
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     media_id = msg["image"]["id"]
     caption = msg["image"].get("caption") or DEFAULT_CAPTION
@@ -91,9 +84,6 @@ def handle_media_message(
         caption,
     )
 
-    # -------------------------------------------------
-    # Store SPECIAL (latest wins)
-    # -------------------------------------------------
     try:
         db.execute(
             text(
@@ -137,9 +127,6 @@ def handle_media_message(
         )
         return True
 
-    # -------------------------------------------------
-    # Resolve admins (exclude from recipients)
-    # -------------------------------------------------
     try:
         admin_numbers = {
             row[0]
@@ -159,9 +146,6 @@ def handle_media_message(
         logger.exception("SPECIALS_ADMIN_FETCH_FAIL")
         return True
 
-    # -------------------------------------------------
-    # Push SPECIAL to all customers
-    # -------------------------------------------------
     try:
         contacts = (
             db.query(Contact)
@@ -208,9 +192,6 @@ def handle_media_message(
         failed,
     )
 
-    # -------------------------------------------------
-    # Confirm to admin
-    # -------------------------------------------------
     try:
         meta.send_generic_business_update_template(
             to_msisdn=sender,
