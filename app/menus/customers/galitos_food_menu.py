@@ -56,7 +56,10 @@ def _ask_for_flavour(
     business_msisdn: str,
     sender: str,
 ):
-    meta = get_meta_client(business_msisdn=business_msisdn)
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     meta.send_session_message(
         to_msisdn=sender,
@@ -91,8 +94,8 @@ def handle_galitos_menu(
 ) -> bool:
 
     meta = get_meta_client(
-    db=db,
-    business_msisdn=business_msisdn,
+        db=db,
+        business_msisdn=business_msisdn,
     )
 
     user_text = message_text.strip()

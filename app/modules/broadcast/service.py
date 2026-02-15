@@ -56,8 +56,10 @@ def handle_text_broadcast(
 
     recipients = get_broadcast_recipients(db, business_msisdn)
 
-    # ✅ business-scoped client
-    meta = get_meta_client(business_msisdn=business_msisdn)
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     for msisdn in recipients:
         try:
@@ -100,8 +102,10 @@ def handle_image_broadcast(
 
     recipients = get_broadcast_recipients(db, business_msisdn)
 
-    # ✅ business-scoped client
-    meta = get_meta_client(business_msisdn=business_msisdn)
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     for msisdn in recipients:
         try:
