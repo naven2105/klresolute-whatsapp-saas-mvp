@@ -148,7 +148,8 @@ def handle_client_command(
         sender_number=sender,
         message_text=text,
         client_id=client_id,
-    ):
+        business_msisdn=business_msisdn,
+    ):        
         return True
 
     # YES / NO
