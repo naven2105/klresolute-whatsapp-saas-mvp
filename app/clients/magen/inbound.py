@@ -107,11 +107,11 @@ def handle_inbound(
                 language_code="en_US",
             )
 
-            # --- Close inspection ---
+            # --- Close inspection (Unified terminal status) ---
             close_inspection(
                 db,
                 inspection_id=inspection_id,
-                status="DONE",
+                status="COMPLETED",
             )
 
             # --- Post-close processing ---
@@ -121,7 +121,7 @@ def handle_inbound(
             )
 
             logger.info(
-                "MAGEN_INSPECTION_DONE | sender=%s | id=%s",
+                "MAGEN_INSPECTION_COMPLETED | sender=%s | id=%s",
                 sender,
                 inspection_id,
             )
