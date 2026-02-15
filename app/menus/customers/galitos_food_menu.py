@@ -90,7 +90,10 @@ def handle_galitos_menu(
     business_msisdn: str,
 ) -> bool:
 
-    meta = get_meta_client(business_msisdn=business_msisdn)
+    meta = get_meta_client(
+    db=db,
+    business_msisdn=business_msisdn,
+    )
 
     user_text = message_text.strip()
     upper = user_text.upper()
