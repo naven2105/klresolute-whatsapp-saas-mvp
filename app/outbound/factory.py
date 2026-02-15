@@ -16,7 +16,6 @@ Purpose:
 Rules:
 - business_msisdn is mandatory
 - db session is mandatory
-- META_WA_PHONE_NUMBER_ID is no longer used
 - Fail fast if sender identity missing
 """
 

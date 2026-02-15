@@ -5,17 +5,17 @@ File: app/outbound/settings.py
 Path: app/outbound/settings.py
 Project: KLResolute WhatsApp SaaS MVP
 
+SPRINT: UUID Identity Consolidation (STRICT MODE)
+
 Purpose:
 - Centralised outbound (Meta WhatsApp Cloud API) configuration.
-- Keep secrets out of code via environment variables.
-- Resolve Meta sender identity (phone_number_id) per client/business when provided.
+- Resolve Meta sender identity strictly from DB.
+- No ENV phone_number_id fallback allowed.
 
-Notes:
-- Required for sending:
-  - META_WA_ACCESS_TOKEN
-  - META_WA_PHONE_NUMBER_ID (legacy fallback only; prefer DB per-client meta_phone_number_id)
-- Optional:
-  - META_WA_API_VERSION (defaults to v20.0 if not provided)
+Rules:
+- META_WA_ACCESS_TOKEN required
+- db + business_msisdn required
+- Fail fast if sender identity missing
 """
 
 import os
@@ -26,9 +26,6 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-# ==================================================
-# Logging
-# ==================================================
 logger = logging.getLogger("outbound.settings")
 
 
@@ -37,7 +34,7 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(
             f"Missing required environment variable: {name}. "
-            f"Set it in your .env / Render / shell before running."
+            f"Set it in your environment."
         )
     return value
 
@@ -63,11 +60,6 @@ def _load_phone_number_id_from_db(
     business_msisdn: str,
 ) -> Optional[str]:
     try:
-        logger.info(
-            "META_SENDER_LOOKUP_START | check=business_to_client_meta | business=%s",
-            business_msisdn,
-        )
-
         row = (
             db.execute(
                 text(
@@ -88,26 +80,12 @@ def _load_phone_number_id_from_db(
         )
 
         if not row:
-            logger.error(
-                "META_SENDER_LOOKUP_MISS | reason=no_active_whatsapp_number_mapping | business=%s",
-                business_msisdn,
-            )
             return None
 
         meta_phone_number_id = row.get("meta_phone_number_id")
-
         if not meta_phone_number_id:
-            logger.error(
-                "META_SENDER_LOOKUP_MISS | reason=meta_phone_number_id_null_or_empty | business=%s",
-                business_msisdn,
-            )
             return None
 
-        logger.info(
-            "META_SENDER_LOOKUP_OK | business=%s | meta_phone_number_id_present=%s",
-            business_msisdn,
-            True,
-        )
         return str(meta_phone_number_id).strip()
 
     except Exception:
@@ -120,48 +98,32 @@ def _load_phone_number_id_from_db(
 
 def load_meta_settings(
     *,
-    db: Optional[Session] = None,
-    business_msisdn: Optional[str] = None,
+    db: Session,
+    business_msisdn: str,
 ) -> MetaWhatsAppSettings:
+
+    if not db:
+        raise RuntimeError("DB session required for Meta settings")
+
+    if not business_msisdn:
+        raise RuntimeError("business_msisdn required for Meta settings")
+
     api_version = os.getenv("META_WA_API_VERSION", "v20.0").strip()
     access_token = _require_env("META_WA_ACCESS_TOKEN")
 
-    if db is not None and business_msisdn:
-        phone_number_id = _load_phone_number_id_from_db(
-            db=db,
-            business_msisdn=business_msisdn,
-        )
-        if not phone_number_id:
-            logger.error(
-                "META_SETTINGS_ABORT | reason=missing_sender_identity | business=%s | continued=%s",
-                business_msisdn,
-                False,
-            )
-            raise RuntimeError(
-                "Missing Meta sender identity for business. "
-                "Ensure clients.meta_phone_number_id is populated and whatsapp_numbers mapping is active."
-            )
-
-        logger.info(
-            "META_SETTINGS_DB_SENDER | business=%s | api_version=%s",
-            business_msisdn,
-            api_version,
-        )
-        return MetaWhatsAppSettings(
-            api_version=api_version,
-            access_token=access_token,
-            phone_number_id=phone_number_id,
-        )
-
-    logger.warning(
-        "META_SETTINGS_ENV_SENDER | check=db_and_business_required | db_provided=%s | business_provided=%s | continued=%s",
-        bool(db is not None),
-        bool(business_msisdn),
-        True,
+    phone_number_id = _load_phone_number_id_from_db(
+        db=db,
+        business_msisdn=business_msisdn,
     )
+
+    if not phone_number_id:
+        raise RuntimeError(
+            "Missing Meta sender identity in DB. "
+            "Ensure clients.meta_phone_number_id is populated and whatsapp_numbers mapping is active."
+        )
 
     return MetaWhatsAppSettings(
         api_version=api_version,
         access_token=access_token,
-        phone_number_id=_require_env("META_WA_PHONE_NUMBER_ID"),
+        phone_number_id=phone_number_id,
     )
