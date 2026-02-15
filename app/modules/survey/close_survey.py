@@ -40,7 +40,7 @@ def close_survey_and_notify(
 
     try:
         if survey.status != "active":
-            return  # idempotent safety
+            return
 
         now = datetime.utcnow()
 
@@ -48,9 +48,6 @@ def close_survey_and_notify(
         survey.closed_at = now
         db.commit()
 
-        # ----------------------------------------
-        # Business-scoped Meta
-        # ----------------------------------------
         business_msisdn = survey.business_number
 
         if not business_msisdn:
@@ -61,7 +58,8 @@ def close_survey_and_notify(
             return
 
         meta = get_meta_client(
-            business_msisdn=business_msisdn
+            db=db,
+            business_msisdn=business_msisdn,
         )
 
         summary = build_survey_summary_text(
