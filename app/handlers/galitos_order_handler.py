@@ -1,5 +1,21 @@
 from __future__ import annotations
 
+"""
+File: app/handlers/galitos_order_handler.py
+Path: app/handlers/galitos_order_handler.py
+Project: KLResolute WhatsApp SaaS MVP
+
+Sprint: Full UUID Identity Migration Hardening
+
+Purpose:
+Handle in-flight Galitos order conversation state and confirmation.
+
+Guards / Enhancements (Sprint scope):
+- Defensive db.rollback() to prevent aborted transaction cascades
+- Extra logs for state progression and notify boundary
+- No behaviour changes to order flow
+"""
+
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
@@ -23,6 +39,13 @@ def _send_text(*, db: Session, business_msisdn: str, to_number: str, message_tex
     if not business_msisdn:
         logger.error("ORDER_SEND_TEXT_SKIP | reason=missing_business_msisdn | to=%s", to_number)
         return
+
+    # Defensive: clear aborted transaction before outbound settings lookup
+    try:
+        db.rollback()
+        logger.info("ORDER_SEND_TEXT_DB_RESET | business=%s | to=%s", business_msisdn, to_number)
+    except Exception:
+        logger.exception("ORDER_SEND_TEXT_DB_RESET_FAIL | business=%s | to=%s", business_msisdn, to_number)
 
     try:
         send_message(
@@ -59,6 +82,13 @@ def handle_order_message(
     context: Dict[str, Any],
 ) -> bool:
 
+    # Defensive: if earlier SQL in the request failed, clear it first.
+    try:
+        db.rollback()
+        logger.info("ORDER_HANDLER_DB_RESET | sender=%s", from_number)
+    except Exception:
+        logger.exception("ORDER_HANDLER_DB_RESET_FAIL | sender=%s", from_number)
+
     business_msisdn = (context or {}).get("business_msisdn")
 
     logger.info(
@@ -83,6 +113,7 @@ def handle_order_message(
     ).mappings().first()
 
     if not state:
+        logger.info("ORDER_NO_ACTIVE_STATE | sender=%s", from_number)
         return False
 
     # --- state timeout guard ---
@@ -174,6 +205,13 @@ def handle_order_message(
 
     # --- confirm ---
     if normalized == "YES":
+        logger.info(
+            "ORDER_CONFIRM_RECEIVED | sender=%s | state_id=%s | client_id=%s",
+            from_number,
+            state.get("id"),
+            state.get("client_id"),
+        )
+
         order = OrderCreate(
             client_id=state["client_id"],
             customer_msisdn=from_number,
@@ -211,6 +249,13 @@ def handle_order_message(
             state["client_id"],
             state["id"],
         )
+
+        # Defensive: clear transaction state before notifier DB reads
+        try:
+            db.rollback()
+            logger.info("ORDER_NOTIFY_DB_RESET | client_id=%s", state.get("client_id"))
+        except Exception:
+            logger.exception("ORDER_NOTIFY_DB_RESET_FAIL | client_id=%s", state.get("client_id"))
 
         notify_galitos_staff(
             db=db,
