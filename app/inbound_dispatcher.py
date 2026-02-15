@@ -137,8 +137,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         # ----------------------------------
         # FEEDBACK (explicit keyword only)
         # ----------------------------------
-        if body_text.lower() == "feedback":
-
+        if body_text.lower().startswith("feedback:"):
             admin_rows = (
                 db.execute(
                     text(
