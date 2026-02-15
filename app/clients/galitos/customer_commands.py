@@ -12,6 +12,7 @@ Changes:
 - UUID-only identity resolution
 - Added defensive rollback before raw SQL reads
 - No business logic changes
+- FIX: get_meta_client now requires db
 """
 
 import logging
@@ -133,7 +134,12 @@ def handle_client_command(
         return False
 
     text_upper = text.upper()
-    meta = get_meta_client(business_msisdn=business_msisdn)
+
+    # ✅ FIX — pass db
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     logger.info(
         "CUSTOMER_CMD_ENTER | sender=%s | text=%s | client_id=%s",
@@ -149,7 +155,7 @@ def handle_client_command(
         message_text=text,
         client_id=client_id,
         business_msisdn=business_msisdn,
-    ):        
+    ):
         return True
 
     # YES / NO
@@ -196,7 +202,7 @@ def handle_client_command(
 
         return True
 
-    # ABOUT (FIXED — UUID ONLY)
+    # ABOUT (UUID ONLY)
     if text_upper == "ABOUT":
 
         try:
