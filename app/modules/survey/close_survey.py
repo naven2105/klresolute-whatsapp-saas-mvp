@@ -5,18 +5,27 @@ File: app/modules/survey/close_survey.py
 Path: app/modules/survey/close_survey.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Single authoritative way to close a survey
 and notify admin exactly once.
+
+Changes:
+- Business-scoped Meta client
+- Defensive rollback protection
+- No global sender identity usage
 """
 
 from datetime import datetime
 from sqlalchemy.orm import Session
+import logging
 
-# ---- Survey module import (FIXED) ----
 from app.modules.survey.survey_models import Survey
 from app.modules.survey.summary import build_survey_summary_text
 from app.outbound.factory import get_meta_client
+
+logger = logging.getLogger("survey.close")
 
 
 def close_survey_and_notify(
@@ -29,24 +38,52 @@ def close_survey_and_notify(
     Close survey and send admin summary exactly once.
     """
 
-    if survey.status != "active":
-        return  # idempotent safety
+    try:
+        if survey.status != "active":
+            return  # idempotent safety
 
-    now = datetime.utcnow()
+        now = datetime.utcnow()
 
-    survey.status = "closed"
-    survey.closed_at = now
-    db.commit()
+        survey.status = "closed"
+        survey.closed_at = now
+        db.commit()
 
-    meta = get_meta_client()
+        # ----------------------------------------
+        # Business-scoped Meta
+        # ----------------------------------------
+        business_msisdn = survey.business_number
 
-    summary = build_survey_summary_text(
-        db=db,
-        survey=survey,
-        closed_by=closed_by,
-    )
+        if not business_msisdn:
+            logger.error(
+                "SURVEY_CLOSE_ABORT | reason=missing_business_number | survey_id=%s",
+                survey.id,
+            )
+            return
 
-    meta.send_generic_business_update_template(
-        to_msisdn=survey.business_number,
-        blob_text=summary,
-    )
+        meta = get_meta_client(
+            business_msisdn=business_msisdn
+        )
+
+        summary = build_survey_summary_text(
+            db=db,
+            survey=survey,
+            closed_by=closed_by,
+        )
+
+        meta.send_generic_business_update_template(
+            to_msisdn=business_msisdn,
+            blob_text=summary,
+        )
+
+        logger.info(
+            "SURVEY_CLOSED_AND_NOTIFIED | survey_id=%s | business=%s",
+            survey.id,
+            business_msisdn,
+        )
+
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "SURVEY_CLOSE_FATAL | survey_id=%s",
+            getattr(survey, "id", None),
+        )
