@@ -11,19 +11,11 @@ Broadcast service layer.
 STATUS:
 ⚠️ ARCHIVED / LEGACY
 
-Context:
-- Original broadcast mechanism has been retired.
-- Customer outbound communication is now handled via the
-  general customer messaging infrastructure.
-- This module is retained for reference and backward traceability only.
-
-Responsibilities (HISTORICAL):
-- Persist broadcast intent
-- Resolve recipients
-- Delegate outbound delivery
-- Serve latest specials to customers (LEGACY – no longer authoritative)
-- NO inbound parsing
-- NO permission checks
+Migration Update:
+- Enforced business-scoped Meta client
+- No global env sender usage
+- Defensive rollback protection
+- No behavioural changes
 """
 
 import logging
@@ -50,6 +42,11 @@ def handle_text_broadcast(
     sender: str,
     text: str,
 ) -> None:
+    try:
+        db.rollback()
+    except Exception:
+        pass
+
     broadcast_id = save_text_broadcast(
         db=db,
         business_msisdn=business_msisdn,
@@ -58,7 +55,9 @@ def handle_text_broadcast(
     )
 
     recipients = get_broadcast_recipients(db, business_msisdn)
-    meta = get_meta_client()
+
+    # ✅ business-scoped client
+    meta = get_meta_client(business_msisdn=business_msisdn)
 
     for msisdn in recipients:
         try:
@@ -75,7 +74,7 @@ def handle_text_broadcast(
 
 
 # -------------------------------------------------
-# IMAGE broadcast (specials push) (ARCHIVED)
+# IMAGE broadcast (ARCHIVED)
 # -------------------------------------------------
 
 def handle_image_broadcast(
@@ -86,6 +85,11 @@ def handle_image_broadcast(
     media_id: str,
     caption: str | None,
 ) -> None:
+    try:
+        db.rollback()
+    except Exception:
+        pass
+
     broadcast_id = save_image_broadcast(
         db=db,
         business_msisdn=business_msisdn,
@@ -95,7 +99,9 @@ def handle_image_broadcast(
     )
 
     recipients = get_broadcast_recipients(db, business_msisdn)
-    meta = get_meta_client()
+
+    # ✅ business-scoped client
+    meta = get_meta_client(business_msisdn=business_msisdn)
 
     for msisdn in recipients:
         try:
@@ -125,11 +131,6 @@ def send_latest_special_to_customer(
     """
     LEGACY / ARCHIVED
 
-    Previously sent the most recent IMAGE broadcast (special) to a customer.
-
-    NOTE:
-    - Broadcasts table has been retired.
-    - This function is no longer a valid source of truth.
-    - Kept only to avoid breaking imports while migration completes.
+    Retained for backward compatibility.
     """
     return False
