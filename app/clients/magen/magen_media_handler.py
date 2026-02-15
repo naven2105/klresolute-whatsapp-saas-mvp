@@ -2,7 +2,10 @@ from __future__ import annotations
 
 """
 File: app/clients/magen/magen_media_handler.py
+Path: app/clients/magen/magen_media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
+
+Sprint: UUID Identity Consolidation
 
 Purpose:
 Handle Magen inspection image media and store immutable evidence in S3.
@@ -13,12 +16,14 @@ LOCKED RULES:
 - Immutable writes (write once)
 - Keys are system-generated
 - No admin / specials / broadcast logic here
+- Business-scoped Meta sender identity required
 """
 
 import logging
 from datetime import datetime
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.storage.s3_evidence_store import S3EvidenceStore
 from app.outbound.factory import get_meta_client
@@ -27,6 +32,40 @@ from app.services.event_logger import log_event
 logger = logging.getLogger("magen_media_handler")
 
 _s3_store = S3EvidenceStore()
+
+
+def _resolve_business_msisdn(db: Session, sender: str) -> str | None:
+    """
+    Resolve business number for this sender (Magen only).
+    Assumes sender belongs to a mapped whatsapp_numbers record.
+    """
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT w.destination_number
+                FROM whatsapp_numbers w
+                JOIN magen_staff s
+                  ON s.client_id = w.client_id
+                WHERE s.msisdn = :sender
+                  AND w.status = 'active'
+                LIMIT 1
+                """
+            ),
+            {"sender": sender},
+        )
+        .mappings()
+        .first()
+    )
+
+    if not row:
+        logger.error(
+            "MAGEN_MEDIA_BUSINESS_RESOLVE_FAIL | sender=%s",
+            sender,
+        )
+        return None
+
+    return row["destination_number"]
 
 
 def handle_magen_inspection_media(
@@ -46,7 +85,14 @@ def handle_magen_inspection_media(
     - Log metadata only (no UX impact)
     """
 
-    meta = get_meta_client()
+    business_msisdn = _resolve_business_msisdn(db, sender)
+    if not business_msisdn:
+        return
+
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     logger.info(
         "MAGEN_MEDIA_ENTER | inspection_id=%s | media_id=%s | index=%s",
