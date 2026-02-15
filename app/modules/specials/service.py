@@ -43,7 +43,6 @@ def send_latest_special_to_customer(
     """
 
     try:
-        # Defensive rollback (clear aborted tx if any)
         try:
             db.rollback()
         except Exception:
@@ -52,9 +51,6 @@ def send_latest_special_to_customer(
                 client_uuid,
             )
 
-        # ----------------------------------------
-        # Fetch latest special (UUID only)
-        # ----------------------------------------
         row = (
             db.execute(
                 text(
@@ -79,11 +75,9 @@ def send_latest_special_to_customer(
             )
             return False
 
-        # ----------------------------------------
-        # Send image (business scoped)
-        # ----------------------------------------
         meta = get_meta_client(
-            business_msisdn=business_msisdn
+            db=db,
+            business_msisdn=business_msisdn,
         )
 
         meta.send_image_message(
