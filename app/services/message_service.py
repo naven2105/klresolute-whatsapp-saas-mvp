@@ -12,7 +12,6 @@ Authoritative service responsible for:
 SPRINT: UUID Identity Enforcement
 
 Changes:
-- Removed global get_meta_client()
 - Require business_msisdn for outbound send
 - Use DB-driven sender identity
 - Added rollback protection
