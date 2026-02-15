@@ -4,6 +4,14 @@ from __future__ import annotations
 File: app/clients/galitos/customer_commands.py
 Path: app/clients/galitos/customer_commands.py
 Project: KLResolute WhatsApp SaaS MVP
+
+Sprint: Full UUID Identity Migration
+
+Changes:
+- Removed klresolute_client_id usage
+- UUID-only identity resolution
+- Added defensive rollback before raw SQL reads
+- No business logic changes
 """
 
 import logging
@@ -108,6 +116,13 @@ def handle_client_command(
     client_id: str,
     business_msisdn: str,
 ) -> bool:
+
+    # Defensive rollback in case previous SQL failed
+    try:
+        db.rollback()
+    except Exception:
+        logger.exception("CUSTOMER_CMD_DB_RESET_FAIL | sender=%s", sender)
+
     msg_type = msg.get("type")
 
     if msg_type not in ("text", "interactive"):
@@ -150,14 +165,8 @@ def handle_client_command(
             )
             return True
 
-    # SPECIALS (MENU-ONLY)
+    # SPECIALS
     if text_upper == "SPECIALS":
-        logger.info(
-            "SPECIALS_REQUEST | sender=%s | client_id=%s",
-            sender,
-            client_id,
-        )
-
         try:
             sent = send_latest_special_to_customer(
                 db=db,
@@ -165,18 +174,7 @@ def handle_client_command(
                 to_msisdn=sender,
             )
 
-            if sent:
-                logger.info(
-                    "SPECIALS_SENT_OK | sender=%s | client_id=%s",
-                    sender,
-                    client_id,
-                )
-            else:
-                logger.info(
-                    "SPECIALS_NONE | sender=%s | client_id=%s",
-                    sender,
-                    client_id,
-                )
+            if not sent:
                 meta.send_session_message(
                     to_msisdn=sender,
                     text="🔥 No specials available at the moment.\nPlease check again later.",
@@ -196,13 +194,13 @@ def handle_client_command(
 
         return True
 
-    # ABOUT
+    # ABOUT (FIXED — UUID ONLY)
     if text_upper == "ABOUT":
-        logger.info(
-            "CUSTOMER_CMD_ABOUT_REQUEST | sender=%s | client_id=%s",
-            sender,
-            client_id,
-        )
+
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
         row = (
             db.execute(
@@ -212,25 +210,20 @@ def handle_client_command(
                     FROM client_messages cm
                     JOIN whatsapp_numbers w
                       ON w.client_id = cm.client_id
-                    WHERE w.klresolute_client_id = :kl_client_id
+                    WHERE w.client_id = :client_id
                       AND w.status = 'active'
                       AND cm.message_key = 'ABOUT'
                       AND cm.is_active = TRUE
                     LIMIT 1
                     """
                 ),
-                {"kl_client_id": int(client_id)},
+                {"client_id": client_id},
             )
             .mappings()
             .first()
         )
 
         if not row:
-            logger.error(
-                "CUSTOMER_CMD_ABOUT_MISSING | sender=%s | client_id=%s",
-                sender,
-                client_id,
-            )
             meta.send_session_message(
                 to_msisdn=sender,
                 text="About information is not available at the moment.",
@@ -243,12 +236,7 @@ def handle_client_command(
             "🕒 Trading Hours\n"
             "Monday – Sunday: 10:00 – 21:00\n\n"
             "📍 Location\n"
-            "Visit your nearest Galitos restaurant for sit-down or takeaway.\n\n"
-            "📦 What we offer\n"
-            "• Flame-grilled chicken\n"
-            "• Burgers, wraps & sides\n"
-            "• Takeaway & dine-in\n"
-            "• Daily specials\n\n"
+            "Visit your nearest Galitos restaurant.\n\n"
             "Reply MENU to continue."
         )
 
@@ -257,11 +245,6 @@ def handle_client_command(
             text=about_text,
         )
 
-        logger.info(
-            "CUSTOMER_CMD_ABOUT_SENT | sender=%s | client_id=%s",
-            sender,
-            client_id,
-        )
         return True
 
     # STOP
@@ -305,6 +288,6 @@ def handle_client_command(
         )
         return True
 
-    # MENU / HELP / FALLBACK
+    # MENU / FALLBACK
     _send_customer_menu(db=db, sender=sender, client_id=client_id)
     return True

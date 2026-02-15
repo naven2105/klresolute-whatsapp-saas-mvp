@@ -1,24 +1,26 @@
 """
 File: app/models.py
-
+Path: app/models.py
 Project: KLResolute WhatsApp SaaS MVP
+
+Sprint: Full UUID Identity Consolidation
 
 Purpose:
 SQLAlchemy ORM models defining the core data schema for the WhatsApp SaaS platform.
 These models are the authoritative representation of the database structure and
-must remain aligned with the BRS and schema definitions.
+must remain aligned with the actual production schema.
 
 Design principles:
-- Tables map 1:1 with BRS data entities
+- UUID-only client identity model
+- No legacy klresolute_client_id
+- Tables map 1:1 with database schema
 - No business logic in models
-- Relationships kept minimal and explicit
-- All writes are controlled by application logic, not model side-effects
+- Relationships explicit and minimal
 
 Change control:
 - Schema changes require explicit justification
-- No fields may be removed without BRS update
+- No fields may be removed without DB alignment
 """
-
 
 import uuid
 from sqlalchemy import (
@@ -75,18 +77,11 @@ class WhatsAppNumber(Base):
 
     wa_number_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Legacy client linkage (UUID-based, DO NOT REMOVE)
+    # Canonical UUID client linkage
     client_id = Column(
         UUID(as_uuid=True),
         ForeignKey("clients.client_id"),
         nullable=False,
-    )
-
-    # NEW: KLResolute SaaS client linkage (INTEGER-based)
-    klresolute_client_id = Column(
-        Integer,
-        ForeignKey("KLResolute_Client.id"),
-        nullable=True,
     )
 
     destination_number = Column(Text, nullable=False, unique=True)
@@ -101,7 +96,6 @@ class WhatsAppNumber(Base):
     )
 
     client = relationship("Client")
-
 
 
 # ---------------------------------------------------------------------
@@ -123,16 +117,19 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     conversation_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     client_id = Column(
         UUID(as_uuid=True),
         ForeignKey("clients.client_id"),
         nullable=False,
     )
+
     wa_number_id = Column(
         UUID(as_uuid=True),
         ForeignKey("whatsapp_numbers.wa_number_id"),
         nullable=False,
     )
+
     contact_id = Column(
         UUID(as_uuid=True),
         ForeignKey("contacts.contact_id"),
@@ -171,6 +168,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     message_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     conversation_id = Column(
         UUID(as_uuid=True),
         ForeignKey("conversations.conversation_id"),
@@ -192,22 +190,23 @@ class Message(Base):
 
 
 # ---------------------------------------------------------------------
-# Delivery Event (audit) — T-15 / T-16
+# Delivery Event
 # ---------------------------------------------------------------------
 class DeliveryEvent(Base):
     __tablename__ = "delivery_events"
 
     delivery_event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     message_id = Column(
         UUID(as_uuid=True),
         ForeignKey("messages.message_id"),
         nullable=False,
     )
+
     event_type = Column(Text, nullable=False)
     event_detail = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Optional relationship (safe): helps joins, does not change schema
     message = relationship("Message")
 
 
@@ -218,11 +217,13 @@ class FaqItem(Base):
     __tablename__ = "faq_items"
 
     faq_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     client_id = Column(
         UUID(as_uuid=True),
         ForeignKey("clients.client_id"),
         nullable=False,
     )
+
     faq_name = Column(Text, nullable=False)
     match_pattern = Column(Text, nullable=False)
     response_text = Column(Text, nullable=False)
@@ -241,22 +242,25 @@ class FaqItem(Base):
 
 
 # ---------------------------------------------------------------------
-# Lead (immutable)
+# Lead
 # ---------------------------------------------------------------------
 class Lead(Base):
     __tablename__ = "leads"
 
     lead_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     client_id = Column(
         UUID(as_uuid=True),
         ForeignKey("clients.client_id"),
         nullable=False,
     )
+
     contact_id = Column(
         UUID(as_uuid=True),
         ForeignKey("contacts.contact_id"),
         nullable=False,
     )
+
     conversation_id = Column(
         UUID(as_uuid=True),
         ForeignKey("conversations.conversation_id"),
@@ -279,16 +283,19 @@ class EventLog(Base):
     __tablename__ = "event_logs"
 
     event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     client_id = Column(
         UUID(as_uuid=True),
         ForeignKey("clients.client_id"),
         nullable=False,
     )
+
     conversation_id = Column(
         UUID(as_uuid=True),
         ForeignKey("conversations.conversation_id"),
         nullable=True,
     )
+
     message_id = Column(
         UUID(as_uuid=True),
         ForeignKey("messages.message_id"),

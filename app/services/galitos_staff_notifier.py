@@ -5,14 +5,16 @@ File: app/services/galitos_staff_notifier.py
 Path: app/services/galitos_staff_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Notify Galitos staff when a customer order is confirmed.
 
-Rules:
-- MUST always use Meta template (never session message)
-- MUST resolve business_msisdn via whatsapp_numbers
-- MUST fail safely (no exceptions propagated)
-- MUST log clearly for debugging
+Changes:
+- Removed klresolute_client_id usage
+- UUID-only identity resolution
+- Defensive rollback protection
+- No behavioural changes
 """
 
 import logging
@@ -23,24 +25,30 @@ from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("galitos_staff_notifier")
 
-# Approved template for staff order alerts
 STAFF_TEMPLATE_NAME = "generic_business_update"
 
 
 def notify_galitos_staff(
     *,
     db: Session,
-    client_id: int,
+    client_id: str,  # UUID
     message: str,
 ) -> None:
+
     logger.info(
         "ORDER_STAFF_NOTIFY_ENTER | client_id=%s | message=%r",
         client_id,
         message,
     )
 
+    # Defensive rollback
+    try:
+        db.rollback()
+    except Exception:
+        logger.exception("ORDER_STAFF_NOTIFY_DB_RESET_FAIL | client_id=%s", client_id)
+
     # -------------------------------------------------
-    # Resolve business_msisdn
+    # Resolve business_msisdn via UUID
     # -------------------------------------------------
     try:
         business_row = (
@@ -49,7 +57,7 @@ def notify_galitos_staff(
                     """
                     SELECT destination_number
                     FROM whatsapp_numbers
-                    WHERE klresolute_client_id = :client_id
+                    WHERE client_id = :client_id
                       AND status = 'active'
                     LIMIT 1
                     """
@@ -76,7 +84,7 @@ def notify_galitos_staff(
     business_msisdn = business_row["destination_number"]
 
     # -------------------------------------------------
-    # Fetch active staff
+    # Fetch active staff (UUID-based)
     # -------------------------------------------------
     try:
         rows = (
@@ -85,7 +93,7 @@ def notify_galitos_staff(
                     """
                     SELECT msisdn
                     FROM galitos_staff
-                    WHERE klresolute_client_id = :client_id
+                    WHERE client_id = :client_id
                       AND is_active = true
                     """
                 ),

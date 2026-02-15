@@ -4,13 +4,16 @@ from __future__ import annotations
 File: app/modules/specials/service.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 ROLE:
 Customer-facing SPECIALS retrieval service.
 
 GUARDS:
 - Never raise
 - Never break caller
-- Log clearly
+- UUID-only identity
+- Defensive rollback protection
 """
 
 import logging
@@ -20,50 +23,6 @@ from sqlalchemy import text
 from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("specials.service")
-
-
-def _resolve_client_uuid(
-    db: Session,
-    *,
-    klresolute_client_id: str,
-) -> str | None:
-    """
-    Convert INTEGER klresolute_client_id -> UUID client_id
-    """
-    try:
-        row = (
-            db.execute(
-                text(
-                    """
-                    SELECT client_id
-                    FROM whatsapp_numbers
-                    WHERE klresolute_client_id = :cid
-                      AND status = 'active'
-                    LIMIT 1
-                    """
-                ),
-                {"cid": int(klresolute_client_id)},
-            )
-            .mappings()
-            .first()
-        )
-
-        if not row:
-            logger.error(
-                "SPECIALS_UUID_NOT_FOUND | klresolute_client_id=%s",
-                klresolute_client_id,
-            )
-            return None
-
-        return str(row["client_id"])
-
-    except Exception as exc:
-        logger.exception(
-            "SPECIALS_UUID_RESOLUTION_FAIL | klresolute_client_id=%s | err=%s",
-            klresolute_client_id,
-            exc,
-        )
-        return None
 
 
 def send_latest_special_to_customer(
@@ -81,19 +40,14 @@ def send_latest_special_to_customer(
     """
 
     try:
-        # ----------------------------------------
-        # Resolve UUID from integer ID
-        # ----------------------------------------
-        resolved_uuid = _resolve_client_uuid(
-            db,
-            klresolute_client_id=client_uuid,
-        )
-
-        if not resolved_uuid:
-            return False
+        # Defensive rollback (clear aborted tx if any)
+        try:
+            db.rollback()
+        except Exception:
+            logger.exception("SPECIALS_DB_RESET_FAIL | client_uuid=%s", client_uuid)
 
         # ----------------------------------------
-        # Fetch latest special
+        # Fetch latest special (UUID only)
         # ----------------------------------------
         row = (
             db.execute(
@@ -106,7 +60,7 @@ def send_latest_special_to_customer(
                     LIMIT 1
                     """
                 ),
-                {"client_id": resolved_uuid},
+                {"client_id": client_uuid},
             )
             .mappings()
             .first()
@@ -115,7 +69,7 @@ def send_latest_special_to_customer(
         if not row:
             logger.info(
                 "SPECIALS_NONE_FOUND | client_uuid=%s",
-                resolved_uuid,
+                client_uuid,
             )
             return False
 
@@ -133,7 +87,7 @@ def send_latest_special_to_customer(
         logger.info(
             "SPECIALS_SENT | to=%s | client_uuid=%s",
             to_msisdn,
-            resolved_uuid,
+            client_uuid,
         )
 
         return True

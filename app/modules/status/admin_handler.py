@@ -5,17 +5,16 @@ File: app/modules/status/admin_handler.py
 Path: app/modules/status/admin_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Admin-only Status / Announcement writer.
 
-Responsibility (SINGLE):
-- Allow admins to set or clear a client status message.
-
-Rules:
-- Admin-only
-- DB-driven client resolution
-- Fail closed
-- No customer routing
+Changes:
+- Removed klresolute_client_id usage
+- UUID-only identity resolution
+- Defensive rollback protection
+- No behavioural changes
 """
 
 import logging
@@ -63,14 +62,20 @@ def handle_status_command(
         )
         return False
 
+    # Defensive rollback
+    try:
+        db.rollback()
+    except Exception:
+        logger.exception("STATUS_DB_RESET_FAIL | business=%s", business_msisdn)
+
     # ----------------------------------
-    # Resolve client_id (INTEGER MVP)
+    # Resolve UUID client_id
     # ----------------------------------
     row = (
         db.execute(
             text(
                 """
-                SELECT klresolute_client_id
+                SELECT client_id
                 FROM whatsapp_numbers
                 WHERE destination_number = :business
                   AND status = 'active'
@@ -83,19 +88,20 @@ def handle_status_command(
         .first()
     )
 
-    if not row or row["klresolute_client_id"] is None:
+    if not row or not row["client_id"]:
         logger.error(
             "STATUS_BLOCKED | reason=client_not_resolved | business=%s",
             business_msisdn,
         )
         return True
 
-    client_id = int(row["klresolute_client_id"])
+    client_id = str(row["client_id"])
 
     # ----------------------------------
     # STATUS OFF
     # ----------------------------------
     if upper == "STATUS OFF":
+
         db.execute(
             text(
                 """
@@ -120,6 +126,7 @@ def handle_status_command(
     # STATUS SET
     # ----------------------------------
     if upper.startswith("STATUS:"):
+
         status_text = message_text.split(":", 1)[1].strip()
 
         if not status_text:
@@ -166,6 +173,7 @@ def handle_status_command(
                 "status_text": status_text,
             },
         )
+
         db.commit()
 
         logger.info(
@@ -174,6 +182,7 @@ def handle_status_command(
             sender,
             status_text,
         )
+
         return True
 
     return False
