@@ -5,16 +5,17 @@ File: app/services/galitos_staff_notifier.py
 Path: app/services/galitos_staff_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint: Full UUID Identity Migration
+Sprint: UUID Identity Consolidation
 
 Purpose:
 Notify Galitos staff when a customer order is confirmed.
 
-Changes:
-- Removed klresolute_client_id usage
-- UUID-only identity resolution
-- Defensive rollback protection
-- No behavioural changes
+Rules:
+- MUST always use Meta template (never session message)
+- MUST resolve business_msisdn via whatsapp_numbers
+- MUST fail safely (no exceptions propagated)
+- MUST log clearly for debugging
+- Business-scoped Meta client required
 """
 
 import logging
@@ -31,7 +32,7 @@ STAFF_TEMPLATE_NAME = "generic_business_update"
 def notify_galitos_staff(
     *,
     db: Session,
-    client_id: str,  # UUID
+    client_id: str,
     message: str,
 ) -> None:
 
@@ -41,14 +42,8 @@ def notify_galitos_staff(
         message,
     )
 
-    # Defensive rollback
-    try:
-        db.rollback()
-    except Exception:
-        logger.exception("ORDER_STAFF_NOTIFY_DB_RESET_FAIL | client_id=%s", client_id)
-
     # -------------------------------------------------
-    # Resolve business_msisdn via UUID
+    # Resolve business_msisdn
     # -------------------------------------------------
     try:
         business_row = (
@@ -84,7 +79,7 @@ def notify_galitos_staff(
     business_msisdn = business_row["destination_number"]
 
     # -------------------------------------------------
-    # Fetch active staff (UUID-based)
+    # Fetch active staff
     # -------------------------------------------------
     try:
         rows = (
@@ -94,7 +89,7 @@ def notify_galitos_staff(
                     SELECT msisdn
                     FROM galitos_staff
                     WHERE client_id = :client_id
-                      AND is_active = true
+                      AND is_active = TRUE
                     """
                 ),
                 {"client_id": client_id},
@@ -123,9 +118,12 @@ def notify_galitos_staff(
         return
 
     # -------------------------------------------------
-    # Send via TEMPLATE (always)
+    # Business-scoped Meta client (FIXED)
     # -------------------------------------------------
-    meta = get_meta_client(business_msisdn=business_msisdn)
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
 
     for r in rows:
         msisdn = r["msisdn"]
