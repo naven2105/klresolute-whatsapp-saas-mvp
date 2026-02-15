@@ -24,7 +24,11 @@ CUSTOMER_ACK_TEMPLATE_NAME = "generic_business_update"
 # Outbound helpers
 # -------------------------------------------------
 
-def _send_customer_ack(to_number: str, business_msisdn: str) -> None:
+def _send_customer_ack(
+    db: Session,
+    to_number: str,
+    business_msisdn: str,
+) -> None:
     logger.info(
         "FEEDBACK_ACK_ATTEMPT | customer=%s | template=%s",
         to_number,
@@ -32,7 +36,10 @@ def _send_customer_ack(to_number: str, business_msisdn: str) -> None:
     )
 
     try:
-        meta = get_meta_client(business_msisdn=business_msisdn)
+        meta = get_meta_client(
+            db=db,
+            business_msisdn=business_msisdn,
+        )
 
         result = meta.send_template(
             to_msisdn=to_number,
@@ -56,7 +63,12 @@ def _send_customer_ack(to_number: str, business_msisdn: str) -> None:
         )
 
 
-def _send_admin_alert(to_number: str, alert_text: str, business_msisdn: str) -> None:
+def _send_admin_alert(
+    db: Session,
+    to_number: str,
+    alert_text: str,
+    business_msisdn: str,
+) -> None:
     logger.info(
         "ADMIN_ALERT_ATTEMPT | admin=%s | template=%s",
         to_number,
@@ -64,7 +76,10 @@ def _send_admin_alert(to_number: str, alert_text: str, business_msisdn: str) -> 
     )
 
     try:
-        meta = get_meta_client(business_msisdn=business_msisdn)
+        meta = get_meta_client(
+            db=db,
+            business_msisdn=business_msisdn,
+        )
 
         result = meta.send_template(
             to_msisdn=to_number,
@@ -160,7 +175,7 @@ def handle_feedback_message(
         )
         return True
 
-    _send_customer_ack(sender_number, business_msisdn)
+    _send_customer_ack(db, sender_number, business_msisdn)
 
     clean_message = (message_text or "Media received").replace("\n", " ").strip()
 
@@ -176,7 +191,7 @@ def handle_feedback_message(
         logger.info("ADMIN_ALERT_TARGETS | count=%s", len(admin_numbers))
 
     for admin in admin_numbers:
-        _send_admin_alert(admin, alert_text, business_msisdn)
+        _send_admin_alert(db, admin, alert_text, business_msisdn)
 
     logger.info("FEEDBACK_COMPLETE | from=%s", sender_number)
     return True
