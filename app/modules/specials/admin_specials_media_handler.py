@@ -11,6 +11,7 @@ Changes:
 - UUID-only identity model
 - Removed integer resolution helper
 - Added defensive rollback protection
+- FIX: client_admins lookup now uses client_code (UUID)
 - No behaviour changes
 """
 
@@ -127,6 +128,7 @@ def handle_media_message(
         )
         return True
 
+    # ✅ FIXED HERE
     try:
         admin_numbers = {
             row[0]
@@ -135,11 +137,11 @@ def handle_media_message(
                     """
                     SELECT msisdn
                     FROM client_admins
-                    WHERE business_msisdn = :business
+                    WHERE client_code = :client_code
                       AND is_active = TRUE
                     """
                 ),
-                {"business": business_msisdn},
+                {"client_code": client_uuid},
             ).all()
         }
     except Exception:
