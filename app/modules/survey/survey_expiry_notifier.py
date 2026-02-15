@@ -5,13 +5,16 @@ File: app/modules/survey/survey_expiry_notifier.py
 Path: app/modules/survey/survey_expiry_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Identity Migration
+
 Purpose:
 Background notifier that auto-closes expired ACTIVE surveys and notifies admins.
 
-Rules:
-- Uses existing DB + survey helpers
-- Uses Meta template (generic_business_update) for admin notifications
-- Admins resolved via client_admins table (DB-driven)
+Changes:
+- Removed global Meta client
+- Business-scoped Meta per survey
+- Defensive rollback protection
+- No env-based sender usage
 """
 
 import asyncio
@@ -22,8 +25,6 @@ from typing import Optional
 from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
-
-# ---- Survey module imports (UNCHANGED) ----
 from app.modules.survey.close_survey import close_survey_and_notify as close_survey
 from app.modules.survey.summary import build_survey_summary_text
 
@@ -62,8 +63,6 @@ async def _run_forever() -> None:
     except Exception as exc:
         logger.error("EXPIRY_NOTIFIER_NO_SESSIONLOCAL | error=%s", exc, exc_info=True)
         return
-
-    meta = get_meta_client()
 
     while True:
         try:
@@ -110,14 +109,18 @@ async def _run_forever() -> None:
                         )
 
                         close_survey(db=db, survey=obj, closed_by="auto")
+
                         logger.info("EXPIRY_CLOSED | survey_id=%s", obj.id)
 
                         summary = build_survey_summary_text(db, obj)
                         summary_single = " ".join((summary or "").split())
 
-                        # ----------------------------------
-                        # Resolve admins for this business
-                        # ----------------------------------
+                        # Business-scoped Meta client
+                        meta = get_meta_client(
+                            business_msisdn=business_number
+                        )
+
+                        # Resolve admins
                         admins = (
                             db.execute(
                                 text(
@@ -155,6 +158,7 @@ async def _run_forever() -> None:
                                 )
 
                     except Exception as exc:
+                        db.rollback()
                         logger.error(
                             "EXPIRY_CLOSE_FAIL | survey_id=%s | error=%s",
                             survey_id,
