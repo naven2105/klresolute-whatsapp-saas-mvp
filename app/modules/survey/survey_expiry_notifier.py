@@ -115,12 +115,11 @@ async def _run_forever() -> None:
                         summary = build_survey_summary_text(db, obj)
                         summary_single = " ".join((summary or "").split())
 
-                        # Business-scoped Meta client
                         meta = get_meta_client(
-                            business_msisdn=business_number
+                            db=db,
+                            business_msisdn=business_number,
                         )
 
-                        # Resolve admins
                         admins = (
                             db.execute(
                                 text(
