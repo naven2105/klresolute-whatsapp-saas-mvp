@@ -58,7 +58,6 @@ class MessageService:
         if not outbound:
             return
 
-        # ---- INLINE SEND (MVP) ----
         try:
             if not business_msisdn:
                 logger.error(
@@ -67,7 +66,8 @@ class MessageService:
                 return
 
             client = get_meta_client(
-                business_msisdn=business_msisdn
+                db=self._db,
+                business_msisdn=business_msisdn,
             )
 
             result = client.send_session_message(
