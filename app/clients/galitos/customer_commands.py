@@ -173,6 +173,7 @@ def handle_client_command(
                 db=db,
                 client_uuid=client_id,
                 to_msisdn=sender,
+                business_msisdn=business_msisdn,
             )
 
             if not sent:

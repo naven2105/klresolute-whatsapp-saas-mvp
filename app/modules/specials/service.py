@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """
 File: app/modules/specials/service.py
+Path: app/modules/specials/service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration
@@ -14,6 +15,7 @@ GUARDS:
 - Never break caller
 - UUID-only identity
 - Defensive rollback protection
+- Business-scoped Meta sender identity
 """
 
 import logging
@@ -30,6 +32,7 @@ def send_latest_special_to_customer(
     db: Session,
     client_uuid: str,
     to_msisdn: str,
+    business_msisdn: str,
 ) -> bool:
     """
     Sends latest SPECIAL to customer.
@@ -44,7 +47,10 @@ def send_latest_special_to_customer(
         try:
             db.rollback()
         except Exception:
-            logger.exception("SPECIALS_DB_RESET_FAIL | client_uuid=%s", client_uuid)
+            logger.exception(
+                "SPECIALS_DB_RESET_FAIL | client_uuid=%s",
+                client_uuid,
+            )
 
         # ----------------------------------------
         # Fetch latest special (UUID only)
@@ -74,9 +80,11 @@ def send_latest_special_to_customer(
             return False
 
         # ----------------------------------------
-        # Send image
+        # Send image (business scoped)
         # ----------------------------------------
-        meta = get_meta_client()
+        meta = get_meta_client(
+            business_msisdn=business_msisdn
+        )
 
         meta.send_image_message(
             to_msisdn=to_msisdn,
@@ -85,9 +93,10 @@ def send_latest_special_to_customer(
         )
 
         logger.info(
-            "SPECIALS_SENT | to=%s | client_uuid=%s",
+            "SPECIALS_SENT | to=%s | client_uuid=%s | business=%s",
             to_msisdn,
             client_uuid,
+            business_msisdn,
         )
 
         return True
