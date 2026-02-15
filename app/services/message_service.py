@@ -9,10 +9,13 @@ Authoritative service responsible for:
 - Creating outbound Message drafts
 - INLINE sending of session messages to Meta WhatsApp (MVP only)
 
-Design rules:
-- Webhook delegates outbound creation here
-- This service MAY send session messages (INLINE MVP exception)
-- Templates are NOT used here
+SPRINT: UUID Identity Enforcement
+
+Changes:
+- Removed global get_meta_client()
+- Require business_msisdn for outbound send
+- Use DB-driven sender identity
+- Added rollback protection
 """
 
 from __future__ import annotations
@@ -41,7 +44,9 @@ class MessageService:
         inbound_text: str,
         selected_response: str | None,
         to_number: str | None = None,
+        business_msisdn: str | None = None,
     ) -> None:
+
         if not selected_response or not to_number:
             return
 
@@ -56,20 +61,33 @@ class MessageService:
 
         # ---- INLINE SEND (MVP) ----
         try:
-            client = get_meta_client()
-            result = client.send_session_text(
+            if not business_msisdn:
+                logger.error(
+                    "MESSAGE_SERVICE_ABORT | reason=missing_business_msisdn"
+                )
+                return
+
+            client = get_meta_client(
+                business_msisdn=business_msisdn
+            )
+
+            result = client.send_session_message(
                 to_msisdn=to_number,
                 text=selected_response,
             )
 
             logger.info(
-                "Meta send result: ok=%s status=%s response=%s",
-                result.ok,
-                result.status_code,
-                result.response_json,
+                "META_SEND_OK | ok=%s | status=%s",
+                getattr(result, "ok", None),
+                getattr(result, "status_code", None),
             )
+
         except Exception:
-            logger.exception("Failed to send session message")
+            self._db.rollback()
+            logger.exception(
+                "MESSAGE_SERVICE_SEND_FAIL | to=%s",
+                to_number,
+            )
 
     def _create_outbound_message(
         self,
