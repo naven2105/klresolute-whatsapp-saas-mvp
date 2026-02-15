@@ -1,65 +1,77 @@
+from __future__ import annotations
+
 """
 File: app/outbound/factory.py
 Path: app/outbound/factory.py
-
 Project: KLResolute WhatsApp SaaS MVP
 
+SPRINT: UUID Identity Consolidation
+
 Purpose:
-- Construct and reuse outbound Meta WhatsApp client(s)
-- One client per business (WABA), cached by business_msisdn
-- Absolutely no imports from settings module
+- Construct and reuse outbound Meta WhatsApp clients
+- One client per business (WABA)
+- Sender identity MUST be resolved from DB
+- ENV phone_number_id fallback REMOVED
+
+Rules:
+- business_msisdn is mandatory
+- db session is mandatory
+- META_WA_PHONE_NUMBER_ID is no longer used
+- Fail fast if sender identity missing
 """
 
-from __future__ import annotations
-
-import os
 import logging
 from typing import Dict
+from sqlalchemy.orm import Session
 
 from app.outbound.meta import MetaWhatsAppClient
+from app.outbound.settings import load_meta_settings
 
 logger = logging.getLogger("outbound.factory")
 
 _meta_clients: Dict[str, MetaWhatsAppClient] = {}
 
 
-def get_meta_client(*, business_msisdn: str | None = None) -> MetaWhatsAppClient:
+def get_meta_client(
+    *,
+    db: Session,
+    business_msisdn: str,
+) -> MetaWhatsAppClient:
     """
-    Return a MetaWhatsAppClient scoped to the given business_msisdn.
+    Return a MetaWhatsAppClient scoped to a business.
 
-    If business_msisdn is None, falls back to default env-based client
-    (backward compatible).
+    Requirements:
+    - db session required
+    - business_msisdn required
+    - Sender identity resolved from DB via load_meta_settings
     """
-    key = business_msisdn or "__default__"
+
+    if not db:
+        logger.error("META_FACTORY_ABORT | reason=db_missing")
+        raise RuntimeError("DB session required for Meta client")
+
+    if not business_msisdn:
+        logger.error("META_FACTORY_ABORT | reason=business_missing")
+        raise RuntimeError("business_msisdn required for Meta client")
+
+    key = business_msisdn
 
     if key not in _meta_clients:
-        access_token = os.getenv("META_WA_ACCESS_TOKEN")
-        phone_number_id = os.getenv("META_WA_PHONE_NUMBER_ID")
-        api_version = os.getenv("META_WA_API_VERSION", "v20.0")
+        logger.info(
+            "META_FACTORY_BUILD_START | business=%s",
+            business_msisdn,
+        )
 
-        if not access_token or not phone_number_id:
-            logger.error(
-                "META_CLIENT_BUILD_FAIL | reason=missing_env | business=%s | has_token=%s | has_phone_id=%s",
-                key,
-                bool(access_token),
-                bool(phone_number_id),
-            )
-            raise RuntimeError("META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID not set")
-
-        settings = type(
-            "MetaSettings",
-            (),
-            {
-                "access_token": access_token,
-                "messages_url": (
-                    f"https://graph.facebook.com/"
-                    f"{api_version}/"
-                    f"{phone_number_id}/messages"
-                ),
-            },
-        )()
+        settings = load_meta_settings(
+            db=db,
+            business_msisdn=business_msisdn,
+        )
 
         _meta_clients[key] = MetaWhatsAppClient(settings=settings)
-        logger.info("META_CLIENT_BUILT | business=%s", key)
+
+        logger.info(
+            "META_FACTORY_BUILD_OK | business=%s",
+            business_msisdn,
+        )
 
     return _meta_clients[key]
