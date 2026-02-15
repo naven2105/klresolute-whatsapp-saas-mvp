@@ -5,19 +5,14 @@ File: app/messaging/client_messenger.py
 Path: app/messaging/client_messenger.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint: Full UUID Migration Hardening
+
 Purpose:
 Thin messaging helpers for client-facing messages.
 
-Enhancement (ONLY):
-- Ensure outbound sender identity is resolved per client business.
-- Enforce explicit guards and logging so Render logs show:
-  - what was checked
-  - what was missing
-  - why execution continued or aborted
-
-No refactors.
-No removals.
-No semantic changes outside sender resolution.
+Enhancement:
+- Defensive DB rollback before outbound settings load
+- Prevent aborted transaction cascade failures
 """
 
 import logging
@@ -26,9 +21,6 @@ from sqlalchemy.orm import Session
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
 
-# ==================================================
-# Logging
-# ==================================================
 logger = logging.getLogger("client_messenger")
 
 
@@ -41,14 +33,6 @@ def send_message(
     template_name: str | None = None,
     language_code: str = "en_US",
 ) -> None:
-    """
-    Send a WhatsApp message to a client.
-
-    Guards:
-    - business_msisdn must be present
-    - db session must be present
-    - exactly one of text / template_name must be provided
-    """
 
     logger.info(
         "SEND_MESSAGE_START | business=%s | to=%s | has_text=%s | has_template=%s",
@@ -88,6 +72,15 @@ def send_message(
             to_number,
         )
         raise ValueError("Either text or template_name must be provided")
+
+    # -------------------------------------------------
+    # Defensive rollback to clear aborted transactions
+    # -------------------------------------------------
+    try:
+        db.rollback()
+        logger.info("SEND_MESSAGE_DB_RESET | business=%s", business_msisdn)
+    except Exception:
+        logger.exception("SEND_MESSAGE_DB_RESET_FAIL | business=%s", business_msisdn)
 
     logger.info(
         "SEND_MESSAGE_SETTINGS_LOAD | business=%s",
