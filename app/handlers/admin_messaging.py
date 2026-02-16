@@ -8,7 +8,7 @@ Purpose:
 Admin messaging commands only.
 
 Scope (LOCKED):
-- Specials
+- Announcements (image + caption via media handler)
 - NO SEND
 - NO PAUSE / RESUME
 - NO surveys

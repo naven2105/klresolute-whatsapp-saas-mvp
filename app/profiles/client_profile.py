@@ -12,7 +12,7 @@ Rules (LOCKED):
 - Client identity is DB-driven
 - WhatsApp numbers are stored in DB, not code
 - Admin allowlists are DB-driven
-- Used by dispatcher, special, inspections, jobs
+- Used by dispatcher, announcements, inspections, jobs
 """
 
 import logging
