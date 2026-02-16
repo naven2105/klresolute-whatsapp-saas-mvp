@@ -34,16 +34,13 @@ from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 
-from app.modules.announcements.admin_specials_media_handler import (
-    handle_media_message as specials_media_handler,
+from app.modules.announcements.admin_announcements_media_handler import (
+    handle_media_message as announcements_media_handler,
 )
 
 logger = logging.getLogger("inbound.dispatcher")
 
 
-# ------------------------------------------------------------------
-# Safety: Reset session to avoid stale transaction state
-# ------------------------------------------------------------------
 def _reset_session(db: Session) -> None:
     try:
         db.rollback()
@@ -51,9 +48,6 @@ def _reset_session(db: Session) -> None:
         logger.warning("DB rollback failed during inbound reset | err=%s", str(e))
 
 
-# ------------------------------------------------------------------
-# Canonical Client Identity Resolution (UUID only)
-# ------------------------------------------------------------------
 def _resolve_uuid_client_id(
     db: Session,
     *,
@@ -87,9 +81,6 @@ def _resolve_uuid_client_id(
     return str(row["client_id"])
 
 
-# ------------------------------------------------------------------
-# Main Dispatcher
-# ------------------------------------------------------------------
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
 
     if not msg:
@@ -98,9 +89,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     _reset_session(db)
 
-    # --------------------------------------------------
-    # Resolve UUID client_id (single source of truth)
-    # --------------------------------------------------
     client_id = _resolve_uuid_client_id(
         db,
         business_msisdn=business_msisdn,
@@ -118,9 +106,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
         return True
 
-    # --------------------------------------------------
-    # Explicit Command Routing Only (MVP rule)
-    # --------------------------------------------------
     if msg.get("type") == "text":
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
@@ -134,9 +119,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 body_text,
             )
 
-        # ----------------------------------
-        # FEEDBACK (explicit keyword only)
-        # ----------------------------------
         if body_text.lower().startswith("feedback:"):
             admin_rows = (
                 db.execute(
@@ -156,13 +138,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
             admin_numbers = {row["msisdn"] for row in admin_rows}
 
-            if not admin_numbers:
-                logger.warning(
-                    "FEEDBACK_NO_ADMINS | client_id=%s client_code=%s",
-                    client_id,
-                    profile.client_code,
-                )
-
             handled = handle_feedback_message(
                 db=db,
                 sender_number=sender,
@@ -177,10 +152,10 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return bool(handled)
 
     # --------------------------------------------------
-    # SPECIALS (Admin Media Handling)
+    # ANNOUNCEMENTS (Admin Media Handling)
     # --------------------------------------------------
-    if "specials" in profile.enabled_modules:
-        handled = specials_media_handler(
+    if "announcements" in profile.enabled_modules:
+        handled = announcements_media_handler(
             db=db,
             sender=sender,
             msg=msg,
@@ -188,12 +163,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             business_msisdn=business_msisdn,
         )
         if handled:
-            logger.info("SPECIALS_HANDLED | client_id=%s", client_id)
+            logger.info("ANNOUNCEMENTS_HANDLED | client_id=%s", client_id)
             return True
 
-    # --------------------------------------------------
-    # ORDERS (Legacy: Galitos-specific)
-    # --------------------------------------------------
     if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
         handled = orders_handler.handle(
             db=db,
@@ -205,9 +177,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             logger.info("ORDERS_HANDLED | client_id=%s", client_id)
             return True
 
-    # --------------------------------------------------
-    # INSPECTION (Operational clients)
-    # --------------------------------------------------
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         handled = inspection_handler.handle(
             db=db,
@@ -219,9 +188,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             logger.info("INSPECTION_HANDLED | client_id=%s", client_id)
             return True
 
-    # --------------------------------------------------
-    # SURVEY
-    # --------------------------------------------------
     if "survey" in profile.enabled_modules:
         handled = survey_handler.handle(
             db=db,
@@ -233,9 +199,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             logger.info("SURVEY_HANDLED | client_id=%s", client_id)
             return True
 
-    # --------------------------------------------------
-    # Tier1 Fallback (Unknown Command → Menu)
-    # --------------------------------------------------
     body = (msg.get("text", {}) or {}).get("body", "")
 
     logger.info("TIER1_FALLBACK | client_id=%s sender=%s", client_id, sender)
