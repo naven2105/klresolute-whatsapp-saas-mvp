@@ -67,10 +67,11 @@ def notify_staff(*, db: Session, business_msisdn: str, staff: list[str], order: 
                 db=db,
                 business_msisdn=business_msisdn,
                 to_number=msisdn,
-                text=msg,
+                template_name="generic_business_update",
+                template_params=[msg],
             )
             logger.info(
-                "ORDERS_STAFF_SENT | order_id=%s | staff=%s",
+                "ORDERS_STAFF_TEMPLATE_SENT | order_id=%s | staff=%s",
                 order.get("id"),
                 msisdn,
             )
