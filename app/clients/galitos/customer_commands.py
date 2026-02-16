@@ -8,11 +8,10 @@ Project: KLResolute WhatsApp SaaS MVP
 Sprint: Full UUID Identity Migration
 
 Changes:
-- Removed klresolute_client_id usage
-- UUID-only identity resolution
-- Added defensive rollback before raw SQL reads
+- Replaced Specials → Announcements
+- UUID-only identity resolution retained
+- Defensive rollback retained
 - No business logic changes
-- FIX: get_meta_client now requires db
 """
 
 import logging
@@ -22,7 +21,7 @@ from sqlalchemy import text as sql_text
 from app.models import Contact
 from app.outbound.factory import get_meta_client
 
-from app.modules.announcements.service import send_latest_special_to_customer
+from app.modules.announcements.service import send_latest_announcement_to_customer
 from app.menus.customer_menu_service import send_customer_menu_from_db
 from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
@@ -118,7 +117,6 @@ def handle_client_command(
     business_msisdn: str,
 ) -> bool:
 
-    # Defensive rollback in case previous SQL failed
     try:
         db.rollback()
     except Exception:
@@ -135,7 +133,6 @@ def handle_client_command(
 
     text_upper = text.upper()
 
-    # ✅ FIX — pass db
     meta = get_meta_client(
         db=db,
         business_msisdn=business_msisdn,
@@ -148,7 +145,6 @@ def handle_client_command(
         client_id,
     )
 
-    # FOOD FLOW
     if handle_galitos_menu(
         db=db,
         sender_number=sender,
@@ -158,7 +154,6 @@ def handle_client_command(
     ):
         return True
 
-    # YES / NO
     if text_upper in {"YES", "NO"}:
         state = _get_active_order_state(db, sender, client_id)
         if state and bool(state.get("order_pending")) is True:
@@ -172,10 +167,10 @@ def handle_client_command(
             )
             return True
 
-    # SPECIALS
-    if text_upper == "SPECIALS":
+    # ANNOUNCEMENTS
+    if text_upper == "ANNOUNCEMENTS":
         try:
-            sent = send_latest_special_to_customer(
+            sent = send_latest_announcement_to_customer(
                 db=db,
                 client_uuid=client_id,
                 to_msisdn=sender,
@@ -185,24 +180,23 @@ def handle_client_command(
             if not sent:
                 meta.send_session_message(
                     to_msisdn=sender,
-                    text="🔥 No specials available at the moment.\nPlease check again later.",
+                    text="📢 No announcements available at the moment.\nPlease check again later.",
                 )
 
         except Exception as exc:
             logger.exception(
-                "SPECIALS_FATAL | sender=%s | client_id=%s | err=%s",
+                "ANNOUNCEMENTS_FATAL | sender=%s | client_id=%s | err=%s",
                 sender,
                 client_id,
                 exc,
             )
             meta.send_session_message(
                 to_msisdn=sender,
-                text="⚠️ Unable to retrieve specials right now. Please try again later.",
+                text="⚠️ Unable to retrieve announcements right now. Please try again later.",
             )
 
         return True
 
-    # ABOUT (UUID ONLY)
     if text_upper == "ABOUT":
 
         try:
@@ -255,7 +249,6 @@ def handle_client_command(
 
         return True
 
-    # STOP
     if text_upper == "STOP":
         contact = (
             db.query(Contact)
@@ -272,7 +265,6 @@ def handle_client_command(
         )
         return True
 
-    # RESUME
     if (
         text_upper == "RESUME"
         and not is_admin_message(
@@ -296,6 +288,5 @@ def handle_client_command(
         )
         return True
 
-    # MENU / FALLBACK
     _send_customer_menu(db=db, sender=sender, client_id=client_id)
     return True
