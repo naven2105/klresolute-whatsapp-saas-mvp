@@ -11,7 +11,7 @@ EXPLICIT ROLE:
 - This file defines the Galitos admin menu ONLY
 - Menu is hard-coded by design
 - Menu text is instructional, not command-parsed
-- Specials are triggered by admin sending IMAGE + CAPTION only
+- Announcements are triggered by admin sending IMAGE + CAPTION only
 
 GUARD RAILS:
 - No dynamic behaviour
@@ -42,12 +42,12 @@ _GALITOS_ADMIN_MENU_TEXT = (
     "• Starting a new survey closes the previous one\n"
     "• Survey results are shared with admins when the survey closes\n\n"
     "────────────────\n\n"
-    "🎯 Special\n\n"
-    "Send an image with a caption to activate a new special.\n\n"
+    "🎯 Announcement\n\n"
+    "Send an image with a caption to activate a new announcement.\n\n"
     "Notes:\n"
-    "• Only ONE special at a time\n"
+    "• Only ONE announcement at a time\n"
     "• A new image replaces the previous one\n"
-    "• Customers use “specials” to view the latest special"
+    "• Customers use “announcements” to view the latest announcement"
 )
 
 GALITOS_ADMIN_MENU = {
@@ -79,10 +79,10 @@ GALITOS_ADMIN_MENU = {
             ],
         },
         {
-            "title": "🖼️ Specials",
+            "title": "🖼️ Announcements",
             "commands": [
-                "Send image with caption to publish special",
-                "Latest special replaces previous one",
+                "Send image with caption to publish announcement",
+                "Latest announcement replaces previous one",
             ],
         },
         {
