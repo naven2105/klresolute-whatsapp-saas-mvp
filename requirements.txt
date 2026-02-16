@@ -4,3 +4,4 @@ sqlalchemy==2.0.29
 psycopg2-binary==2.9.9
 requests
 boto3
+reportlab==4.0.9
