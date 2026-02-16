@@ -17,6 +17,7 @@ Enhancement:
 
 import logging
 from sqlalchemy.orm import Session
+from typing import Optional, List
 
 from app.outbound.meta import MetaWhatsAppClient
 from app.outbound.settings import load_meta_settings
@@ -31,6 +32,7 @@ def send_message(
     to_number: str,
     text: str | None = None,
     template_name: str | None = None,
+    template_params: Optional[List[str]] = None,   # ✅ ADDED
     language_code: str = "en_US",
 ) -> None:
 
@@ -118,8 +120,10 @@ def send_message(
         to_number,
         template_name,
     )
+
     meta_client.send_template(
         to_msisdn=to_number,
         template_name=template_name,
         language_code=language_code,
+        body_params=template_params,   # ✅ ADDED
     )
