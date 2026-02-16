@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from app.profiles.client_profile import get_client_profile
 
-from app.clients.magen.inspection.workers.pdf_worker import (
+from app.clients.magen.inspection.pdf_worker import (
     generate_and_send_inspection_pdf as magen_pdf_worker,
 )
 from app.clients.galitos.workers.pdf_worker import (

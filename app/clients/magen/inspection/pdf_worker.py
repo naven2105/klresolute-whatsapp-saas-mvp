@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/clients/magen/workers/pdf_worker.py
-Path: app/clients/magen/workers/pdf_worker.py
+File: app/clients/magen/inspection/pdf_worker.py
+Path: app/clients/magen/inspection/pdf_worker.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:

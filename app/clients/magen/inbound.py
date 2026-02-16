@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
 
-from app.clients.magen.inspection.workers.pdf_worker import (
+from app.clients.magen.inspection.pdf_worker import (
     generate_and_send_inspection_pdf,
 )
 

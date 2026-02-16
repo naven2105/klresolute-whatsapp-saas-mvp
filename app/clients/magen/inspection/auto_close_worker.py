@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/clients/magen/workers/auto_close_worker.py
-Path: app/clients/magen/workers/auto_close_worker.py
+File: app/clients/magen/inspection/auto_close_worker.py
+Path: app/clients/magen/inspection/auto_close_worker.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
@@ -23,7 +23,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.clients.magen.inspection.workers.pdf_worker import generate_and_send_inspection_pdf
+from app.clients.magen.inspection.pdf_worker import generate_and_send_inspection_pdf
 
 logger = logging.getLogger("clients.magen.auto_close_worker")
 
@@ -38,7 +38,8 @@ def auto_close_expired_inspections(db: Session) -> None:
             text(
                 """
                 UPDATE magen_inspections
-                SET status = 'COMPLETED',
+                SET status = 'CLOSED',
+                    closed_reason = 'AUTO'
                     completed_at = now()
                 WHERE status = 'ACTIVE'
                   AND last_event_at < now() - interval '5 minutes'
