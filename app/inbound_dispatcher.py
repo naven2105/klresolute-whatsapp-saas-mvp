@@ -9,21 +9,13 @@ Sprint: Identity Stabilisation (UUID Canonicalisation)
 Purpose:
 Central inbound routing entry point.
 
-Scope of this sprint:
-- Canonical UUID client_id resolution (single identity model)
-- Remove integer client resolution
-- Remove free-text routing (explicit command only)
-- Add logging and guard rails
-- No business logic refactor
-- No DB schema changes
-
 Routing Model (MVP):
 - Explicit command routing only
 - Unknown command → Tier1 fallback
 
-Legacy Cleanup:
-- Removed legacy Orders module routing
-- Orders now handled only via dedicated client handlers
+Architecture Update:
+- Legacy Orders module removed
+- Galitos orders routed directly to galitos_order_handler
 """
 
 import logging
@@ -33,6 +25,7 @@ from sqlalchemy import text
 from app.profiles.client_profile import get_client_profile
 from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
+from app.handlers import galitos_order_handler
 
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
@@ -109,12 +102,13 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
         return True
 
+    # --------------------------------------------------
+    # TEXT HANDLING
+    # --------------------------------------------------
     if msg.get("type") == "text":
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
-        if not body_text:
-            logger.info("EMPTY_TEXT_BODY | sender=%s", sender)
-        else:
+        if body_text:
             logger.info(
                 "INBOUND_TEXT | client_id=%s sender=%s body=%s",
                 client_id,
@@ -122,6 +116,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 body_text,
             )
 
+        # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
             admin_rows = (
                 db.execute(
@@ -152,7 +147,21 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 business_msisdn=business_msisdn,
             )
 
-            return bool(handled)
+            if handled:
+                return True
+
+        # ---- GALITOS ORDERS (Direct Handler) ----
+        if profile.client_code == "GALITOS":
+            handled = galitos_order_handler.handle_order_message(
+                db=db,
+                from_number=sender,
+                message_text=body_text,
+                context={"business_msisdn": business_msisdn},
+            )
+
+            if handled:
+                logger.info("GALITOS_ORDER_HANDLED | client_id=%s", client_id)
+                return True
 
     # --------------------------------------------------
     # ANNOUNCEMENTS
@@ -197,6 +206,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             logger.info("SURVEY_HANDLED | client_id=%s", client_id)
             return True
 
+    # --------------------------------------------------
+    # TIER1 FALLBACK
+    # --------------------------------------------------
     body = (msg.get("text", {}) or {}).get("body", "")
 
     logger.info("TIER1_FALLBACK | client_id=%s sender=%s", client_id, sender)
