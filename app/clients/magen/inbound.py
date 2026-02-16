@@ -14,10 +14,12 @@ Rules (LOCKED):
 - 'done' immediately closes inspection
 - PDF worker is triggered on close
 - No menus, no delegation
+- Media evidence must be stored in S3 and linked to events (fail hard)
 """
 
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
@@ -37,9 +39,41 @@ from app.clients.magen.inspection.events_repo import (
 
 from app.clients.magen.staff_repo import is_active_staff
 
+from app.clients.magen.magen_media_handler import (
+    handle_magen_inspection_media,
+)
+
 logger = logging.getLogger("clients.magen")
 
 MAGEN_BUSINESS_MSISDN = "27631016099"
+
+
+def _next_photo_index(db: Session, *, inspection_id: str) -> int:
+    """
+    Compute next photo index for deterministic S3 naming.
+
+    Guard rails:
+    - Deterministic ordering
+    - No reliance on client-provided indices
+    """
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM magen_inspection_events
+                WHERE inspection_id = :id
+                  AND event_type = 'PHOTO'
+                """
+            ),
+            {"id": inspection_id},
+        )
+        .mappings()
+        .first()
+    )
+
+    count = int(row["cnt"]) if row and row["cnt"] is not None else 0
+    return count + 1
 
 
 # -------------------------------------------------
@@ -107,11 +141,12 @@ def handle_inbound(
                 language_code="en_US",
             )
 
-            # --- Close inspection (Unified terminal status) ---
+            # --- Close inspection (NEW lifecycle model: ACTIVE/CLOSED + reason) ---
             close_inspection(
                 db,
                 inspection_id=inspection_id,
-                status="COMPLETED",
+                status="CLOSED",
+                closed_reason="MANUAL",
             )
 
             # --- Post-close processing ---
@@ -121,7 +156,7 @@ def handle_inbound(
             )
 
             logger.info(
-                "MAGEN_INSPECTION_COMPLETED | sender=%s | id=%s",
+                "MAGEN_INSPECTION_CLOSED_MANUAL | sender=%s | id=%s",
                 sender,
                 inspection_id,
             )
@@ -140,6 +175,10 @@ def handle_inbound(
         media_id = msg["image"]["id"]
         caption = msg["image"].get("caption")
 
+        # Determine deterministic photo index BEFORE insert
+        photo_index = _next_photo_index(db, inspection_id=inspection_id)
+
+        # Insert PHOTO event first (links via meta_media_id + inspection_id)
         insert_event(
             db,
             inspection_id=inspection_id,
@@ -147,6 +186,20 @@ def handle_inbound(
             meta_media_id=media_id,
             caption=caption,
         )
+
+        # Store media in S3 + link s3_url back onto PHOTO row (FAIL HARD)
+        # site_id not yet captured in workflow -> keep deterministic placeholder for now
+        handle_magen_inspection_media(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            media_id=media_id,
+            mime_type="image/jpeg",
+            inspection_id=str(inspection_id),
+            site_id="UNSPECIFIED",
+            photo_index=photo_index,
+        )
+
         return True
 
     # ----------------------------------

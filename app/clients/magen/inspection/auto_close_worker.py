@@ -10,7 +10,7 @@ Automatically close expired Magen inspections and trigger PDF generation.
 
 Responsibilities (LOCKED):
 - Detect ACTIVE inspections with no activity > AUTO_CLOSE_MINUTES
-- Mark inspection as COMPLETED
+- Mark inspection as CLOSED with closed_reason=AUTO
 - Trigger PDF generation once per inspection
 - Log every step (no silent failures)
 
@@ -39,7 +39,7 @@ def auto_close_expired_inspections(db: Session) -> None:
                 """
                 UPDATE magen_inspections
                 SET status = 'CLOSED',
-                    closed_reason = 'AUTO'
+                    closed_reason = 'AUTO',
                     completed_at = now()
                 WHERE status = 'ACTIVE'
                   AND last_event_at < now() - interval '5 minutes'
@@ -82,3 +82,4 @@ def auto_close_expired_inspections(db: Session) -> None:
     except Exception:
         db.rollback()
         logger.exception("MAGEN_AUTO_CLOSE_FATAL")
+        raise
