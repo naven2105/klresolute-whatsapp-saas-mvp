@@ -36,9 +36,6 @@ def send_weekly_whatsapp_report() -> None:
         end = datetime.utcnow()
         start = end - timedelta(days=7)
 
-        # -------------------------------------------------
-        # Fetch GALITOS business only
-        # -------------------------------------------------
         businesses = (
             db.execute(
                 text(
@@ -72,9 +69,6 @@ def send_weekly_whatsapp_report() -> None:
                 business_msisdn,
             )
 
-            # -------------------------------------------------
-            # Engagement counts (STRICTLY per client_uuid)
-            # -------------------------------------------------
             hours_count = (
                 db.query(EventLog)
                 .filter(
@@ -86,12 +80,12 @@ def send_weekly_whatsapp_report() -> None:
                 .count()
             )
 
-            specials_count = (
+            announcements_count = (
                 db.query(EventLog)
                 .filter(
                     EventLog.client_id == client_uuid,
                     EventLog.event_type == "inbound_keyword",
-                    EventLog.event_detail == "keyword_specials",
+                    EventLog.event_detail == "keyword_announcements",
                     EventLog.event_timestamp >= start,
                 )
                 .count()
@@ -102,7 +96,11 @@ def send_weekly_whatsapp_report() -> None:
                 .filter(
                     EventLog.client_id == client_uuid,
                     EventLog.event_type.in_(
-                        ["inbound_keyword", "hours_reply_sent", "specials_reply_sent"]
+                        [
+                            "inbound_keyword",
+                            "hours_reply_sent",
+                            "announcements_reply_sent",
+                        ]
                     ),
                     EventLog.event_timestamp >= start,
                 )
@@ -112,14 +110,11 @@ def send_weekly_whatsapp_report() -> None:
             report_text = (
                 "📊 Weekly WhatsApp Engagement Summary\n\n"
                 f"• {hours_count} customers checked store hours\n"
-                f"• {specials_count} customers viewed specials/promotions\n"
+                f"• {announcements_count} customers viewed announcements\n"
                 f"• {total_engagement} total automated interactions\n\n"
                 "This shows reduced call interruptions and clear buying interest."
             )
 
-            # -------------------------------------------------
-            # Resolve active GALITOS admins
-            # -------------------------------------------------
             admin_rows = (
                 db.execute(
                     text(
@@ -147,9 +142,6 @@ def send_weekly_whatsapp_report() -> None:
                 len(admin_rows),
             )
 
-            # -------------------------------------------------
-            # Send via single transport gateway
-            # -------------------------------------------------
             for admin in admin_rows:
                 try:
                     send_message(
