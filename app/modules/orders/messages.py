@@ -11,13 +11,16 @@ Outbound messaging helpers for Orders module.
 Rules (LOCKED):
 - Messaging only
 - No SQL
+
+Legacy Cleanup:
+- Removed notify_staff() (legacy path)
+- Staff notifications now handled exclusively by galitos_staff_notifier
 """
 
 import logging
 from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
-from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("module.orders.messages")
 
@@ -51,37 +54,3 @@ def ask_for_flavour(*, db: Session, business_msisdn: str, sender: str) -> None:
         ),
     )
     logger.info("ORDERS_FLAVOUR_PROMPT_SENT | sender=%s", sender)
-
-
-def notify_staff(*, db: Session, business_msisdn: str, staff: list[str], order: dict) -> None:
-    msg = (
-        "📢 New Galitos Order\n\n"
-        f"Item: {order.get('item_name')}\n"
-        f"Flavour: {order.get('flavour')}\n"
-        f"Total: R{order.get('total_amount')}\n"
-        f"Customer: {order.get('customer_msisdn')}\n"
-    )
-
-    meta = get_meta_client(
-        db=db,
-        business_msisdn=business_msisdn,
-    )
-
-    for msisdn in staff:
-        try:
-            meta.send_generic_business_update_template(
-                to_msisdn=msisdn,
-                blob_text=msg,
-            )
-            logger.info(
-                "ORDERS_STAFF_TEMPLATE_SENT | order_id=%s | staff=%s",
-                order.get("id"),
-                msisdn,
-            )
-        except Exception as exc:
-            logger.exception(
-                "ORDERS_STAFF_SEND_FAIL | order_id=%s | staff=%s | err=%s",
-                order.get("id"),
-                msisdn,
-                exc,
-            )

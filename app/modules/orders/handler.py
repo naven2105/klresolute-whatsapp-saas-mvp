@@ -15,6 +15,9 @@ Rules (LOCKED):
 - No SQL except INSERT
 - Delegate continuation to galitos_order_handler
 - UUID client_id only
+
+Legacy Cleanup:
+- Removed unused notify_staff import
 """
 
 import logging
@@ -31,7 +34,6 @@ from app.modules.orders.db import (
 from app.modules.orders.messages import (
     send_food_menu,
     ask_for_flavour,
-    notify_staff,
 )
 
 logger = logging.getLogger("module.orders")
