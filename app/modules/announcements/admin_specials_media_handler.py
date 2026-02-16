@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 """
-File: app/modules/specials/admin_specials_media_handler.py
+File: app/modules/announcements/admin_announcements_media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration
 
 Changes:
-- Removed klresolute_client_id usage
+- Renamed Specials → Announcements
 - UUID-only identity model
-- Removed integer resolution helper
-- Added defensive rollback protection
-- FIX: client_admins lookup now uses client_code (UUID)
+- Defensive rollback protection retained
 - No behaviour changes
 """
 
@@ -23,9 +21,9 @@ from app.models import Contact
 from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
 
-logger = logging.getLogger("specials.admin_media")
+logger = logging.getLogger("announcements.admin_media")
 
-DEFAULT_CAPTION = "Today’s specials"
+DEFAULT_CAPTION = "Latest announcement"
 
 
 def handle_media_message(
@@ -38,7 +36,7 @@ def handle_media_message(
 ) -> bool:
 
     logger.info(
-        "SPECIALS_MEDIA_ENTER | sender=%s | msg_type=%s | client_id=%s",
+        "ANNOUNCEMENTS_MEDIA_ENTER | sender=%s | msg_type=%s | client_id=%s",
         sender,
         msg.get("type"),
         client_id,
@@ -47,10 +45,10 @@ def handle_media_message(
     try:
         db.rollback()
     except Exception:
-        logger.exception("SPECIALS_DB_RESET_FAIL | sender=%s", sender)
+        logger.exception("ANNOUNCEMENTS_DB_RESET_FAIL | sender=%s", sender)
 
     if msg.get("type") != "image":
-        logger.debug("SPECIALS_MEDIA_SKIP | reason=not_image")
+        logger.debug("ANNOUNCEMENTS_MEDIA_SKIP | reason=not_image")
         return False
 
     if not is_admin_message(
@@ -59,7 +57,7 @@ def handle_media_message(
         business_msisdn=business_msisdn,
     ):
         logger.warning(
-            "SPECIALS_MEDIA_REJECT | reason=non_admin | sender=%s",
+            "ANNOUNCEMENTS_MEDIA_REJECT | reason=non_admin | sender=%s",
             sender,
         )
         return True
@@ -67,7 +65,7 @@ def handle_media_message(
     client_uuid = str(client_id)
 
     if not client_uuid:
-        logger.error("SPECIALS_CLIENT_ID_INVALID | raw=%r", client_id)
+        logger.error("ANNOUNCEMENTS_CLIENT_ID_INVALID | raw=%r", client_id)
         return True
 
     meta = get_meta_client(
@@ -79,7 +77,7 @@ def handle_media_message(
     caption = msg["image"].get("caption") or DEFAULT_CAPTION
 
     logger.info(
-        "SPECIALS_MEDIA_IMAGE | sender=%s | media_id=%s | caption=%r",
+        "ANNOUNCEMENTS_MEDIA_IMAGE | sender=%s | media_id=%s | caption=%r",
         sender,
         media_id,
         caption,
@@ -89,7 +87,7 @@ def handle_media_message(
         db.execute(
             text(
                 """
-                INSERT INTO specials (
+                INSERT INTO announcements (
                     client_id,
                     media_id,
                     caption,
@@ -112,7 +110,7 @@ def handle_media_message(
         db.commit()
 
         logger.info(
-            "SPECIALS_DB_INSERT_OK | client_uuid=%s | media_id=%s",
+            "ANNOUNCEMENTS_DB_INSERT_OK | client_uuid=%s | media_id=%s",
             client_uuid,
             media_id,
         )
@@ -120,7 +118,7 @@ def handle_media_message(
     except Exception as exc:
         db.rollback()
         logger.error(
-            "SPECIALS_DB_INSERT_FAIL | client_uuid=%s | media_id=%s | err=%s",
+            "ANNOUNCEMENTS_DB_INSERT_FAIL | client_uuid=%s | media_id=%s | err=%s",
             client_uuid,
             media_id,
             exc,
@@ -128,7 +126,6 @@ def handle_media_message(
         )
         return True
 
-    # ✅ FIXED HERE
     try:
         admin_numbers = {
             row[0]
@@ -145,7 +142,7 @@ def handle_media_message(
             ).all()
         }
     except Exception:
-        logger.exception("SPECIALS_ADMIN_FETCH_FAIL")
+        logger.exception("ANNOUNCEMENTS_ADMIN_FETCH_FAIL")
         return True
 
     try:
@@ -156,13 +153,13 @@ def handle_media_message(
         )
 
         logger.info(
-            "SPECIALS_PUSH_BEGIN | recipients=%s",
+            "ANNOUNCEMENTS_PUSH_BEGIN | recipients=%s",
             len(contacts),
         )
 
     except Exception as exc:
         logger.error(
-            "SPECIALS_CONTACT_FETCH_FAIL | err=%s",
+            "ANNOUNCEMENTS_CONTACT_FETCH_FAIL | err=%s",
             exc,
             exc_info=True,
         )
@@ -182,14 +179,14 @@ def handle_media_message(
         except Exception as exc:
             failed += 1
             logger.error(
-                "SPECIALS_SEND_FAIL | to=%s | err=%s",
+                "ANNOUNCEMENTS_SEND_FAIL | to=%s | err=%s",
                 c.contact_number,
                 exc,
                 exc_info=True,
             )
 
     logger.info(
-        "SPECIALS_PUSH_DONE | sent=%s | failed=%s",
+        "ANNOUNCEMENTS_PUSH_DONE | sent=%s | failed=%s",
         sent,
         failed,
     )
@@ -198,15 +195,15 @@ def handle_media_message(
         meta.send_generic_business_update_template(
             to_msisdn=sender,
             blob_text=(
-                f"Special sent to customers. "
+                f"Announcement sent to customers. "
                 f"Delivered: {sent}. Failed: {failed}."
             ),
         )
-        logger.info("SPECIALS_ADMIN_CONFIRM_OK | sender=%s", sender)
+        logger.info("ANNOUNCEMENTS_ADMIN_CONFIRM_OK | sender=%s", sender)
 
     except Exception as exc:
         logger.error(
-            "SPECIALS_ADMIN_CONFIRM_FAIL | sender=%s | err=%s",
+            "ANNOUNCEMENTS_ADMIN_CONFIRM_FAIL | sender=%s | err=%s",
             sender,
             exc,
             exc_info=True,
