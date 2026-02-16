@@ -28,6 +28,7 @@ def insert_event(
     inspection_id: int,
     event_type: str,
     meta_media_id: str | None = None,
+    s3_url: str | None = None,
     gps_lat: float | None = None,
     gps_lng: float | None = None,
     caption: str | None = None,
@@ -39,6 +40,7 @@ def insert_event(
                 inspection_id,
                 event_type,
                 meta_media_id,
+                s3_url,
                 gps_lat,
                 gps_lng,
                 caption
@@ -47,6 +49,7 @@ def insert_event(
                 :inspection_id,
                 :event_type,
                 :meta_media_id,
+                :s3_url,
                 :gps_lat,
                 :gps_lng,
                 :caption
@@ -61,6 +64,7 @@ def insert_event(
             "inspection_id": inspection_id,
             "event_type": event_type,
             "meta_media_id": meta_media_id,
+            "s3_url": s3_url,
             "gps_lat": gps_lat,
             "gps_lng": gps_lng,
             "caption": caption,

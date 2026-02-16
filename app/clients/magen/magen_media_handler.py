@@ -15,6 +15,7 @@ LOCKED RULES:
 - Backend-only S3 access
 - Immutable writes (write once)
 - Keys are system-generated
+- No admin / specials / broadcast logic here
 - Business-scoped Meta sender identity required
 """
 
@@ -82,6 +83,12 @@ def handle_magen_inspection_media(
     - Download media bytes from Meta
     - Store immutably in S3
     - Log metadata only (no UX impact)
+
+    Guard rails (COMPLIANCE):
+    - S3 upload must succeed before DB linkage
+    - DB linkage must update exactly 1 PHOTO event row
+    - Never overwrite existing s3_url
+    - Fail hard on any integrity breach
     """
 
     business_msisdn = _resolve_business_msisdn(db, sender)
@@ -101,9 +108,30 @@ def handle_magen_inspection_media(
     )
 
     # -------------------------------------------------
-    # Download image bytes from Meta
+    # Download image bytes from Meta (fail hard)
     # -------------------------------------------------
-    image_bytes = meta.download_media(media_id)
+    try:
+        image_bytes = meta.download_media(media_id)
+        if not image_bytes:
+            logger.error(
+                "MAGEN_MEDIA_DOWNLOAD_EMPTY | inspection_id=%s | media_id=%s",
+                inspection_id,
+                media_id,
+            )
+            raise RuntimeError("Meta download returned empty bytes")
+        logger.info(
+            "MAGEN_MEDIA_DOWNLOAD_OK | inspection_id=%s | media_id=%s | bytes=%s",
+            inspection_id,
+            media_id,
+            len(image_bytes),
+        )
+    except Exception:
+        logger.exception(
+            "MAGEN_MEDIA_DOWNLOAD_FAIL | inspection_id=%s | media_id=%s",
+            inspection_id,
+            media_id,
+        )
+        raise
 
     # -------------------------------------------------
     # Build locked S3 key
@@ -120,16 +148,86 @@ def handle_magen_inspection_media(
     )
 
     # -------------------------------------------------
-    # Immutable write to S3
+    # Immutable write to S3 (fail hard)
     # -------------------------------------------------
-    _s3_store.put_bytes(
-        key=s3_key,
-        data=image_bytes,
-        content_type=mime_type or "image/jpeg",
-    )
+    try:
+        _s3_store.put_bytes(
+            key=s3_key,
+            data=image_bytes,
+            content_type=mime_type or "image/jpeg",
+        )
+        logger.info(
+            "MAGEN_MEDIA_UPLOAD_OK | inspection_id=%s | media_id=%s | s3_key=%s",
+            inspection_id,
+            media_id,
+            s3_key,
+        )
+    except Exception:
+        logger.exception(
+            "MAGEN_MEDIA_UPLOAD_FAIL | inspection_id=%s | media_id=%s | s3_key=%s",
+            inspection_id,
+            media_id,
+            s3_key,
+        )
+        raise
 
     # -------------------------------------------------
-    # Log event / metadata
+    # Persist S3 key into magen_inspection_events.s3_url (fail hard)
+    # -------------------------------------------------
+    try:
+        result = db.execute(
+            text(
+                """
+                UPDATE magen_inspection_events
+                SET s3_url = :s3_key
+                WHERE inspection_id = :inspection_id
+                  AND event_type = 'PHOTO'
+                  AND meta_media_id = :meta_media_id
+                  AND s3_url IS NULL
+                """
+            ),
+            {
+                "s3_key": s3_key,
+                "inspection_id": inspection_id,
+                "meta_media_id": media_id,
+            },
+        )
+
+        if result.rowcount != 1:
+            # Compliance: do not silently continue. This indicates missing/duplicate event rows
+            # or an attempt to overwrite an existing linkage.
+            db.rollback()
+            logger.error(
+                "MAGEN_MEDIA_DB_LINK_FAIL | inspection_id=%s | media_id=%s | s3_key=%s | rowcount=%s",
+                inspection_id,
+                media_id,
+                s3_key,
+                result.rowcount,
+            )
+            raise RuntimeError(
+                f"Failed to link PHOTO event to S3 key (rowcount={result.rowcount})"
+            )
+
+        db.commit()
+        logger.info(
+            "MAGEN_MEDIA_DB_LINK_OK | inspection_id=%s | media_id=%s | s3_key=%s",
+            inspection_id,
+            media_id,
+            s3_key,
+        )
+
+    except Exception:
+        # If we get here after S3 upload, we *must* be loud about the orphan risk.
+        logger.exception(
+            "MAGEN_MEDIA_DB_LINK_FATAL | inspection_id=%s | media_id=%s | s3_key=%s",
+            inspection_id,
+            media_id,
+            s3_key,
+        )
+        raise
+
+    # -------------------------------------------------
+    # Log event / metadata (non-UX)
     # -------------------------------------------------
     log_event(
         db=db,
