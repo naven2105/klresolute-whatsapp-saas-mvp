@@ -9,7 +9,7 @@ Meta WhatsApp Cloud API client.
 
 Supports:
 - Session text messages (admin confirmations, SEND)
-- Generic business update template (broadcast + admin notifications)
+- Generic business update template (Special + admin notifications)
 - Image messages using existing Meta media_id
 - Interactive button messages (surveys)
 """
@@ -66,7 +66,7 @@ class MetaWhatsAppClient:
         return self._post(payload, "SESSION")
 
     # ---------------------------------------------------------
-    # IMAGE MESSAGE (admin image broadcast / specials)
+    # IMAGE MESSAGE (admin image specials)
     # ---------------------------------------------------------
     def send_image_message(
         self,

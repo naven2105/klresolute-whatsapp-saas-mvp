@@ -10,7 +10,8 @@ CLIENT_CODE = "GALITOS"
 
 ENABLED_MODULES = [
     "inspection",
-    # future: "orders", "broadcast", "survey"
+    "announcements",
+    # future: "orders", "survey"
 ]
 
 INSPECTION_PROFILES = {
