@@ -30,7 +30,6 @@ from app.profiles.client_profile import get_client_profile
 from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
 
-from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 
