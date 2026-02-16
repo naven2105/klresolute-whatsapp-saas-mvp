@@ -17,6 +17,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
+from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("module.orders.messages")
 
@@ -61,14 +62,16 @@ def notify_staff(*, db: Session, business_msisdn: str, staff: list[str], order: 
         f"Customer: {order.get('customer_msisdn')}\n"
     )
 
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
+    )
+
     for msisdn in staff:
         try:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=msisdn,
-                template_name="generic_business_update",
-                template_params=[msg],
+            meta.send_generic_business_update_template(
+                to_msisdn=msisdn,
+                blob_text=msg,
             )
             logger.info(
                 "ORDERS_STAFF_TEMPLATE_SENT | order_id=%s | staff=%s",
