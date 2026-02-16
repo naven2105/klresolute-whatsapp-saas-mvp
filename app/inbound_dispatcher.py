@@ -20,6 +20,10 @@ Scope of this sprint:
 Routing Model (MVP):
 - Explicit command routing only
 - Unknown command → Tier1 fallback
+
+Legacy Cleanup:
+- Removed legacy Orders module routing
+- Orders now handled only via dedicated client handlers
 """
 
 import logging
@@ -151,7 +155,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return bool(handled)
 
     # --------------------------------------------------
-    # ANNOUNCEMENTS (Admin Media Handling)
+    # ANNOUNCEMENTS
     # --------------------------------------------------
     if "announcements" in profile.enabled_modules:
         handled = announcements_media_handler(
@@ -165,17 +169,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             logger.info("ANNOUNCEMENTS_HANDLED | client_id=%s", client_id)
             return True
 
-    if profile.client_code == "GALITOS" and "orders" in profile.enabled_modules:
-        handled = orders_handler.handle(
-            db=db,
-            msg=msg,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        )
-        if handled:
-            logger.info("ORDERS_HANDLED | client_id=%s", client_id)
-            return True
-
+    # --------------------------------------------------
+    # INSPECTION
+    # --------------------------------------------------
     if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         handled = inspection_handler.handle(
             db=db,
@@ -187,6 +183,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             logger.info("INSPECTION_HANDLED | client_id=%s", client_id)
             return True
 
+    # --------------------------------------------------
+    # SURVEY
+    # --------------------------------------------------
     if "survey" in profile.enabled_modules:
         handled = survey_handler.handle(
             db=db,
