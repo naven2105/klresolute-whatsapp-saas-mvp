@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 """
-File: app/modules/specials/service.py
-Path: app/modules/specials/service.py
+File: app/modules/announcements/service.py
+Path: app/modules/announcements/service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration
 
 ROLE:
-Customer-facing SPECIALS retrieval service.
+Customer-facing ANNOUNCEMENTS retrieval service.
 
 GUARDS:
 - Never raise
@@ -24,10 +24,10 @@ from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
 
-logger = logging.getLogger("specials.service")
+logger = logging.getLogger("announcements.service")
 
 
-def send_latest_special_to_customer(
+def send_latest_announcement_to_customer(
     *,
     db: Session,
     client_uuid: str,
@@ -35,11 +35,11 @@ def send_latest_special_to_customer(
     business_msisdn: str,
 ) -> bool:
     """
-    Sends latest SPECIAL to customer.
+    Sends latest ANNOUNCEMENT to customer.
 
     Returns:
-    - True  -> special sent
-    - False -> no special found
+    - True  -> announcement sent
+    - False -> no announcement found
     """
 
     try:
@@ -47,7 +47,7 @@ def send_latest_special_to_customer(
             db.rollback()
         except Exception:
             logger.exception(
-                "SPECIALS_DB_RESET_FAIL | client_uuid=%s",
+                "ANNOUNCEMENTS_DB_RESET_FAIL | client_uuid=%s",
                 client_uuid,
             )
 
@@ -56,7 +56,7 @@ def send_latest_special_to_customer(
                 text(
                     """
                     SELECT media_id, caption
-                    FROM specials
+                    FROM announcements
                     WHERE client_id = :client_id
                     ORDER BY created_at DESC
                     LIMIT 1
@@ -70,7 +70,7 @@ def send_latest_special_to_customer(
 
         if not row:
             logger.info(
-                "SPECIALS_NONE_FOUND | client_uuid=%s",
+                "ANNOUNCEMENTS_NONE_FOUND | client_uuid=%s",
                 client_uuid,
             )
             return False
@@ -87,7 +87,7 @@ def send_latest_special_to_customer(
         )
 
         logger.info(
-            "SPECIALS_SENT | to=%s | client_uuid=%s | business=%s",
+            "ANNOUNCEMENTS_SENT | to=%s | client_uuid=%s | business=%s",
             to_msisdn,
             client_uuid,
             business_msisdn,
@@ -97,7 +97,7 @@ def send_latest_special_to_customer(
 
     except Exception as exc:
         logger.exception(
-            "SPECIALS_SERVICE_FAIL | client_uuid=%s | to=%s | err=%s",
+            "ANNOUNCEMENTS_SERVICE_FAIL | client_uuid=%s | to=%s | err=%s",
             client_uuid,
             to_msisdn,
             exc,

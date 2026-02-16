@@ -34,7 +34,7 @@ from app.modules.orders import handler as orders_handler
 from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 
-from app.modules.specials.admin_specials_media_handler import (
+from app.modules.announcements.admin_specials_media_handler import (
     handle_media_message as specials_media_handler,
 )
 
