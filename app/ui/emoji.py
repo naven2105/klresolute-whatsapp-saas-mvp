@@ -3,7 +3,7 @@
 # Purpose: Central emoji registry (UTF-8 safe)
 
 ORDER = "🛒"
-SPECIALS = "🔥"
+ANNOUNCEMENTS = "📣"
 ABOUT = "ℹ️"
 FEEDBACK = "💬"
 

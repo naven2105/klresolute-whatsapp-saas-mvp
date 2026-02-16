@@ -15,7 +15,6 @@ LOCKED RULES:
 - Backend-only S3 access
 - Immutable writes (write once)
 - Keys are system-generated
-- No admin / specials / broadcast logic here
 - Business-scoped Meta sender identity required
 """
 

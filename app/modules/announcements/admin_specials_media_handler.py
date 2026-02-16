@@ -7,7 +7,6 @@ Project: KLResolute WhatsApp SaaS MVP
 Sprint: Full UUID Identity Migration
 
 Changes:
-- Renamed Specials → Announcements
 - UUID-only identity model
 - Defensive rollback protection retained
 - No behaviour changes

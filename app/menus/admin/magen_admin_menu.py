@@ -11,19 +11,12 @@ EXPLICIT ROLE:
 - This file defines the Galitos admin menu ONLY
 - Menu is hard-coded by design
 - Menu text is instructional, not command-parsed
-- Specials are triggered by admin sending IMAGE + CAPTION only
 
 GUARD RAILS:
 - No dynamic behaviour
 - No DB access
 - No outbound messaging
 - Safe to import anywhere
-
-CHANGE NOTE:
-- Removed STATUS / CLEAR STATUS
-- Removed SEND / broadcast references
-- Removed "No active survey" indicator
-- Specials reworded to image + caption trigger
 """
 
 import logging
@@ -56,14 +49,14 @@ GALITOS_ADMIN_MENU = {
             ],
         },
         {
-            "title": "🎯 Special",
+            "title": "🎯 Announcement",
             "commands": [
-                "Send an image with a caption to activate a new special.",
+                "Send an image with a caption to activate a new announcement.",
                 "",
                 "Notes:",
-                "• Only ONE special at a time",
+                "• Only ONE announcement at a time",
                 "• A new image replaces the previous one",
-                "• Customers use “specials” to view the latest special",
+                "• Customers use “announcements” to view the latest announcement",
             ],
         },
     ],

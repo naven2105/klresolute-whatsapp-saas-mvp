@@ -22,7 +22,7 @@ logger = logging.getLogger("menus.menu_renderer")
 # Keyword → emoji mapping (code only)
 _CMD_EMOJI = {
     "ORDER": "🍔",
-    "SPECIALS": "🔥",
+    "ANNOUNCEMENTS": "📣",
     "ABOUT": "ℹ️",
     "FEEDBACK": "💬",
     "STOP": "❌",
@@ -55,7 +55,6 @@ def _validate_menu_shape(menu: Dict[str, Any]) -> None:
 
 
 def _decorate_title(title: str) -> str:
-    # Add a single emoji prefix if the DB title is plain text.
     stripped = title.strip()
     if stripped and stripped[0] in {"📋", "🧾", "📌", "📣", "✅", "⭐", "🔥", "ℹ", "❌"}:
         return stripped
@@ -72,9 +71,6 @@ def _format_command(cmd: str) -> str:
 
 
 def render_menu_text(menu_json: Dict[str, Any]) -> str:
-    """
-    Render DB menu JSON into a WhatsApp-friendly plain text menu.
-    """
     try:
         _validate_menu_shape(menu_json)
     except Exception:

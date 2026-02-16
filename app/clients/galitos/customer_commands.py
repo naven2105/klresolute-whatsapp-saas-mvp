@@ -8,7 +8,6 @@ Project: KLResolute WhatsApp SaaS MVP
 Sprint: Full UUID Identity Migration
 
 Changes:
-- Replaced Specials → Announcements
 - UUID-only identity resolution retained
 - Defensive rollback retained
 - No business logic changes
