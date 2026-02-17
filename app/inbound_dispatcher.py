@@ -13,9 +13,15 @@ Routing Model (MVP):
 - Explicit command routing only
 - Unknown command → Tier1 fallback
 
-Architecture Update:
-- Legacy Orders module removed
-- Galitos orders routed directly to galitos_order_handler
+Patch (Inspection Consolidation):
+- Generic inspection module removed
+- Magen inspection routed explicitly to client-bound handler
+- No other routing behaviour changed
+
+Guard Rails:
+- Fail-safe DB rollback on entry
+- Explicit logging for inspection routing
+- No silent routing failures
 """
 
 import logging
@@ -27,7 +33,10 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
 from app.handlers import galitos_order_handler
 
-from app.modules.inspection import handler as inspection_handler
+# ❌ Removed: from app.modules.inspection import handler as inspection_handler
+# ✅ Client-bound inspection handler
+from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
+
 from app.modules.survey import handler as survey_handler
 
 from app.modules.announcements.admin_announcements_media_handler import (
@@ -148,6 +157,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             )
 
             if handled:
+                logger.info("FEEDBACK_HANDLED | client_id=%s", client_id)
                 return True
 
         # ---- GALITOS ORDERS (Direct Handler) ----
@@ -179,18 +189,39 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # --------------------------------------------------
-    # INSPECTION
+    # INSPECTION (Client-Bounded: MAGEN ONLY)
     # --------------------------------------------------
-    if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
-        handled = inspection_handler.handle(
-            db=db,
-            msg=msg,
-            sender=sender,
-            profile_code=profile.client_code,
+    if profile.client_code == "MAGEN" and "inspection" in profile.enabled_modules:
+        logger.info(
+            "INSPECTION_ROUTING_ATTEMPT | client_id=%s sender=%s",
+            client_id,
+            sender,
         )
+
+        try:
+            handled = magen_inspection_handler(
+                db=db,
+                msg=msg,
+                sender=sender,
+                business_msisdn=business_msisdn,
+            )
+        except Exception:
+            logger.exception(
+                "MAGEN_INSPECTION_HANDLER_FATAL | client_id=%s sender=%s",
+                client_id,
+                sender,
+            )
+            raise  # Fail hard — inspection integrity critical
+
         if handled:
-            logger.info("INSPECTION_HANDLED | client_id=%s", client_id)
+            logger.info("MAGEN_INSPECTION_HANDLED | client_id=%s", client_id)
             return True
+
+        logger.warning(
+            "MAGEN_INSPECTION_NOT_HANDLED | client_id=%s sender=%s",
+            client_id,
+            sender,
+        )
 
     # --------------------------------------------------
     # SURVEY
