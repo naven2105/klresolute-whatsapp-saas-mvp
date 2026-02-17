@@ -23,7 +23,9 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
 from app.handlers import galitos_order_handler
 
-from app.modules.inspection import handler as inspection_handler
+# ✅ Client-specific inspection handler
+from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
+
 from app.modules.survey import handler as survey_handler
 
 from app.modules.announcements.admin_announcements_media_handler import (
@@ -214,31 +216,33 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # --------------------------------------------------
-    # INSPECTION
+    # INSPECTION (Client-Specific: MAGEN)
     # --------------------------------------------------
-    if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
+    if "inspection" in profile.enabled_modules:
         logger.info(
-            "INSPECTION_BRANCH_ENTER | profile_code=%s",
+            "INSPECTION_BRANCH_ENTER | client_code=%s",
             profile.client_code,
         )
 
-        handled = inspection_handler.handle(
-            db=db,
-            msg=msg,
-            sender=sender,
-            profile_code=profile.client_code,
-        )
+        if profile.client_code in ("MAGEN", "Magen Security"):
+            handled = magen_inspection_handler(
+                db=db,
+                msg=msg,
+                sender=sender,
+                business_msisdn=business_msisdn,
+            )
 
-        logger.info("INSPECTION_HANDLED=%s", handled)
+            logger.info("MAGEN_INSPECTION_HANDLED=%s", handled)
 
-        if handled:
-            return True
+            if handled:
+                return True
+        else:
+            logger.info(
+                "INSPECTION_NO_CLIENT_HANDLER | client_code=%s",
+                profile.client_code,
+            )
     else:
-        logger.info(
-            "INSPECTION_BRANCH_SKIPPED | code=%s | enabled=%s",
-            profile.client_code,
-            "inspection" in profile.enabled_modules,
-        )
+        logger.info("INSPECTION_BRANCH_SKIPPED")
 
     # --------------------------------------------------
     # SURVEY
