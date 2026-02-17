@@ -14,11 +14,13 @@ LOCKED RULES:
 - Immutable writes (write once)
 - Keys are system-generated
 - No admin / specials / broadcast logic here
-- Business identity must be provided by caller (inbound layer)
+- Business-scoped Meta sender identity required
+- Event logging must use UUID client_id
 """
 
 import logging
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -32,11 +34,34 @@ logger = logging.getLogger("magen_media_handler")
 _s3_store = S3EvidenceStore()
 
 
+def _resolve_business_msisdn(db: Session, sender: str) -> str | None:
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT w.destination_number
+                FROM whatsapp_numbers w
+                JOIN clients c ON c.client_id = w.client_id
+                WHERE w.status = 'active'
+                LIMIT 1
+                """
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    if not row:
+        logger.error("MAGEN_MEDIA_BUSINESS_RESOLVE_FAIL | sender=%s", sender)
+        return None
+
+    return row["destination_number"]
+
+
 def handle_magen_inspection_media(
     *,
     db: Session,
     sender: str,
-    business_msisdn: str,
     media_id: str,
     mime_type: str,
     inspection_id: str,
@@ -44,20 +69,12 @@ def handle_magen_inspection_media(
     photo_index: int,
 ) -> None:
     """
-    Handle a single inspection photo:
-    - Download media bytes from Meta
-    - Store immutably in S3
-    - Link S3 key to inspection event
-    - Fail hard on integrity breach
+    Handle a single inspection photo.
     """
 
+    business_msisdn = _resolve_business_msisdn(db, sender)
     if not business_msisdn:
-        logger.error(
-            "MAGEN_MEDIA_NO_BUSINESS_MSISDN | sender=%s | inspection_id=%s",
-            sender,
-            inspection_id,
-        )
-        raise RuntimeError("Business MSISDN required for media handling")
+        return
 
     meta = get_meta_client(
         db=db,
@@ -72,26 +89,18 @@ def handle_magen_inspection_media(
     )
 
     # -------------------------------------------------
-    # Download image bytes from Meta (fail hard)
+    # Download media
     # -------------------------------------------------
     try:
         image_bytes = meta.download_media(media_id)
-
         if not image_bytes:
-            logger.error(
-                "MAGEN_MEDIA_DOWNLOAD_EMPTY | inspection_id=%s | media_id=%s",
-                inspection_id,
-                media_id,
-            )
-            raise RuntimeError("Meta download returned empty bytes")
+            raise RuntimeError("Meta returned empty media bytes")
 
         logger.info(
-            "MAGEN_MEDIA_DOWNLOAD_OK | inspection_id=%s | media_id=%s | bytes=%s",
+            "MAGEN_MEDIA_DOWNLOAD_OK | inspection_id=%s | bytes=%s",
             inspection_id,
-            media_id,
             len(image_bytes),
         )
-
     except Exception:
         logger.exception(
             "MAGEN_MEDIA_DOWNLOAD_FAIL | inspection_id=%s | media_id=%s",
@@ -115,7 +124,7 @@ def handle_magen_inspection_media(
     )
 
     # -------------------------------------------------
-    # Upload to S3 (fail hard)
+    # Upload to S3
     # -------------------------------------------------
     try:
         _s3_store.put_bytes(
@@ -125,23 +134,19 @@ def handle_magen_inspection_media(
         )
 
         logger.info(
-            "MAGEN_MEDIA_UPLOAD_OK | inspection_id=%s | media_id=%s | s3_key=%s",
+            "MAGEN_MEDIA_UPLOAD_OK | inspection_id=%s | s3_key=%s",
             inspection_id,
-            media_id,
             s3_key,
         )
-
     except Exception:
         logger.exception(
-            "MAGEN_MEDIA_UPLOAD_FAIL | inspection_id=%s | media_id=%s | s3_key=%s",
+            "MAGEN_MEDIA_UPLOAD_FAIL | inspection_id=%s",
             inspection_id,
-            media_id,
-            s3_key,
         )
         raise
 
     # -------------------------------------------------
-    # Persist S3 key into magen_inspection_events
+    # Link S3 key to inspection event
     # -------------------------------------------------
     try:
         result = db.execute(
@@ -151,64 +156,79 @@ def handle_magen_inspection_media(
                 SET s3_url = :s3_key
                 WHERE inspection_id = :inspection_id
                   AND event_type = 'PHOTO'
-                  AND meta_media_id = :meta_media_id
+                  AND meta_media_id = :media_id
                   AND s3_url IS NULL
                 """
             ),
             {
                 "s3_key": s3_key,
                 "inspection_id": inspection_id,
-                "meta_media_id": media_id,
+                "media_id": media_id,
             },
         )
 
         if result.rowcount != 1:
             db.rollback()
-
             logger.error(
-                "MAGEN_MEDIA_DB_LINK_FAIL | inspection_id=%s | media_id=%s | rowcount=%s",
+                "MAGEN_MEDIA_DB_LINK_FAIL | inspection_id=%s | rowcount=%s",
                 inspection_id,
-                media_id,
                 result.rowcount,
             )
-
-            raise RuntimeError(
-                f"PHOTO event linkage failed (rowcount={result.rowcount})"
-            )
+            raise RuntimeError("PHOTO event linkage failed")
 
         db.commit()
 
         logger.info(
-            "MAGEN_MEDIA_DB_LINK_OK | inspection_id=%s | media_id=%s",
+            "MAGEN_MEDIA_DB_LINK_OK | inspection_id=%s",
             inspection_id,
-            media_id,
         )
-
     except Exception:
         logger.exception(
-            "MAGEN_MEDIA_DB_LINK_FATAL | inspection_id=%s | media_id=%s",
+            "MAGEN_MEDIA_DB_LINK_FATAL | inspection_id=%s",
             inspection_id,
-            media_id,
         )
         raise
 
-        # -------------------------------------------------
-    # Log event / metadata (non-UX)
+    # -------------------------------------------------
+    # Resolve client_id (MANDATORY for event log)
+    # -------------------------------------------------
+    client_row = db.execute(
+        text(
+            """
+            SELECT client_id
+            FROM whatsapp_numbers
+            WHERE destination_number = :business
+              AND status = 'active'
+            LIMIT 1
+            """
+        ),
+        {"business": business_msisdn},
+    ).mappings().first()
+
+    if not client_row:
+        logger.error(
+            "MAGEN_EVENT_LOG_CLIENT_FAIL | inspection_id=%s",
+            inspection_id,
+        )
+        return
+
+    # -------------------------------------------------
+    # Log event correctly
     # -------------------------------------------------
     try:
         log_event(
             db=db,
+            client_id=UUID(str(client_row["client_id"])),
             event_type="MAGEN_INSPECTION_PHOTO_STORED",
-            metadata={
-                "inspection_id": inspection_id,
-                "site_id": site_id,
-                "s3_key": s3_key,
-                "content_type": mime_type,
-                "sender": sender,
-            },
+            event_detail=(
+                f"inspection_id={inspection_id} | "
+                f"s3_key={s3_key} | "
+                f"media_id={media_id}"
+            ),
         )
+
         logger.info(
-            "MAGEN_EVENT_LOGGED | inspection_id=%s",
+            "MAGEN_EVENT_LOG_OK | inspection_id=%s",
             inspection_id,
         )
     except Exception:
