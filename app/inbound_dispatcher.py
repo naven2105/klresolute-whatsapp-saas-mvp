@@ -23,7 +23,7 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
 from app.handlers import galitos_order_handler
 
-# ✅ Client-specific inspection handler
+# Client-specific inspection handler (Magen only for now)
 from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
 
 from app.modules.survey import handler as survey_handler
@@ -54,37 +54,47 @@ def _resolve_uuid_client_id(
     business_msisdn: str,
 ) -> str | None:
 
-    row = (
-        db.execute(
-            text(
-                """
-                SELECT client_id
-                FROM whatsapp_numbers
-                WHERE destination_number = :business
-                  AND status = 'active'
-                LIMIT 1
-                """
-            ),
-            {"business": business_msisdn},
+    try:
+        row = (
+            db.execute(
+                text(
+                    """
+                    SELECT client_id
+                    FROM whatsapp_numbers
+                    WHERE destination_number = :business
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"business": business_msisdn},
+            )
+            .mappings()
+            .first()
         )
-        .mappings()
-        .first()
-    )
 
-    if not row:
-        logger.error(
-            "CLIENT_RESOLUTION_FAIL | business_msisdn=%s not mapped",
+        if not row:
+            logger.error(
+                "CLIENT_RESOLUTION_FAIL | business_msisdn=%s not mapped",
+                business_msisdn,
+            )
+            return None
+
+        client_id = str(row["client_id"])
+
+        logger.info(
+            "CLIENT_RESOLVED | business_msisdn=%s | client_id=%s",
+            business_msisdn,
+            client_id,
+        )
+
+        return client_id
+
+    except Exception:
+        logger.exception(
+            "CLIENT_RESOLUTION_EXCEPTION | business_msisdn=%s",
             business_msisdn,
         )
         return None
-
-    logger.info(
-        "CLIENT_RESOLVED | business_msisdn=%s | client_id=%s",
-        business_msisdn,
-        row["client_id"],
-    )
-
-    return str(row["client_id"])
 
 
 # --------------------------------------------------
@@ -111,21 +121,25 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     )
 
     if client_id is None:
+        logger.error(
+            "DISPATCH_ABORT | client_unresolved | business=%s",
+            business_msisdn,
+        )
         return True
 
     profile = get_client_profile(business_msisdn, db=db)
 
     if not profile:
         logger.error(
-            "PROFILE_RESOLUTION_FAIL | business_msisdn=%s | client_id=%s",
+            "PROFILE_RESOLUTION_FAIL | business=%s | client_id=%s",
             business_msisdn,
             client_id,
         )
         return True
 
     logger.info(
-        "PROFILE_RESOLVED | client_id=%s | client_code=%s | enabled_modules=%s",
-        client_id,
+        "PROFILE_RESOLVED | client_id=%s | client_code=%s | modules=%s",
+        profile.client_id,
         profile.client_code,
         profile.enabled_modules,
     )
@@ -216,7 +230,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # --------------------------------------------------
-    # INSPECTION (Client-Specific: MAGEN)
+    # INSPECTION (DB-driven)
     # --------------------------------------------------
     if "inspection" in profile.enabled_modules:
         logger.info(
@@ -224,7 +238,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             profile.client_code,
         )
 
-        if profile.client_code in ("MAGEN", "Magen Security"):
+        try:
             handled = magen_inspection_handler(
                 db=db,
                 msg=msg,
@@ -232,15 +246,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 business_msisdn=business_msisdn,
             )
 
-            logger.info("MAGEN_INSPECTION_HANDLED=%s", handled)
+            logger.info("INSPECTION_HANDLER_RETURN=%s", handled)
 
             if handled:
                 return True
-        else:
-            logger.info(
-                "INSPECTION_NO_CLIENT_HANDLER | client_code=%s",
+
+        except Exception:
+            logger.exception(
+                "INSPECTION_HANDLER_EXCEPTION | client_code=%s",
                 profile.client_code,
             )
+
     else:
         logger.info("INSPECTION_BRANCH_SKIPPED")
 
