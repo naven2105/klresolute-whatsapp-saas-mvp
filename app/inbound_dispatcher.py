@@ -4,24 +4,14 @@ from __future__ import annotations
 File: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint: Identity Stabilisation (UUID Canonicalisation)
-
 Purpose:
 Central inbound routing entry point.
 
-Routing Model (MVP):
-- Explicit command routing only
-- Unknown command → Tier1 fallback
-
-Patch:
-- Generic inspection module removed
-- Magen inspection routed explicitly to client-bound handler
-- Added runtime diagnostic logging (no behaviour change)
-
-Guard Rails:
-- DB reset on entry
-- Explicit routing diagnostics
-- Fail hard on inspection handler crash
+LOCKED:
+- No business logic
+- No module rewrites
+- Only routing + logging
+- Guard rails for visibility
 """
 
 import logging
@@ -33,8 +23,7 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
 from app.handlers import galitos_order_handler
 
-from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
-
+from app.modules.inspection import handler as inspection_handler
 from app.modules.survey import handler as survey_handler
 
 from app.modules.announcements.admin_announcements_media_handler import (
@@ -44,13 +33,19 @@ from app.modules.announcements.admin_announcements_media_handler import (
 logger = logging.getLogger("inbound.dispatcher")
 
 
+# --------------------------------------------------
+# DB Reset Guard
+# --------------------------------------------------
 def _reset_session(db: Session) -> None:
     try:
         db.rollback()
     except Exception as e:
-        logger.warning("DB rollback failed during inbound reset | err=%s", str(e))
+        logger.warning("DB_ROLLBACK_FAIL | err=%s", str(e))
 
 
+# --------------------------------------------------
+# Client Resolution
+# --------------------------------------------------
 def _resolve_uuid_client_id(
     db: Session,
     *,
@@ -76,15 +71,31 @@ def _resolve_uuid_client_id(
 
     if not row:
         logger.error(
-            "CLIENT_RESOLUTION_FAIL | business_msisdn=%s not mapped to active client",
+            "CLIENT_RESOLUTION_FAIL | business_msisdn=%s not mapped",
             business_msisdn,
         )
         return None
 
+    logger.info(
+        "CLIENT_RESOLVED | business_msisdn=%s | client_id=%s",
+        business_msisdn,
+        row["client_id"],
+    )
+
     return str(row["client_id"])
 
 
+# --------------------------------------------------
+# Dispatch
+# --------------------------------------------------
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
+
+    logger.info(
+        "DISPATCH_ENTER | sender=%s | business=%s | msg_type=%s",
+        sender,
+        business_msisdn,
+        msg.get("type"),
+    )
 
     if not msg:
         logger.warning("EMPTY_MESSAGE_RECEIVED | sender=%s", sender)
@@ -104,21 +115,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     if not profile:
         logger.error(
-            "PROFILE_RESOLUTION_FAIL | business_msisdn=%s client_id=%s",
+            "PROFILE_RESOLUTION_FAIL | business_msisdn=%s | client_id=%s",
             business_msisdn,
             client_id,
         )
         return True
 
-    # --------------------------------------------------
-    # 🔍 RUNTIME PROFILE DIAGNOSTICS (Temporary but safe)
-    # --------------------------------------------------
     logger.info(
-        "PROFILE_RUNTIME_DEBUG | business=%s | client_id=%s | client_code=%s | enabled_modules=%s",
-        business_msisdn,
+        "PROFILE_RESOLVED | client_id=%s | client_code=%s | enabled_modules=%s",
         client_id,
-        getattr(profile, "client_code", None),
-        getattr(profile, "enabled_modules", None),
+        profile.client_code,
+        profile.enabled_modules,
     )
 
     # --------------------------------------------------
@@ -127,16 +134,16 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     if msg.get("type") == "text":
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
-        if body_text:
-            logger.info(
-                "INBOUND_TEXT | client_id=%s sender=%s body=%s",
-                client_id,
-                sender,
-                body_text,
-            )
+        logger.info(
+            "TEXT_RECEIVED | sender=%s | body='%s'",
+            sender,
+            body_text,
+        )
 
         # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
+            logger.info("FEEDBACK_BRANCH_ENTER")
+
             admin_rows = (
                 db.execute(
                     text(
@@ -147,7 +154,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                           AND is_active = true
                         """
                     ),
-                    {"code": getattr(profile, "client_code", None)},
+                    {"code": profile.client_code},
                 )
                 .mappings()
                 .all()
@@ -166,12 +173,15 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 business_msisdn=business_msisdn,
             )
 
+            logger.info("FEEDBACK_HANDLED=%s", handled)
+
             if handled:
-                logger.info("FEEDBACK_HANDLED | client_id=%s", client_id)
                 return True
 
         # ---- GALITOS ORDERS ----
-        if getattr(profile, "client_code", None) == "Galitos":
+        if profile.client_code == "GALITOS":
+            logger.info("GALITOS_BRANCH_ENTER")
+
             handled = galitos_order_handler.handle_order_message(
                 db=db,
                 from_number=sender,
@@ -179,14 +189,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 context={"business_msisdn": business_msisdn},
             )
 
+            logger.info("GALITOS_HANDLED=%s", handled)
+
             if handled:
-                logger.info("GALITOS_ORDER_HANDLED | client_id=%s", client_id)
                 return True
 
     # --------------------------------------------------
     # ANNOUNCEMENTS
     # --------------------------------------------------
-    if "announcements" in getattr(profile, "enabled_modules", []):
+    if "announcements" in profile.enabled_modules:
+        logger.info("ANNOUNCEMENTS_BRANCH_ENTER")
+
         handled = announcements_media_handler(
             db=db,
             sender=sender,
@@ -194,68 +207,68 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             client_id=client_id,
             business_msisdn=business_msisdn,
         )
+
+        logger.info("ANNOUNCEMENTS_HANDLED=%s", handled)
+
         if handled:
-            logger.info("ANNOUNCEMENTS_HANDLED | client_id=%s", client_id)
             return True
 
     # --------------------------------------------------
-    # INSPECTION (Client-Bounded: Magen Security)
+    # INSPECTION
     # --------------------------------------------------
-    if (
-        getattr(profile, "client_code", None) == "Magen Security"
-        and "inspection" in getattr(profile, "enabled_modules", [])
-    ):
+    if profile.client_code != "GALITOS" and "inspection" in profile.enabled_modules:
         logger.info(
-            "INSPECTION_ROUTING_ATTEMPT | client_id=%s sender=%s",
-            client_id,
-            sender,
+            "INSPECTION_BRANCH_ENTER | profile_code=%s",
+            profile.client_code,
         )
 
-        try:
-            handled = magen_inspection_handler(
-                db=db,
-                msg=msg,
-                sender=sender,
-                business_msisdn=business_msisdn,
-            )
-        except Exception:
-            logger.exception(
-                "MAGEN_INSPECTION_HANDLER_FATAL | client_id=%s sender=%s",
-                client_id,
-                sender,
-            )
-            raise
+        handled = inspection_handler.handle(
+            db=db,
+            msg=msg,
+            sender=sender,
+            profile_code=profile.client_code,
+        )
+
+        logger.info("INSPECTION_HANDLED=%s", handled)
 
         if handled:
-            logger.info("MAGEN_INSPECTION_HANDLED | client_id=%s", client_id)
             return True
-
-        logger.warning(
-            "MAGEN_INSPECTION_NOT_HANDLED | client_id=%s sender=%s",
-            client_id,
-            sender,
+    else:
+        logger.info(
+            "INSPECTION_BRANCH_SKIPPED | code=%s | enabled=%s",
+            profile.client_code,
+            "inspection" in profile.enabled_modules,
         )
 
     # --------------------------------------------------
     # SURVEY
     # --------------------------------------------------
-    if "survey" in getattr(profile, "enabled_modules", []):
+    if "survey" in profile.enabled_modules:
+        logger.info("SURVEY_BRANCH_ENTER")
+
         handled = survey_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
         )
+
+        logger.info("SURVEY_HANDLED=%s", handled)
+
         if handled:
-            logger.info("SURVEY_HANDLED | client_id=%s", client_id)
             return True
 
     # --------------------------------------------------
     # TIER1 FALLBACK
     # --------------------------------------------------
-    body = (msg.get("text", {}) or {}).get("body", "")
+    logger.warning(
+        "FALLBACK_TRIGGERED | client_id=%s | sender=%s | msg_type=%s",
+        client_id,
+        sender,
+        msg.get("type"),
+    )
 
-    logger.info("TIER1_FALLBACK | client_id=%s sender=%s", client_id, sender)
+    body = (msg.get("text", {}) or {}).get("body", "")
 
     return bool(
         tier1_handle(
