@@ -329,6 +329,18 @@ async def whatsapp_webhook(
         )
         return Response(status_code=200)
 
+    # 🔥 Guaranteed-visible marker (stdout)
+    print(
+        f"🔥 WEBHOOK_MSG_IN | sender={sender} | business={business_msisdn} | type={msg.get('type')} | pid={provider_message_id}"
+    )
+    logger.warning(
+        "WEBHOOK_MSG_IN | sender=%s | business=%s | type=%s | pid=%s",
+        sender,
+        business_msisdn,
+        msg.get("type"),
+        provider_message_id,
+    )
+
     try:
         db.execute(text("SELECT 1"))
         logger.info("DB_OK")
@@ -386,7 +398,11 @@ async def whatsapp_webhook(
     except Exception:
         logger.exception("AUTO_CLOSE_FAIL")
 
-    logger.info(
+    # ✅ Guaranteed-visible dispatch markers (stdout + warning)
+    print(
+        f"🚀 DISPATCH_CALL | sender={sender} | business={business_msisdn} | type={msg.get('type')}"
+    )
+    logger.warning(
         "DISPATCH_CALL | sender=%s | business=%s | msg_type=%s",
         sender,
         business_msisdn,
@@ -400,10 +416,12 @@ async def whatsapp_webhook(
         business_msisdn=business_msisdn,
     )
 
-    logger.info(
-        "DISPATCH_RETURN | handled=%s | sender=%s",
+    print(f"🏁 DISPATCH_RETURN | handled={handled} | sender={sender}")
+    logger.warning(
+        "DISPATCH_RETURN | handled=%s | sender=%s | business=%s",
         handled,
         sender,
+        business_msisdn,
     )
 
     if not handled:
