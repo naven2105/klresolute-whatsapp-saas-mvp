@@ -34,34 +34,11 @@ logger = logging.getLogger("magen_media_handler")
 _s3_store = S3EvidenceStore()
 
 
-def _resolve_business_msisdn(db: Session, sender: str) -> str | None:
-    row = (
-        db.execute(
-            text(
-                """
-                SELECT w.destination_number
-                FROM whatsapp_numbers w
-                JOIN clients c ON c.client_id = w.client_id
-                WHERE w.status = 'active'
-                LIMIT 1
-                """
-            )
-        )
-        .mappings()
-        .first()
-    )
-
-    if not row:
-        logger.error("MAGEN_MEDIA_BUSINESS_RESOLVE_FAIL | sender=%s", sender)
-        return None
-
-    return row["destination_number"]
-
-
 def handle_magen_inspection_media(
     *,
     db: Session,
     sender: str,
+    business_msisdn: str,   # ✅ NOW ACCEPTED
     media_id: str,
     mime_type: str,
     inspection_id: str,
@@ -72,20 +49,16 @@ def handle_magen_inspection_media(
     Handle a single inspection photo.
     """
 
-    business_msisdn = _resolve_business_msisdn(db, sender)
-    if not business_msisdn:
-        return
-
-    meta = get_meta_client(
-        db=db,
-        business_msisdn=business_msisdn,
-    )
-
     logger.info(
         "MAGEN_MEDIA_ENTER | inspection_id=%s | media_id=%s | index=%s",
         inspection_id,
         media_id,
         photo_index,
+    )
+
+    meta = get_meta_client(
+        db=db,
+        business_msisdn=business_msisdn,
     )
 
     # -------------------------------------------------
@@ -190,7 +163,7 @@ def handle_magen_inspection_media(
         raise
 
     # -------------------------------------------------
-    # Resolve client_id (MANDATORY for event log)
+    # Resolve client_id for event log
     # -------------------------------------------------
     client_row = db.execute(
         text(
@@ -213,7 +186,7 @@ def handle_magen_inspection_media(
         return
 
     # -------------------------------------------------
-    # Log event correctly
+    # Log event (UUID contract)
     # -------------------------------------------------
     try:
         log_event(
