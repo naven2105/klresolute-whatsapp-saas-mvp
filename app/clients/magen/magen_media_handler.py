@@ -192,23 +192,27 @@ def handle_magen_inspection_media(
         )
         raise
 
+        # -------------------------------------------------
+    # Log event / metadata (non-UX)
     # -------------------------------------------------
-    # Audit log
-    # -------------------------------------------------
-    log_event(
-        db=db,
-        event_type="MAGEN_INSPECTION_PHOTO_STORED",
-        actor_msisdn=sender,
-        metadata={
-            "inspection_id": inspection_id,
-            "site_id": site_id,
-            "s3_key": s3_key,
-            "content_type": mime_type,
-        },
-    )
-
-    logger.info(
-        "MAGEN_MEDIA_STORED | inspection_id=%s | s3_key=%s",
-        inspection_id,
-        s3_key,
-    )
+    try:
+        log_event(
+            db=db,
+            event_type="MAGEN_INSPECTION_PHOTO_STORED",
+            metadata={
+                "inspection_id": inspection_id,
+                "site_id": site_id,
+                "s3_key": s3_key,
+                "content_type": mime_type,
+                "sender": sender,
+            },
+        )
+        logger.info(
+            "MAGEN_EVENT_LOGGED | inspection_id=%s",
+            inspection_id,
+        )
+    except Exception:
+        logger.exception(
+            "MAGEN_EVENT_LOG_FAIL | inspection_id=%s",
+            inspection_id,
+        )
