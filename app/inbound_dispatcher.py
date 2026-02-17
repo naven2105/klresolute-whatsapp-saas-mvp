@@ -191,7 +191,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # --------------------------------------------------
     # INSPECTION (Client-Bounded: MAGEN ONLY)
     # --------------------------------------------------
-    if profile.client_code == "MAGEN" and "inspection" in profile.enabled_modules:
+    if profile.client_code == "Magen Security" and "inspection" in profile.enabled_modules:
         logger.info(
             "INSPECTION_ROUTING_ATTEMPT | client_id=%s sender=%s",
             client_id,
