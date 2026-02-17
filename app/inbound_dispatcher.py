@@ -13,15 +13,15 @@ Routing Model (MVP):
 - Explicit command routing only
 - Unknown command → Tier1 fallback
 
-Patch (Inspection Consolidation):
+Patch:
 - Generic inspection module removed
 - Magen inspection routed explicitly to client-bound handler
-- No other routing behaviour changed
+- Added runtime diagnostic logging (no behaviour change)
 
 Guard Rails:
-- Fail-safe DB rollback on entry
-- Explicit logging for inspection routing
-- No silent routing failures
+- DB reset on entry
+- Explicit routing diagnostics
+- Fail hard on inspection handler crash
 """
 
 import logging
@@ -33,8 +33,6 @@ from app.handlers.tier1_router import handle_client_command as tier1_handle
 from app.handlers.feedback_handler import handle_feedback_message
 from app.handlers import galitos_order_handler
 
-# ❌ Removed: from app.modules.inspection import handler as inspection_handler
-# ✅ Client-bound inspection handler
 from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
 
 from app.modules.survey import handler as survey_handler
@@ -103,6 +101,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     profile = get_client_profile(business_msisdn, db=db)
+
     if not profile:
         logger.error(
             "PROFILE_RESOLUTION_FAIL | business_msisdn=%s client_id=%s",
@@ -110,6 +109,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             client_id,
         )
         return True
+
+    # --------------------------------------------------
+    # 🔍 RUNTIME PROFILE DIAGNOSTICS (Temporary but safe)
+    # --------------------------------------------------
+    logger.info(
+        "PROFILE_RUNTIME_DEBUG | business=%s | client_id=%s | client_code=%s | enabled_modules=%s",
+        business_msisdn,
+        client_id,
+        getattr(profile, "client_code", None),
+        getattr(profile, "enabled_modules", None),
+    )
 
     # --------------------------------------------------
     # TEXT HANDLING
@@ -137,7 +147,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                           AND is_active = true
                         """
                     ),
-                    {"code": profile.client_code},
+                    {"code": getattr(profile, "client_code", None)},
                 )
                 .mappings()
                 .all()
@@ -160,8 +170,8 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 logger.info("FEEDBACK_HANDLED | client_id=%s", client_id)
                 return True
 
-        # ---- GALITOS ORDERS (Direct Handler) ----
-        if profile.client_code == "GALITOS":
+        # ---- GALITOS ORDERS ----
+        if getattr(profile, "client_code", None) == "Galitos":
             handled = galitos_order_handler.handle_order_message(
                 db=db,
                 from_number=sender,
@@ -176,7 +186,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # --------------------------------------------------
     # ANNOUNCEMENTS
     # --------------------------------------------------
-    if "announcements" in profile.enabled_modules:
+    if "announcements" in getattr(profile, "enabled_modules", []):
         handled = announcements_media_handler(
             db=db,
             sender=sender,
@@ -189,9 +199,12 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # --------------------------------------------------
-    # INSPECTION (Client-Bounded: MAGEN ONLY)
+    # INSPECTION (Client-Bounded: Magen Security)
     # --------------------------------------------------
-    if profile.client_code == "Magen Security" and "inspection" in profile.enabled_modules:
+    if (
+        getattr(profile, "client_code", None) == "Magen Security"
+        and "inspection" in getattr(profile, "enabled_modules", [])
+    ):
         logger.info(
             "INSPECTION_ROUTING_ATTEMPT | client_id=%s sender=%s",
             client_id,
@@ -211,7 +224,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 client_id,
                 sender,
             )
-            raise  # Fail hard — inspection integrity critical
+            raise
 
         if handled:
             logger.info("MAGEN_INSPECTION_HANDLED | client_id=%s", client_id)
@@ -226,7 +239,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # --------------------------------------------------
     # SURVEY
     # --------------------------------------------------
-    if "survey" in profile.enabled_modules:
+    if "survey" in getattr(profile, "enabled_modules", []):
         handled = survey_handler.handle(
             db=db,
             msg=msg,
