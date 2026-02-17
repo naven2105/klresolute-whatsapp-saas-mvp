@@ -30,21 +30,13 @@ logger = logging.getLogger("profiles.client_profile")
 
 
 # -------------------------------------------------------------------
-# Static text (import guard)
-# -------------------------------------------------------------------
-ABOUT_TEXT = (
-    "This business uses an automated WhatsApp assistant. "
-    "Reply with menu options or STOP to opt out."
-)
-
-
-# -------------------------------------------------------------------
-# Client Profile Model
+# Model
 # -------------------------------------------------------------------
 @dataclass(frozen=True)
 class ClientProfile:
     client_id: str
     client_name: str
+    client_code: str   # 🔥 restored for dispatcher compatibility
     enabled_modules: List[str]
     admin_numbers: List[str]
 
@@ -63,9 +55,6 @@ def get_client_profile(
         business_msisdn,
     )
 
-    # ---------------------------------------------------------------
-    # Guard: DB must be provided
-    # ---------------------------------------------------------------
     if not db:
         logger.critical(
             "PROFILE_DB_NOT_PROVIDED | business=%s",
@@ -73,15 +62,11 @@ def get_client_profile(
         )
         return None
 
-    # ---------------------------------------------------------------
-    # Guard: business number required
-    # ---------------------------------------------------------------
     if not business_msisdn:
         logger.error("PROFILE_LOOKUP_ABORT | reason=missing_business")
         return None
 
     try:
-        # Defensive rollback guard
         try:
             db.rollback()
         except Exception:
@@ -95,8 +80,7 @@ def get_client_profile(
                 text(
                     """
                     SELECT c.client_id,
-                           c.client_name,
-                           w.destination_number
+                           c.client_name
                     FROM whatsapp_numbers w
                     JOIN clients c
                       ON c.client_id = w.client_id
@@ -120,6 +104,7 @@ def get_client_profile(
 
         client_id = str(client_row["client_id"])
         client_name = str(client_row["client_name"])
+        client_code = client_name.upper()
 
         logger.info(
             "PROFILE_CLIENT_RESOLVED | business=%s | client_id=%s | client_name=%s",
@@ -129,7 +114,7 @@ def get_client_profile(
         )
 
         # -----------------------------------------------------------
-        # Resolve enabled modules
+        # Modules
         # -----------------------------------------------------------
         modules = (
             db.execute(
@@ -151,22 +136,14 @@ def get_client_profile(
             .all()
         )
 
-        if not modules:
-            logger.warning(
-                "PROFILE_NO_MODULES_ENABLED | client_id=%s | client_name=%s",
-                client_id,
-                client_name,
-            )
-        else:
-            logger.info(
-                "PROFILE_MODULES_RESOLVED | client_id=%s | modules=%s",
-                client_id,
-                ",".join(modules),
-            )
+        logger.info(
+            "PROFILE_MODULES_RESOLVED | client_id=%s | modules=%s",
+            client_id,
+            ",".join(modules) if modules else "-",
+        )
 
         # -----------------------------------------------------------
-        # Resolve admin numbers
-        # NOTE: client_admins still keyed by client_name
+        # Admins
         # -----------------------------------------------------------
         admins = (
             db.execute(
@@ -174,12 +151,12 @@ def get_client_profile(
                     """
                     SELECT msisdn
                     FROM client_admins
-                    WHERE client_code = :client_name
+                    WHERE client_code = :client_code
                       AND is_active = TRUE
                     ORDER BY msisdn
                     """
                 ),
-                {"client_name": client_name},
+                {"client_code": client_code},
             )
             .scalars()
             .all()
@@ -191,23 +168,19 @@ def get_client_profile(
             len(admins),
         )
 
-        # -----------------------------------------------------------
-        # Final profile object
-        # -----------------------------------------------------------
-        profile = ClientProfile(
-            client_id=client_id,
-            client_name=client_name,
-            enabled_modules=modules,
-            admin_numbers=admins,
-        )
-
         logger.info(
             "PROFILE_LOOKUP_SUCCESS | client_id=%s | business=%s",
             client_id,
             business_msisdn,
         )
 
-        return profile
+        return ClientProfile(
+            client_id=client_id,
+            client_name=client_name,
+            client_code=client_code,  # 🔥 restored
+            enabled_modules=modules,
+            admin_numbers=admins,
+        )
 
     except Exception:
         try:
