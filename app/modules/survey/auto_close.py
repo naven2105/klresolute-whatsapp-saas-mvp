@@ -25,10 +25,9 @@ from app.modules.survey.service import (
 )
 
 # ---- Cross-module dependency (unchanged, intentional) ----
-from app.clients.magen.auto_close import auto_close_expired_inspections
+from app.clients.magen.inspection.auto_close_worker import auto_close_expired_inspections
 
 logger = logging.getLogger("survey_expiry_notifier")
-
 
 def auto_close_expired_surveys(db: Session, business_number: str | None = None):
     """

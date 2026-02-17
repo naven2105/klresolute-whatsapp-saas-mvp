@@ -39,7 +39,9 @@ from app.admin.magen_routes import router as magen_admin_router
 
 # Background jobs (wired only, logic lives elsewhere)
 from app.modules.survey.survey_expiry_notifier import start_survey_expiry_notifier
-from app.clients.magen.auto_close import auto_close_expired_inspections
+
+from app.clients.magen.inspection.auto_close_worker import auto_close_expired_inspections
+
 from app.db import SessionLocal
 
 logger = logging.getLogger("main")

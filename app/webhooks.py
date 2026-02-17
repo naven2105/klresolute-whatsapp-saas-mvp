@@ -37,7 +37,7 @@ from sqlalchemy.exc import OperationalError
 from app.db import get_db
 from app.inbound_dispatcher import dispatch
 from app.handlers.tier1_router import handle_client_command
-from app.clients.magen.auto_close import auto_close_expired_inspections
+from app.clients.magen.inspection.auto_close_worker import auto_close_expired_inspections
 from app.messaging.client_messenger import send_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
