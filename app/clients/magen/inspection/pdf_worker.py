@@ -116,6 +116,12 @@ def generate_and_send_inspection_pdf(
             {"id": inspection_id},
         ).mappings().all()
 
+        logger.info(
+            "MAGEN_PDF_PHOTO_COUNT | id=%s | count=%s",
+            inspection_id,
+            len(photos),
+        )
+
         # -------------------------------------------------
         # Convert header timestamps to SAST
         # -------------------------------------------------
@@ -190,7 +196,21 @@ def generate_and_send_inspection_pdf(
             y = y_positions[row]
 
             try:
+                logger.info(
+                    "MAGEN_PDF_IMAGE_FETCH_START | id=%s | key=%s",
+                    inspection_id,
+                    photo["s3_url"],
+                )
+
                 image_bytes = _s3_store.get_bytes(photo["s3_url"])
+
+                logger.info(
+                    "MAGEN_PDF_IMAGE_BYTES | id=%s | key=%s | size=%s",
+                    inspection_id,
+                    photo["s3_url"],
+                    len(image_bytes),
+                )
+
                 img = ImageReader(io.BytesIO(image_bytes))
 
                 c.drawImage(
@@ -202,6 +222,13 @@ def generate_and_send_inspection_pdf(
                     preserveAspectRatio=True,
                     anchor="c",
                 )
+
+                logger.info(
+                    "MAGEN_PDF_IMAGE_DRAW_SUCCESS | id=%s | key=%s",
+                    inspection_id,
+                    photo["s3_url"],
+                )
+
             except Exception:
                 logger.exception(
                     "MAGEN_PDF_IMAGE_FETCH_FAIL | id=%s | key=%s",
