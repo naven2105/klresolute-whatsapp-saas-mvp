@@ -35,7 +35,7 @@ from fastapi.responses import PlainTextResponse
 
 from app.webhooks import router as webhooks_router
 from app.admin.routes import router as admin_router
-from app.admin.magen_routes import router as magen_admin_router
+from app.clients.magen.admin.routes import router as magen_admin_router
 
 # Background jobs (wired only, logic lives elsewhere)
 from app.modules.survey.survey_expiry_notifier import start_survey_expiry_notifier
