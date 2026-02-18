@@ -142,6 +142,7 @@ class S3EvidenceStore:
             if status == 404:
                 logger.warning("MAGEN_S3_HEAD_NOT_FOUND | key=%s", key)
                 return False
+            
 
             logger.exception("MAGEN_S3_HEAD_ERROR | key=%s", key)
             raise
