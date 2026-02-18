@@ -20,6 +20,7 @@ import logging
 import io
 from datetime import date
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -35,6 +36,11 @@ logger = logging.getLogger("clients.magen.pdf")
 
 _s3_store = S3EvidenceStore()
 SAST = ZoneInfo("Africa/Johannesburg")
+
+# -------------------------------------------------
+# Logo Path (LOCAL ASSET)
+# -------------------------------------------------
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
 
 
 def generate_and_send_inspection_pdf(
@@ -140,15 +146,39 @@ def generate_and_send_inspection_pdf(
         width, height = A4
 
         # ---------------- HEADER PAGE ----------------
+
+        # --- Draw Logo ---
+        try:
+            if LOGO_PATH.exists():
+                logo = ImageReader(str(LOGO_PATH))
+
+                logo_width = 40 * mm
+                logo_height = 20 * mm
+
+                c.drawImage(
+                    logo,
+                    30 * mm,
+                    height - 35 * mm,
+                    width=logo_width,
+                    height=logo_height,
+                    preserveAspectRatio=True,
+                    mask='auto',
+                )
+                logger.info("MAGEN_PDF_LOGO_DRAW_SUCCESS")
+            else:
+                logger.warning("MAGEN_PDF_LOGO_NOT_FOUND")
+        except Exception:
+            logger.exception("MAGEN_PDF_LOGO_FAIL")
+
         c.setFont("Helvetica-Bold", 16)
         c.drawString(
             30 * mm,
-            height - 30 * mm,
+            height - 55 * mm,
             "MAGEN SECURITY – INSPECTION REPORT",
         )
 
         c.setFont("Helvetica", 11)
-        y = height - 45 * mm
+        y = height - 70 * mm
 
         def line(label: str, value: str):
             nonlocal y
@@ -196,21 +226,7 @@ def generate_and_send_inspection_pdf(
             y = y_positions[row]
 
             try:
-                logger.info(
-                    "MAGEN_PDF_IMAGE_FETCH_START | id=%s | key=%s",
-                    inspection_id,
-                    photo["s3_url"],
-                )
-
                 image_bytes = _s3_store.get_bytes(photo["s3_url"])
-
-                logger.info(
-                    "MAGEN_PDF_IMAGE_BYTES | id=%s | key=%s | size=%s",
-                    inspection_id,
-                    photo["s3_url"],
-                    len(image_bytes),
-                )
-
                 img = ImageReader(io.BytesIO(image_bytes))
 
                 c.drawImage(
@@ -222,13 +238,6 @@ def generate_and_send_inspection_pdf(
                     preserveAspectRatio=True,
                     anchor="c",
                 )
-
-                logger.info(
-                    "MAGEN_PDF_IMAGE_DRAW_SUCCESS | id=%s | key=%s",
-                    inspection_id,
-                    photo["s3_url"],
-                )
-
             except Exception:
                 logger.exception(
                     "MAGEN_PDF_IMAGE_FETCH_FAIL | id=%s | key=%s",
@@ -236,7 +245,6 @@ def generate_and_send_inspection_pdf(
                     photo["s3_url"],
                 )
 
-            # Convert timestamp to SAST
             received_sast = photo["received_at"].astimezone(SAST)
 
             if photo["gps_lat"] is not None and photo["gps_lng"] is not None:
@@ -260,9 +268,6 @@ def generate_and_send_inspection_pdf(
         c.save()
         pdf_bytes = buffer.getvalue()
 
-        # -------------------------------------------------
-        # Store PDF in S3
-        # -------------------------------------------------
         inspection_date = (
             completed_sast.date() if completed_sast else date.today()
         )
@@ -279,9 +284,6 @@ def generate_and_send_inspection_pdf(
             content_type="application/pdf",
         )
 
-        # -------------------------------------------------
-        # Update inspection record
-        # -------------------------------------------------
         db.execute(
             text(
                 """
