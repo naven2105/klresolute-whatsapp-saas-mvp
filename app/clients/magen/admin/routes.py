@@ -137,8 +137,8 @@ def list_inspections(
                 <td>{r["officer_msisdn"]}</td>
                 <td>{completed_sast}</td>
                 <td>{r["status"]}</td>
-                <td>
-                    <a href="/admin/magen/inspections/{r["inspection_id"]}/download">
+                <td>                    
+                    <a href="/admin/magen/inspections/{r["inspection_id"]}/report">
                         Download
                     </a>
                 </td>
