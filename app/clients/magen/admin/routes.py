@@ -9,11 +9,12 @@ Purpose:
 Magen-specific Lite Admin Portal.
 
 Features:
-- Date filter (closed inspections only)
+- Date filter
+- Closed inspections ONLY where PDF generated
+- Officer full name display
 - SAST timestamp display
 - Immutable PDF download (signed URL)
-- Structured logging
-- Guard rails (no silent failures)
+- Structured logging + guard rails
 """
 
 import logging
@@ -52,26 +53,29 @@ def list_inspections(
 
     try:
         query = """
-            SELECT inspection_id,
-                   officer_msisdn,
-                   completed_at,
-                   status,
-                   pdf_generated
-            FROM magen_inspections
-            WHERE status = 'CLOSED'
+            SELECT i.inspection_id,
+                   i.officer_msisdn,
+                   s.full_name,
+                   i.completed_at,
+                   i.status
+            FROM magen_inspections i
+            LEFT JOIN magen_staff s
+                ON s.msisdn = i.officer_msisdn
+            WHERE i.status = 'CLOSED'
+              AND i.pdf_generated = TRUE
         """
 
         params: dict = {}
 
         if from_date:
-            query += " AND completed_at >= :from_date"
+            query += " AND i.completed_at >= :from_date"
             params["from_date"] = from_date
 
         if to_date:
-            query += " AND completed_at <= :to_date"
+            query += " AND i.completed_at <= :to_date"
             params["to_date"] = to_date + " 23:59:59"
 
-        query += " ORDER BY completed_at DESC"
+        query += " ORDER BY i.completed_at DESC"
 
         rows = db.execute(text(query), params).mappings().all()
 
@@ -108,7 +112,8 @@ def list_inspections(
         <table border="1" cellpadding="8">
             <tr>
                 <th>Inspection ID</th>
-                <th>Officer</th>
+                <th>Officer Name</th>
+                <th>Officer Mobile</th>
                 <th>Completed (SAST)</th>
                 <th>Status</th>
                 <th>PDF</th>
@@ -117,29 +122,25 @@ def list_inspections(
 
     for r in rows:
         completed = r["completed_at"]
-        if completed:
-            completed_sast = (
-                completed.astimezone(SAST)
-                .strftime("%Y-%m-%d %H:%M:%S")
-            )
-        else:
-            completed_sast = "N/A"
 
-        if r["pdf_generated"]:
-            download_link = (
-                f'<a href="/admin/magen/inspections/{r["inspection_id"]}/download">'
-                f'Download</a>'
-            )
-        else:
-            download_link = "Not generated"
+        completed_sast = (
+            completed.astimezone(SAST)
+            .strftime("%Y-%m-%d %H:%M:%S")
+            if completed else "N/A"
+        )
 
         html += f"""
             <tr>
                 <td>{r["inspection_id"]}</td>
+                <td>{r["full_name"] or "Unknown"}</td>
                 <td>{r["officer_msisdn"]}</td>
                 <td>{completed_sast}</td>
                 <td>{r["status"]}</td>
-                <td>{download_link}</td>
+                <td>
+                    <a href="/admin/magen/inspections/{r["inspection_id"]}/download">
+                        Download
+                    </a>
+                </td>
             </tr>
         """
 
@@ -190,7 +191,18 @@ def download_pdf(inspection_id: str):
             )
 
         s3 = S3EvidenceStore()
-        signed_url = s3.generate_signed_url(row["pdf_s3_key"])
+
+        try:
+            signed_url = s3.generate_signed_url(row["pdf_s3_key"])
+        except Exception:
+            logger.exception(
+                "MAGEN_ADMIN_SIGNED_URL_FAIL | inspection_id=%s",
+                inspection_id,
+            )
+            return HTMLResponse(
+                content="<h3>S3 Error</h3>",
+                status_code=500,
+            )
 
         logger.info(
             "MAGEN_ADMIN_DOWNLOAD_REDIRECT | inspection_id=%s",
