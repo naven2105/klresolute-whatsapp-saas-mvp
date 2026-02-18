@@ -37,9 +37,6 @@ logger = logging.getLogger("clients.magen.pdf")
 _s3_store = S3EvidenceStore()
 SAST = ZoneInfo("Africa/Johannesburg")
 
-# -------------------------------------------------
-# Logo Path (LOCAL ASSET)
-# -------------------------------------------------
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
 
 
@@ -86,7 +83,6 @@ def generate_and_send_inspection_pdf(
                        i.officer_msisdn,
                        i.started_at,
                        i.completed_at,
-                       i.closed_reason,
                        s.full_name
                 FROM magen_inspections i
                 LEFT JOIN magen_staff s
@@ -109,8 +105,6 @@ def generate_and_send_inspection_pdf(
                 """
                 SELECT
                     s3_url,
-                    gps_lat,
-                    gps_lng,
                     caption,
                     received_at
                 FROM magen_inspection_events
@@ -147,20 +141,16 @@ def generate_and_send_inspection_pdf(
 
         # ---------------- HEADER PAGE ----------------
 
-        # --- Draw Logo ---
+        # --- Logo ---
         try:
             if LOGO_PATH.exists():
                 logo = ImageReader(str(LOGO_PATH))
-
-                logo_width = 40 * mm
-                logo_height = 20 * mm
-
                 c.drawImage(
                     logo,
                     30 * mm,
                     height - 35 * mm,
-                    width=logo_width,
-                    height=logo_height,
+                    width=40 * mm,
+                    height=20 * mm,
                     preserveAspectRatio=True,
                     mask='auto',
                 )
@@ -185,7 +175,6 @@ def generate_and_send_inspection_pdf(
             c.drawString(30 * mm, y, f"{label}: {value}")
             y -= 8 * mm
 
-        line("Inspection ID", str(inspection["inspection_id"]))
         line("Officer Name", inspection["full_name"] or "Unknown")
         line("Officer Mobile", inspection["officer_msisdn"])
         line("Started (SAST)", started_sast.strftime("%Y-%m-%d %H:%M:%S"))
@@ -195,7 +184,6 @@ def generate_and_send_inspection_pdf(
             if completed_sast
             else "N/A",
         )
-        line("Closed Reason", inspection["closed_reason"] or "N/A")
 
         c.showPage()
 
@@ -246,12 +234,6 @@ def generate_and_send_inspection_pdf(
                 )
 
             received_sast = photo["received_at"].astimezone(SAST)
-
-            if photo["gps_lat"] is not None and photo["gps_lng"] is not None:
-                gps = f"{photo['gps_lat']}, {photo['gps_lng']}"
-            else:
-                gps = "NOT CAPTURED"
-
             caption = photo["caption"] or ""
 
             c.setFont("Helvetica", 9)
@@ -260,14 +242,16 @@ def generate_and_send_inspection_pdf(
                 y + 15,
                 f"Time (SAST): {received_sast.strftime('%Y-%m-%d %H:%M:%S')}",
             )
-            c.drawString(x, y + 7, f"GPS: {gps}")
-            c.drawString(x, y - 1, caption)
+            c.drawString(x, y + 7, caption)
 
             index += 1
 
         c.save()
         pdf_bytes = buffer.getvalue()
 
+        # -------------------------------------------------
+        # Store PDF in S3
+        # -------------------------------------------------
         inspection_date = (
             completed_sast.date() if completed_sast else date.today()
         )
@@ -284,6 +268,9 @@ def generate_and_send_inspection_pdf(
             content_type="application/pdf",
         )
 
+        # -------------------------------------------------
+        # Update inspection record
+        # -------------------------------------------------
         db.execute(
             text(
                 """
