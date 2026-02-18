@@ -23,7 +23,8 @@ from sqlalchemy import text
 from datetime import date
 
 from app.db import get_db
-from app.storage.s3_evidence_store import S3EvidenceStore
+from app.clients.magen.storage.s3_store import S3EvidenceStore
+
 
 router = APIRouter(prefix="/admin/magen", tags=["admin", "magen"])
 
