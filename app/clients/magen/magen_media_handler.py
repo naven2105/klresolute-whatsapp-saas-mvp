@@ -25,7 +25,9 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.storage.s3_evidence_store import S3EvidenceStore
+from app.clients.magen.storage.s3_store import S3EvidenceStore
+
+
 from app.outbound.factory import get_meta_client
 from app.services.event_logger import log_event
 

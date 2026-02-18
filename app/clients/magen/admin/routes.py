@@ -25,7 +25,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
 
 from app.db import SessionLocal
-from app.storage.s3_evidence_store import S3EvidenceStore
+
+from app.clients.magen.storage.s3_store import S3EvidenceStore
 
 router = APIRouter()
 logger = logging.getLogger("clients.magen.admin")
