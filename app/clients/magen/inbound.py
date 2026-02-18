@@ -9,12 +9,13 @@ Purpose:
 Inbound router for Magen Security inspections.
 
 Rules (LOCKED):
-- Inspection starts on first PHOTO or GPS
+- Inspection starts on first PHOTO only
 - Officers may send notes anytime during ACTIVE inspection
 - 'done' immediately closes inspection
 - PDF worker is triggered on close
 - No menus, no delegation
 - Media evidence must be stored in S3 and linked to events (fail hard)
+- Location is derived from officer phone metadata (not WhatsApp location message)
 """
 
 import logging
@@ -49,13 +50,6 @@ MAGEN_BUSINESS_MSISDN = "27631016099"
 
 
 def _next_photo_index(db: Session, *, inspection_id: str) -> int:
-    """
-    Compute next photo index for deterministic S3 naming.
-
-    Guard rails:
-    - Deterministic ordering
-    - No reliance on client-provided indices
-    """
     row = (
         db.execute(
             text(
@@ -88,15 +82,9 @@ def handle_inbound(
     business_msisdn: str,
 ) -> bool:
 
-    # ----------------------------------
-    # Ensure this is the Magen bot
-    # ----------------------------------
     if business_msisdn != MAGEN_BUSINESS_MSISDN:
         return False
 
-    # ----------------------------------
-    # Validate staff
-    # ----------------------------------
     if not is_active_staff(db, msisdn=sender):
         send_message(
             db=db,
@@ -132,7 +120,6 @@ def handle_inbound(
 
             inspection_id = active.inspection_id
 
-            # --- Guaranteed ACK via template (Magen only) ---
             send_message(
                 db=db,
                 business_msisdn=business_msisdn,
@@ -141,15 +128,12 @@ def handle_inbound(
                 language_code="en_US",
             )
 
-            # --- Close inspection (NEW lifecycle model: ACTIVE/CLOSED + reason) ---
             close_inspection(
                 db,
                 inspection_id=inspection_id,
                 status="CLOSED",
-                closed_reason="MANUAL",
             )
 
-            # --- Post-close processing ---
             generate_and_send_inspection_pdf(
                 db=db,
                 inspection_id=inspection_id,
@@ -163,7 +147,7 @@ def handle_inbound(
             return True
 
     # ----------------------------------
-    # IMAGE
+    # IMAGE (ONLY start trigger)
     # ----------------------------------
     if msg_type == "image":
         inspection_id = (
@@ -175,10 +159,8 @@ def handle_inbound(
         media_id = msg["image"]["id"]
         caption = msg["image"].get("caption")
 
-        # Determine deterministic photo index BEFORE insert
         photo_index = _next_photo_index(db, inspection_id=inspection_id)
 
-        # Insert PHOTO event first (links via meta_media_id + inspection_id)
         insert_event(
             db,
             inspection_id=inspection_id,
@@ -187,8 +169,6 @@ def handle_inbound(
             caption=caption,
         )
 
-        # Store media in S3 + link s3_url back onto PHOTO row (FAIL HARD)
-        # site_id not yet captured in workflow -> keep deterministic placeholder for now
         handle_magen_inspection_media(
             db=db,
             sender=sender,
@@ -203,28 +183,7 @@ def handle_inbound(
         return True
 
     # ----------------------------------
-    # LOCATION
-    # ----------------------------------
-    if msg_type == "location":
-        inspection_id = (
-            active.inspection_id
-            if active
-            else start_inspection(db, sender=sender)
-        )
-
-        loc = msg["location"]
-
-        insert_event(
-            db,
-            inspection_id=inspection_id,
-            event_type="GPS",
-            gps_lat=loc["latitude"],
-            gps_lng=loc["longitude"],
-        )
-        return True
-
-    # ----------------------------------
-    # TEXT NOTE / STAFF MENU
+    # TEXT NOTE
     # ----------------------------------
     if msg_type == "text":
         if not active:
@@ -235,7 +194,6 @@ def handle_inbound(
                 text=(
                     "Magen Inspection Bot\n\n"
                     "• Send a photo to start a new inspection.\n"
-                    "• Send location if required.\n"
                     "• Send notes anytime during an active inspection.\n"
                     "• Send DONE to close the inspection.\n\n"
                     "Inspections auto-close after 5 minutes of inactivity."
