@@ -42,7 +42,11 @@ class S3EvidenceStore:
         self.bucket = bucket
         self.client = boto3.client("s3", region_name=region)
 
-        logger.info("MAGEN_S3_INIT_SUCCESS | bucket=%s | region=%s", bucket, region)
+        logger.info(
+            "MAGEN_S3_INIT_SUCCESS | bucket=%s | region=%s",
+            bucket,
+            region,
+        )
 
     # -------------------------------------------------
     # Upload bytes (write-once expected)
@@ -77,19 +81,46 @@ class S3EvidenceStore:
 
     def get_stream(self, *, key: str) -> BinaryIO:
         try:
-            logger.info("MAGEN_S3_GET_START | key=%s", key)
+            logger.info("MAGEN_S3_GET_STREAM_START | key=%s", key)
 
             response = self.client.get_object(
                 Bucket=self.bucket,
                 Key=key,
             )
 
-            logger.info("MAGEN_S3_GET_SUCCESS | key=%s", key)
+            logger.info("MAGEN_S3_GET_STREAM_SUCCESS | key=%s", key)
 
             return response["Body"]
 
         except (ClientError, BotoCoreError):
-            logger.exception("MAGEN_S3_GET_FAIL | key=%s", key)
+            logger.exception("MAGEN_S3_GET_STREAM_FAIL | key=%s", key)
+            raise
+
+    # -------------------------------------------------
+    # Get object as raw bytes (for PDF image embedding)
+    # -------------------------------------------------
+
+    def get_bytes(self, key: str) -> bytes:
+        try:
+            logger.info("MAGEN_S3_GET_BYTES_START | key=%s", key)
+
+            response = self.client.get_object(
+                Bucket=self.bucket,
+                Key=key,
+            )
+
+            data = response["Body"].read()
+
+            logger.info(
+                "MAGEN_S3_GET_BYTES_SUCCESS | key=%s | size=%s",
+                key,
+                len(data),
+            )
+
+            return data
+
+        except (ClientError, BotoCoreError):
+            logger.exception("MAGEN_S3_GET_BYTES_FAIL | key=%s", key)
             raise
 
     # -------------------------------------------------
