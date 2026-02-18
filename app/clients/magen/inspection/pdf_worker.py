@@ -29,7 +29,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
-from app.storage.s3_evidence_store import S3EvidenceStore
+from app.clients.magen.storage.s3_store import S3EvidenceStore
 
 logger = logging.getLogger("clients.magen.pdf")
 
