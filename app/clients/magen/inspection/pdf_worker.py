@@ -13,11 +13,13 @@ Rules (LOCKED):
 - Do NOT modify inspection lifecycle
 - Must update pdf_s3_key + pdf_generated flags
 - Clean professional black/white layout
+- Display timestamps in SAST (Africa/Johannesburg)
 """
 
 import logging
 import io
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -32,6 +34,7 @@ from app.storage.s3_evidence_store import S3EvidenceStore
 logger = logging.getLogger("clients.magen.pdf")
 
 _s3_store = S3EvidenceStore()
+SAST = ZoneInfo("Africa/Johannesburg")
 
 
 def generate_and_send_inspection_pdf(
@@ -88,8 +91,12 @@ def generate_and_send_inspection_pdf(
             {"id": inspection_id},
         ).mappings().first()
 
+        if not inspection:
+            logger.error("MAGEN_PDF_HEADER_NOT_FOUND | id=%s", inspection_id)
+            return
+
         # -------------------------------------------------
-        # Fetch PHOTO events only
+        # Fetch PHOTO events
         # -------------------------------------------------
         photos = db.execute(
             text(
@@ -110,19 +117,31 @@ def generate_and_send_inspection_pdf(
         ).mappings().all()
 
         # -------------------------------------------------
+        # Convert header timestamps to SAST
+        # -------------------------------------------------
+        started_sast = inspection["started_at"].astimezone(SAST)
+        completed_sast = (
+            inspection["completed_at"].astimezone(SAST)
+            if inspection["completed_at"]
+            else None
+        )
+
+        # -------------------------------------------------
         # Create PDF
         # -------------------------------------------------
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
-
         width, height = A4
 
         # ---------------- HEADER PAGE ----------------
         c.setFont("Helvetica-Bold", 16)
-        c.drawString(30 * mm, height - 30 * mm, "MAGEN SECURITY – INSPECTION REPORT")
+        c.drawString(
+            30 * mm,
+            height - 30 * mm,
+            "MAGEN SECURITY – INSPECTION REPORT",
+        )
 
         c.setFont("Helvetica", 11)
-
         y = height - 45 * mm
 
         def line(label: str, value: str):
@@ -133,8 +152,13 @@ def generate_and_send_inspection_pdf(
         line("Inspection ID", str(inspection["inspection_id"]))
         line("Officer Name", inspection["full_name"] or "Unknown")
         line("Officer Mobile", inspection["officer_msisdn"])
-        line("Started", str(inspection["started_at"]))
-        line("Completed", str(inspection["completed_at"]))
+        line("Started (SAST)", started_sast.strftime("%Y-%m-%d %H:%M:%S"))
+        line(
+            "Completed (SAST)",
+            completed_sast.strftime("%Y-%m-%d %H:%M:%S")
+            if completed_sast
+            else "N/A",
+        )
         line("Closed Reason", inspection["closed_reason"] or "N/A")
 
         c.showPage()
@@ -168,6 +192,7 @@ def generate_and_send_inspection_pdf(
             try:
                 image_bytes = _s3_store.get_bytes(photo["s3_url"])
                 img = ImageReader(io.BytesIO(image_bytes))
+
                 c.drawImage(
                     img,
                     x,
@@ -184,33 +209,35 @@ def generate_and_send_inspection_pdf(
                     photo["s3_url"],
                 )
 
-            c.setFont("Helvetica", 9)
+            # Convert timestamp to SAST
+            received_sast = photo["received_at"].astimezone(SAST)
 
-            timestamp = str(photo["received_at"])
-            if photo["gps_lat"] and photo["gps_lng"]:
+            if photo["gps_lat"] is not None and photo["gps_lng"] is not None:
                 gps = f"{photo['gps_lat']}, {photo['gps_lng']}"
             else:
                 gps = "NOT CAPTURED"
 
             caption = photo["caption"] or ""
 
-            c.drawString(x, y + 15, f"Time: {timestamp}")
+            c.setFont("Helvetica", 9)
+            c.drawString(
+                x,
+                y + 15,
+                f"Time (SAST): {received_sast.strftime('%Y-%m-%d %H:%M:%S')}",
+            )
             c.drawString(x, y + 7, f"GPS: {gps}")
-            c.drawString(x, y - 1, f"{caption}")
+            c.drawString(x, y - 1, caption)
 
             index += 1
 
         c.save()
-
         pdf_bytes = buffer.getvalue()
 
         # -------------------------------------------------
         # Store PDF in S3
         # -------------------------------------------------
         inspection_date = (
-            inspection["completed_at"].date()
-            if inspection["completed_at"]
-            else date.today()
+            completed_sast.date() if completed_sast else date.today()
         )
 
         s3_key = (
