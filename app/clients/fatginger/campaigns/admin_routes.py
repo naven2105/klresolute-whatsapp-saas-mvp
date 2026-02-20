@@ -2,26 +2,24 @@ from __future__ import annotations
 
 """
 File: app/clients/fatginger/campaigns/admin_routes.py
-Path: app/clients/fatginger/campaigns/admin_routes.py
-Project: KLResolute WhatsApp SaaS MVP
-
 Purpose:
-Admin-only endpoints for FatGinger campaigns.
+FatGinger Campaign Admin API
 
-Sprint 5 Rules:
+Sprint 5:
+- Create campaign (DRAFT)
+- Manual trigger send
+- List campaigns
+- View campaign logs
 - Tenant locked to r_fg__
-- No cross-tenant sending
-- No dispatcher modification
-- Manual trigger only
-- STOP users excluded via service layer
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.db import get_db
 from app.clients.fatginger.campaigns.service import (
@@ -29,15 +27,17 @@ from app.clients.fatginger.campaigns.service import (
     trigger_campaign_send,
 )
 
-# Use your existing admin auth dependency
-from app.auth.admin_auth import require_admin_user  # adjust if needed
-
+from app.auth.admin_auth import require_admin_user
 from app.messaging.client_messenger import (
     send_text_message,
     send_image_message,
 )
 
 logger = logging.getLogger(__name__)
+
+TENANT_PREFIX = "r_fg__"
+T_CAMPAIGNS = f"{TENANT_PREFIX}campaigns"
+T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 
 router = APIRouter(
     prefix="/admin/fatginger/campaigns",
@@ -56,7 +56,7 @@ class CampaignCreateRequest(BaseModel):
 
 
 # -------------------------------------------------------------------
-# Create Campaign (DRAFT)
+# Create Campaign
 # -------------------------------------------------------------------
 
 @router.post("/create")
@@ -65,38 +65,79 @@ def create_campaign_endpoint(
     db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    """
-    Creates a new campaign in DRAFT state.
-    """
-
-    logger.info(
-        "ADMIN_CAMPAIGN_CREATE | tenant=r_fg__ | title=%s | has_image=%s",
-        payload.title,
-        bool(payload.image_url),
+    campaign = create_campaign(
+        db=db,
+        title=payload.title,
+        message=payload.message,
+        image_url=payload.image_url,
     )
 
-    try:
-        campaign = create_campaign(
-            db=db,
-            title=payload.title,
-            message=payload.message,
-            image_url=payload.image_url,
-        )
-
-        return {
-            "status": "CREATED",
-            "campaign_id": campaign.id,
-            "title": campaign.title,
-            "has_image": bool(campaign.image_url),
-        }
-
-    except Exception as ex:
-        logger.exception("ADMIN_CAMPAIGN_CREATE_ERROR | tenant=r_fg__")
-        raise HTTPException(status_code=500, detail=str(ex))
+    return {
+        "status": "CREATED",
+        "campaign_id": campaign.id,
+    }
 
 
 # -------------------------------------------------------------------
-# Manual Send Trigger
+# List Campaigns (Admin Table)
+# -------------------------------------------------------------------
+
+@router.get("/list")
+def list_campaigns(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin_user),
+):
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                c.id,
+                c.title,
+                c.status,
+                c.created_at,
+                COUNT(l.id) AS total_logs
+            FROM {T_CAMPAIGNS} c
+            LEFT JOIN {T_LOGS} l
+              ON l.campaign_id = c.id
+            GROUP BY c.id
+            ORDER BY c.created_at DESC
+            """
+        )
+    ).mappings().all()
+
+    return {"campaigns": rows}
+
+
+# -------------------------------------------------------------------
+# View Campaign Logs
+# -------------------------------------------------------------------
+
+@router.get("/{campaign_id}/logs")
+def view_campaign_logs(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin_user),
+):
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                customer_phone,
+                delivery_status,
+                sent_at
+            FROM {T_LOGS}
+            WHERE campaign_id = :campaign_id
+            ORDER BY sent_at DESC
+            """
+        ),
+        {"campaign_id": campaign_id},
+    ).mappings().all()
+
+    return {"logs": rows}
+
+
+# -------------------------------------------------------------------
+# Manual Send
 # -------------------------------------------------------------------
 
 @router.post("/{campaign_id}/send")
@@ -105,36 +146,11 @@ def manual_send_campaign(
     db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    """
-    Manual trigger endpoint.
-
-    POST /admin/fatginger/campaigns/{campaign_id}/send
-    """
-
-    logger.info(
-        "ADMIN_CAMPAIGN_SEND_REQUEST | tenant=r_fg__ | campaign_id=%s",
-        campaign_id,
+    result = trigger_campaign_send(
+        db=db,
+        campaign_id=campaign_id,
+        send_text=send_text_message,
+        send_image=send_image_message,
     )
 
-    try:
-        result = trigger_campaign_send(
-            db=db,
-            campaign_id=campaign_id,
-            send_text=send_text_message,
-            send_image=send_image_message,
-        )
-
-        return {
-            "status": "SENT",
-            "campaign_id": result["campaign_id"],
-            "total": result["total"],
-            "sent": result["sent"],
-            "failed": result["failed"],
-        }
-
-    except Exception as ex:
-        logger.exception(
-            "ADMIN_CAMPAIGN_SEND_ERROR | tenant=r_fg__ | campaign_id=%s",
-            campaign_id,
-        )
-        raise HTTPException(status_code=500, detail=str(ex))
+    return result
