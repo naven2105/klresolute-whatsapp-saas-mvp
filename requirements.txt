@@ -1,6 +1,7 @@
-fastapi==0.110.0
-uvicorn==0.29.0
-sqlalchemy==2.0.29
+fastapi
+uvicorn[standard]
+jinja2
+sqlalchemy
 psycopg2-binary==2.9.9
 requests
 boto3
