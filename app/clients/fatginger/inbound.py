@@ -3,17 +3,16 @@
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 3 – Booking Intake Engine
+# Sprint 4 – Auto Join + Welcome Menu Foundation
 #
 # Purpose:
 # FatGinger Client-Specific Inbound Handler
 #
 # Pattern:
-# - Client-specific inbound (Galitos style)
-# - No module flags
-# - No shared logic
-# - Single transport boundary respected
-# - Deterministic booking intake (no AI)
+# - Client-specific inbound
+# - No dispatcher changes
+# - Isolation preserved
+# - Deterministic marketing foundation
 # ==================================================
 
 from __future__ import annotations
@@ -37,6 +36,22 @@ logger = logging.getLogger("fatginger.inbound")
 BOOKING_REGEX = re.compile(
     r"^book\s+(\d+)\s+(\d{1,2}/\d{1,2})\s+(\d{1,2}:\d{2})$",
     re.IGNORECASE,
+)
+
+
+WELCOME_MESSAGE = (
+    "Welcome to FatGinger 🍔🔥\n"
+    "You can:\n"
+    "• Type menu to see food\n"
+    "• Type drinks to see beverages\n"
+    "• Type book to reserve a table\n"
+    "Reply STOP anytime to unsubscribe."
+)
+
+
+STOP_CONFIRMATION = (
+    "You have been unsubscribed from marketing messages.\n"
+    "You can still use menu and booking anytime."
 )
 
 
@@ -117,9 +132,63 @@ def handle_fatginger_inbound(
 
     try:
 
-        # ----------------------------
+        # --------------------------------------------------
+        # STOP / UNSUBSCRIBE
+        # --------------------------------------------------
+        if msg.lower() in ("stop", "unsubscribe"):
+
+            db.execute(
+                text(
+                    """
+                    UPDATE r_fg__customers
+                    SET marketing_opt_in = FALSE,
+                        opt_out_timestamp = NOW()
+                    WHERE phone = :phone
+                    """
+                ),
+                {"phone": sender_msisdn},
+            )
+
+            db.commit()
+
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text=STOP_CONFIRMATION,
+            )
+
+            return True
+
+        # --------------------------------------------------
+        # AUTO CUSTOMER CREATION (ATOMIC)
+        # --------------------------------------------------
+        result = db.execute(
+            text(
+                """
+                INSERT INTO r_fg__customers (phone)
+                VALUES (:phone)
+                ON CONFLICT (phone) DO NOTHING
+                """
+            ),
+            {"phone": sender_msisdn},
+        )
+
+        db.commit()
+
+        # If inserted now → send welcome
+        if result.rowcount == 1:
+
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text=WELCOME_MESSAGE,
+            )
+
+        # --------------------------------------------------
         # BOOKING INTAKE
-        # ----------------------------
+        # --------------------------------------------------
         if msg.lower().startswith("book"):
 
             parsed = _parse_booking(msg)
@@ -160,7 +229,6 @@ def handle_fatginger_inbound(
                 text="Your booking request has been received. The restaurant will confirm shortly.",
             )
 
-            # Staff Forward (non-blocking)
             try:
                 result = db.execute(
                     text(
@@ -193,9 +261,9 @@ def handle_fatginger_inbound(
 
             return True
 
-        # ----------------------------
+        # --------------------------------------------------
         # MENU / FOOD
-        # ----------------------------
+        # --------------------------------------------------
         if msg.lower() in ("menu", "food"):
 
             result = db.execute(
@@ -225,9 +293,9 @@ def handle_fatginger_inbound(
 
             return True
 
-        # ----------------------------
+        # --------------------------------------------------
         # DRINKS
-        # ----------------------------
+        # --------------------------------------------------
         if msg.lower() == "drinks":
 
             result = db.execute(
