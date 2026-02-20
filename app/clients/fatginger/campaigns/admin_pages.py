@@ -16,6 +16,8 @@ Rules:
 """
 
 import logging
+from typing import Optional, Callable, Any
+
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -23,29 +25,96 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.db import get_db
-
-# ✅ FIX: avoid circular import (do NOT import templates from app.main)
-templates = Jinja2Templates(directory="templates")
-
-# ✅ FIX: auth module path (was app.auth.* which doesn't exist)
 from app.admin.auth import require_admin_user
 
 from app.clients.fatginger.campaigns.service import (
     create_campaign,
     trigger_campaign_send,
 )
-from app.messaging.client_messenger import (
-    send_text_message,
-    send_image_message,
-)
+
+# ✅ Import module (avoid importing non-existent names)
+from app.messaging import client_messenger as cm
 
 logger = logging.getLogger(__name__)
+
+templates = Jinja2Templates(directory="templates")
 
 TENANT_PREFIX = "r_fg__"
 T_CAMPAIGNS = f"{TENANT_PREFIX}campaigns"
 T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 
 router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
+
+
+def _first_callable(*names: str) -> Optional[Callable[..., Any]]:
+    for n in names:
+        fn = getattr(cm, n, None)
+        if callable(fn):
+            return fn
+    return None
+
+
+def _send_text(phone: str, message: str) -> None:
+    fn = _first_callable("send_text_message", "send_message", "send_text")
+    if not fn:
+        raise RuntimeError("No text send function found in app.messaging.client_messenger")
+
+    try:
+        fn(phone, message)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, text=message)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, message=message)
+        return
+    except TypeError:
+        pass
+
+    raise RuntimeError("Text send function exists but signature is incompatible.")
+
+
+def _send_image(phone: str, image_url: str, caption: Optional[str]) -> None:
+    fn = _first_callable(
+        "send_image_message",
+        "send_media_message",
+        "send_media",
+        "send_image",
+    )
+    if not fn:
+        raise RuntimeError("No image/media send function found in app.messaging.client_messenger")
+
+    try:
+        fn(phone, image_url, caption)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(phone, image_url, caption=caption)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, image_url=image_url, caption=caption)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, media_url=image_url, caption=caption)
+        return
+    except TypeError:
+        pass
+
+    raise RuntimeError("Image/media send function exists but signature is incompatible.")
 
 
 @router.get("/campaigns")
@@ -105,10 +174,7 @@ def campaign_create_submit(
         image_url=image_url or None,
     )
 
-    return RedirectResponse(
-        url="/admin/fatginger/ui/campaigns",
-        status_code=303,
-    )
+    return RedirectResponse(url="/admin/fatginger/ui/campaigns", status_code=303)
 
 
 @router.post("/campaigns/{campaign_id}/send")
@@ -120,14 +186,11 @@ def campaign_send(
     trigger_campaign_send(
         db=db,
         campaign_id=campaign_id,
-        send_text=send_text_message,
-        send_image=send_image_message,
+        send_text=_send_text,
+        send_image=_send_image,
     )
 
-    return RedirectResponse(
-        url="/admin/fatginger/ui/campaigns",
-        status_code=303,
-    )
+    return RedirectResponse(url="/admin/fatginger/ui/campaigns", status_code=303)
 
 
 @router.get("/campaigns/{campaign_id}/logs")

@@ -17,7 +17,7 @@ Sprint 5:
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Callable, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -30,13 +30,10 @@ from app.clients.fatginger.campaigns.service import (
     trigger_campaign_send,
 )
 
-# ✅ FIX: auth module path (was app.auth.* which doesn't exist)
 from app.admin.auth import require_admin_user
 
-from app.messaging.client_messenger import (
-    send_text_message,
-    send_image_message,
-)
+# ✅ Import module (avoid importing non-existent names)
+from app.messaging import client_messenger as cm
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +51,87 @@ class CampaignCreateRequest(BaseModel):
     title: str
     message: str
     image_url: Optional[str] = None
+
+
+def _first_callable(*names: str) -> Optional[Callable[..., Any]]:
+    for n in names:
+        fn = getattr(cm, n, None)
+        if callable(fn):
+            return fn
+    return None
+
+
+def _send_text(phone: str, message: str) -> None:
+    """
+    Adapter: uses whatever your project exposes for text messaging.
+    Prefers send_message() which already exists elsewhere in your code.
+    """
+    fn = _first_callable("send_text_message", "send_message", "send_text")
+    if not fn:
+        raise RuntimeError("No text send function found in app.messaging.client_messenger")
+
+    # Try common signatures
+    try:
+        fn(phone, message)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, text=message)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, message=message)
+        return
+    except TypeError:
+        pass
+
+    raise RuntimeError("Text send function exists but signature is incompatible.")
+
+
+def _send_image(phone: str, image_url: str, caption: Optional[str]) -> None:
+    """
+    Adapter: uses whatever your project exposes for image/media messaging.
+    If your system only supports text right now, it will fail loudly (by design).
+    """
+    fn = _first_callable(
+        "send_image_message",
+        "send_media_message",
+        "send_media",
+        "send_image",
+    )
+    if not fn:
+        raise RuntimeError("No image/media send function found in app.messaging.client_messenger")
+
+    # Try common signatures
+    try:
+        fn(phone, image_url, caption)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(phone, image_url, caption=caption)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, image_url=image_url, caption=caption)
+        return
+    except TypeError:
+        pass
+
+    try:
+        fn(to=phone, media_url=image_url, caption=caption)
+        return
+    except TypeError:
+        pass
+
+    raise RuntimeError("Image/media send function exists but signature is incompatible.")
 
 
 @router.post("/create")
@@ -135,8 +213,8 @@ def manual_send_campaign(
         result = trigger_campaign_send(
             db=db,
             campaign_id=campaign_id,
-            send_text=send_text_message,
-            send_image=send_image_message,
+            send_text=_send_text,
+            send_image=_send_image,
         )
         return result
     except Exception as ex:
