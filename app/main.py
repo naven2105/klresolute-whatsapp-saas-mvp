@@ -36,11 +36,15 @@ from fastapi.responses import PlainTextResponse
 from app.webhooks import router as webhooks_router
 from app.admin.routes import router as admin_router
 from app.clients.magen.admin.routes import router as magen_admin_router
+from app.clients.fatginger.campaigns.admin_routes import (
+    router as fg_campaign_admin_router,
+)
 
 # Background jobs (wired only, logic lives elsewhere)
 from app.modules.survey.survey_expiry_notifier import start_survey_expiry_notifier
-
-from app.clients.magen.inspection.auto_close_worker import auto_close_expired_inspections
+from app.clients.magen.inspection.auto_close_worker import (
+    auto_close_expired_inspections,
+)
 
 from app.db import SessionLocal
 
@@ -61,8 +65,11 @@ app.include_router(webhooks_router)
 # -------------------------------------------------------------------
 app.include_router(admin_router)
 
-# ✅ NEW — Magen admin (read-only, inspections only)
+# ✅ Magen admin (read-only, inspections only)
 app.include_router(magen_admin_router)
+
+# ✅ FatGinger campaign admin (manual trigger only)
+app.include_router(fg_campaign_admin_router)
 
 # -------------------------------------------------------------------
 # Background worker: Magen auto-close
