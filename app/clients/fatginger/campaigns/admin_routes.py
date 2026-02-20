@@ -6,7 +6,7 @@ Path: app/clients/fatginger/campaigns/admin_routes.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin-only manual trigger endpoint for FatGinger campaigns.
+Admin-only endpoints for FatGinger campaigns.
 
 Sprint 5 Rules:
 - Tenant locked to r_fg__
@@ -17,17 +17,19 @@ Sprint 5 Rules:
 """
 
 import logging
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.db import get_db
 from app.clients.fatginger.campaigns.service import (
+    create_campaign,
     trigger_campaign_send,
 )
 
-# IMPORTANT:
-# Use your existing admin auth dependency here
-# Replace with your real dependency if different
+# Use your existing admin auth dependency
 from app.auth.admin_auth import require_admin_user  # adjust if needed
 
 from app.messaging.client_messenger import (
@@ -42,6 +44,60 @@ router = APIRouter(
     tags=["FatGinger Campaign Admin"],
 )
 
+
+# -------------------------------------------------------------------
+# Request Models
+# -------------------------------------------------------------------
+
+class CampaignCreateRequest(BaseModel):
+    title: str
+    message: str
+    image_url: Optional[str] = None
+
+
+# -------------------------------------------------------------------
+# Create Campaign (DRAFT)
+# -------------------------------------------------------------------
+
+@router.post("/create")
+def create_campaign_endpoint(
+    payload: CampaignCreateRequest,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin_user),
+):
+    """
+    Creates a new campaign in DRAFT state.
+    """
+
+    logger.info(
+        "ADMIN_CAMPAIGN_CREATE | tenant=r_fg__ | title=%s | has_image=%s",
+        payload.title,
+        bool(payload.image_url),
+    )
+
+    try:
+        campaign = create_campaign(
+            db=db,
+            title=payload.title,
+            message=payload.message,
+            image_url=payload.image_url,
+        )
+
+        return {
+            "status": "CREATED",
+            "campaign_id": campaign.id,
+            "title": campaign.title,
+            "has_image": bool(campaign.image_url),
+        }
+
+    except Exception as ex:
+        logger.exception("ADMIN_CAMPAIGN_CREATE_ERROR | tenant=r_fg__")
+        raise HTTPException(status_code=500, detail=str(ex))
+
+
+# -------------------------------------------------------------------
+# Manual Send Trigger
+# -------------------------------------------------------------------
 
 @router.post("/{campaign_id}/send")
 def manual_send_campaign(
@@ -69,7 +125,7 @@ def manual_send_campaign(
         )
 
         return {
-            "status": "OK",
+            "status": "SENT",
             "campaign_id": result["campaign_id"],
             "total": result["total"],
             "sent": result["sent"],
