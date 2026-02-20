@@ -13,6 +13,10 @@ Rules:
 - No cross-tenant sending
 - Uses service layer for create + send
 - Reads logs directly
+
+NOTE:
+UI routes are intentionally NOT protected by header-based admin auth.
+This allows browser-based dashboard usage.
 """
 
 import logging
@@ -25,14 +29,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.db import get_db
-from app.admin.auth import require_admin_user
 
 from app.clients.fatginger.campaigns.service import (
     create_campaign,
     trigger_campaign_send,
 )
 
-# ✅ Import module (avoid importing non-existent names)
+# Import messenger module safely
 from app.messaging import client_messenger as cm
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,10 @@ T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 
 router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
 
+
+# ---------------------------------------------------------
+# Messenger Adapters
+# ---------------------------------------------------------
 
 def _first_callable(*names: str) -> Optional[Callable[..., Any]]:
     for n in names:
@@ -117,11 +124,14 @@ def _send_image(phone: str, image_url: str, caption: Optional[str]) -> None:
     raise RuntimeError("Image/media send function exists but signature is incompatible.")
 
 
+# ---------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------
+
 @router.get("/campaigns")
 def campaign_list(
     request: Request,
     db: Session = Depends(get_db),
-    _admin=Depends(require_admin_user),
 ):
     rows = db.execute(
         text(
@@ -147,10 +157,13 @@ def campaign_list(
     )
 
 
+# ---------------------------------------------------------
+# Create Campaign
+# ---------------------------------------------------------
+
 @router.get("/campaigns/create")
 def campaign_create_form(
     request: Request,
-    _admin=Depends(require_admin_user),
 ):
     return templates.TemplateResponse(
         "campaign_create.html",
@@ -165,7 +178,6 @@ def campaign_create_submit(
     message: str = Form(...),
     image_url: str = Form(""),
     db: Session = Depends(get_db),
-    _admin=Depends(require_admin_user),
 ):
     create_campaign(
         db=db,
@@ -174,14 +186,20 @@ def campaign_create_submit(
         image_url=image_url or None,
     )
 
-    return RedirectResponse(url="/admin/fatginger/ui/campaigns", status_code=303)
+    return RedirectResponse(
+        url="/admin/fatginger/ui/campaigns",
+        status_code=303,
+    )
 
+
+# ---------------------------------------------------------
+# Send Campaign
+# ---------------------------------------------------------
 
 @router.post("/campaigns/{campaign_id}/send")
 def campaign_send(
     campaign_id: str,
     db: Session = Depends(get_db),
-    _admin=Depends(require_admin_user),
 ):
     trigger_campaign_send(
         db=db,
@@ -190,15 +208,21 @@ def campaign_send(
         send_image=_send_image,
     )
 
-    return RedirectResponse(url="/admin/fatginger/ui/campaigns", status_code=303)
+    return RedirectResponse(
+        url="/admin/fatginger/ui/campaigns",
+        status_code=303,
+    )
 
+
+# ---------------------------------------------------------
+# Logs
+# ---------------------------------------------------------
 
 @router.get("/campaigns/{campaign_id}/logs")
 def campaign_logs(
     campaign_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    _admin=Depends(require_admin_user),
 ):
     rows = db.execute(
         text(
