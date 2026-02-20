@@ -26,6 +26,9 @@ from app.handlers import galitos_order_handler
 # Client-specific inspection handler (Magen only for now)
 from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
 
+# NEW: FatGinger menu handler (Magen-style activation)
+from app.clients.fatginger.inbound import handle_fatginger_inbound
+
 from app.modules.survey import handler as survey_handler
 
 from app.modules.announcements.admin_announcements_media_handler import (
@@ -209,6 +212,30 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
             if handled:
                 return True
+
+    # --------------------------------------------------
+    # MENU (Magen-style activation)
+    # --------------------------------------------------
+    if "menu" in profile.enabled_modules and msg.get("type") == "text":
+        logger.info("MENU_BRANCH_ENTER")
+
+        body_text = (msg.get("text", {}) or {}).get("body", "").strip()
+
+        try:
+            handled = handle_fatginger_inbound(
+                db=db,
+                sender_msisdn=sender,
+                business_msisdn=business_msisdn,
+                message_text=body_text,
+            )
+
+            logger.info("MENU_HANDLER_RETURN=%s", handled)
+
+            if handled:
+                return True
+
+        except Exception:
+            logger.exception("MENU_HANDLER_EXCEPTION")
 
     # --------------------------------------------------
     # ANNOUNCEMENTS
