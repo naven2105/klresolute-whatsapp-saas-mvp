@@ -12,7 +12,7 @@ Responsible only for:
 - Router registration
 - Meta WhatsApp webhook verification (GET)
 - Health check endpoint
-- T-18 Admin router registration (read-only)
+- Admin router registration
 - Startup wiring (background jobs only)
 
 Design principles:
@@ -32,6 +32,8 @@ import asyncio
 import logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 from app.webhooks import router as webhooks_router
 from app.admin.routes import router as admin_router
@@ -39,8 +41,10 @@ from app.clients.magen.admin.routes import router as magen_admin_router
 from app.clients.fatginger.campaigns.admin_routes import (
     router as fg_campaign_admin_router,
 )
+from app.clients.fatginger.campaigns.admin_pages import (
+    router as fg_campaign_ui_router,
+)
 
-# Background jobs (wired only, logic lives elsewhere)
 from app.modules.survey.survey_expiry_notifier import start_survey_expiry_notifier
 from app.clients.magen.inspection.auto_close_worker import (
     auto_close_expired_inspections,
@@ -56,6 +60,14 @@ logger = logging.getLogger("main")
 app = FastAPI()
 
 # -------------------------------------------------------------------
+# Templates
+# -------------------------------------------------------------------
+templates = Jinja2Templates(directory="templates")
+
+# Optional static folder
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# -------------------------------------------------------------------
 # Webhook routes
 # -------------------------------------------------------------------
 app.include_router(webhooks_router)
@@ -65,11 +77,14 @@ app.include_router(webhooks_router)
 # -------------------------------------------------------------------
 app.include_router(admin_router)
 
-# ✅ Magen admin (read-only, inspections only)
+# Magen admin
 app.include_router(magen_admin_router)
 
-# ✅ FatGinger campaign admin (manual trigger only)
+# FatGinger campaign admin (API endpoints)
 app.include_router(fg_campaign_admin_router)
+
+# FatGinger campaign admin (HTML UI)
+app.include_router(fg_campaign_ui_router)
 
 # -------------------------------------------------------------------
 # Background worker: Magen auto-close
@@ -93,10 +108,7 @@ async def magen_auto_close_loop() -> None:
 # -------------------------------------------------------------------
 @app.on_event("startup")
 async def startup() -> None:
-    # Existing survey auto-expiry
     start_survey_expiry_notifier()
-
-    # ✅ Magen inspection auto-close
     asyncio.create_task(magen_auto_close_loop())
 
 # -------------------------------------------------------------------
