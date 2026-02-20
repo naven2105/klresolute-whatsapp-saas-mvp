@@ -2,6 +2,9 @@ from __future__ import annotations
 
 """
 File: app/clients/fatginger/campaigns/admin_routes.py
+Path: app/clients/fatginger/campaigns/admin_routes.py
+Project: KLResolute WhatsApp SaaS MVP
+
 Purpose:
 FatGinger Campaign Admin API
 
@@ -14,7 +17,7 @@ Sprint 5:
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -27,7 +30,9 @@ from app.clients.fatginger.campaigns.service import (
     trigger_campaign_send,
 )
 
-from app.auth.admin_auth import require_admin_user
+# ✅ FIX: auth module path (was app.auth.* which doesn't exist)
+from app.admin.auth import require_admin_user
+
 from app.messaging.client_messenger import (
     send_text_message,
     send_image_message,
@@ -45,19 +50,11 @@ router = APIRouter(
 )
 
 
-# -------------------------------------------------------------------
-# Request Models
-# -------------------------------------------------------------------
-
 class CampaignCreateRequest(BaseModel):
     title: str
     message: str
     image_url: Optional[str] = None
 
-
-# -------------------------------------------------------------------
-# Create Campaign
-# -------------------------------------------------------------------
 
 @router.post("/create")
 def create_campaign_endpoint(
@@ -65,22 +62,18 @@ def create_campaign_endpoint(
     db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    campaign = create_campaign(
-        db=db,
-        title=payload.title,
-        message=payload.message,
-        image_url=payload.image_url,
-    )
+    try:
+        campaign = create_campaign(
+            db=db,
+            title=payload.title,
+            message=payload.message,
+            image_url=payload.image_url,
+        )
+        return {"status": "CREATED", "campaign_id": campaign.id}
+    except Exception as ex:
+        logger.exception("ADMIN_CAMPAIGN_CREATE_ERROR | tenant=r_fg__")
+        raise HTTPException(status_code=500, detail=str(ex))
 
-    return {
-        "status": "CREATED",
-        "campaign_id": campaign.id,
-    }
-
-
-# -------------------------------------------------------------------
-# List Campaigns (Admin Table)
-# -------------------------------------------------------------------
 
 @router.get("/list")
 def list_campaigns(
@@ -108,10 +101,6 @@ def list_campaigns(
     return {"campaigns": rows}
 
 
-# -------------------------------------------------------------------
-# View Campaign Logs
-# -------------------------------------------------------------------
-
 @router.get("/{campaign_id}/logs")
 def view_campaign_logs(
     campaign_id: str,
@@ -136,21 +125,23 @@ def view_campaign_logs(
     return {"logs": rows}
 
 
-# -------------------------------------------------------------------
-# Manual Send
-# -------------------------------------------------------------------
-
 @router.post("/{campaign_id}/send")
 def manual_send_campaign(
     campaign_id: str,
     db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    result = trigger_campaign_send(
-        db=db,
-        campaign_id=campaign_id,
-        send_text=send_text_message,
-        send_image=send_image_message,
-    )
-
-    return result
+    try:
+        result = trigger_campaign_send(
+            db=db,
+            campaign_id=campaign_id,
+            send_text=send_text_message,
+            send_image=send_image_message,
+        )
+        return result
+    except Exception as ex:
+        logger.exception(
+            "ADMIN_CAMPAIGN_SEND_ERROR | tenant=r_fg__ | campaign_id=%s",
+            campaign_id,
+        )
+        raise HTTPException(status_code=500, detail=str(ex))

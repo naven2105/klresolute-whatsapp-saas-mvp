@@ -2,23 +2,34 @@ from __future__ import annotations
 
 """
 File: app/clients/fatginger/campaigns/admin_pages.py
+Path: app/clients/fatginger/campaigns/admin_pages.py
+Project: KLResolute WhatsApp SaaS MVP
+
 Purpose:
 Server-rendered HTML admin pages for FatGinger Campaigns.
 
-No API logic duplication.
-Reads existing tables.
-Tenant locked to r_fg__.
+Rules:
+- Tenant locked to r_fg__
+- No cross-tenant sending
+- Uses service layer for create + send
+- Reads logs directly
 """
 
 import logging
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.db import get_db
-from app.main import templates
-from app.auth.admin_auth import require_admin_user
+
+# ✅ FIX: avoid circular import (do NOT import templates from app.main)
+templates = Jinja2Templates(directory="templates")
+
+# ✅ FIX: auth module path (was app.auth.* which doesn't exist)
+from app.admin.auth import require_admin_user
+
 from app.clients.fatginger.campaigns.service import (
     create_campaign,
     trigger_campaign_send,
@@ -37,9 +48,6 @@ T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
 
 
-# ---------------------------------------------------------
-# Campaign List Page
-# ---------------------------------------------------------
 @router.get("/campaigns")
 def campaign_list(
     request: Request,
@@ -70,9 +78,6 @@ def campaign_list(
     )
 
 
-# ---------------------------------------------------------
-# Create Campaign Form
-# ---------------------------------------------------------
 @router.get("/campaigns/create")
 def campaign_create_form(
     request: Request,
@@ -106,9 +111,6 @@ def campaign_create_submit(
     )
 
 
-# ---------------------------------------------------------
-# Send Campaign
-# ---------------------------------------------------------
 @router.post("/campaigns/{campaign_id}/send")
 def campaign_send(
     campaign_id: str,
@@ -128,9 +130,6 @@ def campaign_send(
     )
 
 
-# ---------------------------------------------------------
-# Logs Page
-# ---------------------------------------------------------
 @router.get("/campaigns/{campaign_id}/logs")
 def campaign_logs(
     campaign_id: str,
