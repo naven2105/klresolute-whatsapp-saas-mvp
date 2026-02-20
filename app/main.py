@@ -30,6 +30,8 @@ Change policy:
 import os
 import asyncio
 import logging
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 from fastapi.templating import Jinja2Templates
@@ -60,12 +62,16 @@ logger = logging.getLogger("main")
 app = FastAPI()
 
 # -------------------------------------------------------------------
-# Templates
+# Absolute Path Setup (Production-safe)
 # -------------------------------------------------------------------
-templates = Jinja2Templates(directory="templates")
+BASE_DIR = Path(__file__).resolve().parent.parent  # project root
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
 
-# Optional static folder
-app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # -------------------------------------------------------------------
 # Webhook routes
