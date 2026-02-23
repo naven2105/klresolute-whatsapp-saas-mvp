@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+"""
+File: app/clients/fatginger/campaigns/admin_pages.py
+Sprint 5 – Broadcast Campaign Engine (FatGinger only)
+
+Single URL dashboard.
+Create & Send immediately.
+Always uses Meta template: generic_business_update
+"""
+
 import logging
 from typing import Optional
 
@@ -21,12 +30,15 @@ templates = Jinja2Templates(directory="templates")
 
 TENANT_PREFIX = "r_fg__"
 T_CAMPAIGNS = f"{TENANT_PREFIX}campaigns"
-T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 
 FATGINGER_BUSINESS_MSISDN = "27787480252"
 
 router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
 
+
+# ---------------------------------------------------------
+# Messaging Adapter (Meta template only)
+# ---------------------------------------------------------
 
 def _build_text_sender(db: Session):
     def _sender(phone: str, message: str) -> None:
@@ -34,16 +46,21 @@ def _build_text_sender(db: Session):
             db=db,
             business_msisdn=FATGINGER_BUSINESS_MSISDN,
             to_number=phone,
-            text=message,
+            template_name="generic_business_update",
+            template_params=[message],
         )
     return _sender
 
 
 def _build_image_sender(db: Session):
     def _sender(phone: str, image_url: str, caption: Optional[str]) -> None:
-        raise RuntimeError("Image sending not implemented.")
+        raise RuntimeError("Image campaigns not implemented in Sprint 5.")
     return _sender
 
+
+# ---------------------------------------------------------
+# Single Dashboard Page
+# ---------------------------------------------------------
 
 @router.get("/campaigns")
 def campaign_dashboard(request: Request, db: Session = Depends(get_db)):
