@@ -235,7 +235,6 @@ def handle_fatginger_inbound(
                         """
                         SELECT msisdn
                         FROM r_fg__staff
-                        WHERE is_active = TRUE
                         """
                     )
                 )
