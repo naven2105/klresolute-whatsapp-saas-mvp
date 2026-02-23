@@ -2,20 +2,61 @@
 <html>
 <head>
     <title>FatGinger Campaign Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 15px;
+            margin: 0;
+        }
+
+        input, textarea, button {
+            width: 100%;
+            font-size: 16px;
+            padding: 10px;
+            margin-top: 6px;
+            margin-bottom: 12px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: black;
+            color: white;
+            border: none;
+            font-weight: bold;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f4f4f4;
+        }
+    </style>
 </head>
 <body>
 
 <h2>Create & Send Campaign</h2>
 
 <form method="post">
-    <label>Title:</label><br>
-    <input type="text" name="title" required><br><br>
+    <label>Title</label>
+    <input type="text" name="title" required>
 
-    <label>Message:</label><br>
-    <textarea name="message" rows="4" required></textarea><br><br>
+    <label>Message</label>
+    <textarea name="message" rows="4" required></textarea>
 
-    <label>Image URL (optional):</label><br>
-    <input type="text" name="image_url"><br><br>
+    <label>Image URL (optional)</label>
+    <input type="text" name="image_url">
 
     <button type="submit">Create & Send</button>
 </form>
@@ -24,7 +65,7 @@
 
 <h2>Previous Campaigns</h2>
 
-<table border="1" cellpadding="6">
+<table>
 <tr>
     <th>Title</th>
     <th>Status</th>
