@@ -13,6 +13,10 @@
 # - No dispatcher changes
 # - Isolation preserved
 # - Deterministic marketing foundation
+#
+# Sprint 6 Patch:
+# Staff booking notifications now use Meta template
+# generic_business_update (en_US)
 # ==================================================
 
 from __future__ import annotations
@@ -176,7 +180,6 @@ def handle_fatginger_inbound(
 
         db.commit()
 
-        # If inserted now → send welcome
         if result.rowcount == 1:
 
             send_message(
@@ -246,13 +249,10 @@ def handle_fatginger_inbound(
                         db=db,
                         business_msisdn=business_msisdn,
                         to_number=row.msisdn,
-                        text=(
-                            "New Booking Request – FatGinger\n"
-                            f"Date: {requested_date.strftime('%d/%m')}\n"
-                            f"Time: {requested_time.strftime('%H:%M')}\n"
-                            f"Guests: {guests}\n"
-                            f"From: {sender_msisdn}"
-                        ),
+                        template_name="generic_business_update",
+                        template_params=[
+                            "Team"
+                        ],
                     )
 
             except Exception:
