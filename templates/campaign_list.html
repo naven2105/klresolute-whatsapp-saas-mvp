@@ -5,33 +5,40 @@
 </head>
 <body>
 
-<h1>FatGinger Campaign Dashboard</h1>
+<h2>Create & Send Campaign</h2>
 
-<a href="/admin/fatginger/ui/campaigns/create">Create New Campaign</a>
+<form method="post">
+    <label>Title:</label><br>
+    <input type="text" name="title" required><br><br>
+
+    <label>Message:</label><br>
+    <textarea name="message" rows="4" required></textarea><br><br>
+
+    <label>Image URL (optional):</label><br>
+    <input type="text" name="image_url"><br><br>
+
+    <button type="submit">Create & Send</button>
+</form>
+
+<hr>
+
+<h2>Previous Campaigns</h2>
 
 <table border="1" cellpadding="6">
-    <tr>
-        <th>Title</th>
-        <th>Status</th>
-        <th>Created</th>
-        <th>Total Logs</th>
-        <th>Actions</th>
-    </tr>
+<tr>
+    <th>Title</th>
+    <th>Status</th>
+    <th>Created</th>
+</tr>
 
-    {% for c in campaigns %}
-    <tr>
-        <td>{{ c.title }}</td>
-        <td>{{ c.status }}</td>
-        <td>{{ c.created_at }}</td>
-        <td>{{ c.total_logs }}</td>
-        <td>
-            <a href="/admin/fatginger/ui/campaigns/{{ c.id }}/logs">Logs</a>
-            <form action="/admin/fatginger/ui/campaigns/{{ c.id }}/send" method="post" style="display:inline;">
-                <button type="submit">Send</button>
-            </form>
-        </td>
-    </tr>
-    {% endfor %}
+{% for c in campaigns %}
+<tr>
+    <td>{{ c.title }}</td>
+    <td>{{ c.status }}</td>
+    <td>{{ c.created_at }}</td>
+</tr>
+{% endfor %}
+
 </table>
 
 </body>
