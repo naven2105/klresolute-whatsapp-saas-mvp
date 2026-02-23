@@ -15,8 +15,9 @@
 # - Deterministic marketing foundation
 #
 # Sprint 6 Patch:
-# Staff booking notifications now use Meta template
+# Staff booking notifications use template
 # generic_business_update (en_US)
+# Single-line booking sentence inserted into {{1}}
 # ==================================================
 
 from __future__ import annotations
@@ -225,6 +226,7 @@ def handle_fatginger_inbound(
 
             db.commit()
 
+            # Customer confirmation
             send_message(
                 db=db,
                 business_msisdn=business_msisdn,
@@ -244,15 +246,19 @@ def handle_fatginger_inbound(
 
                 staff_rows = result.fetchall()
 
+                booking_sentence = (
+                    f"New booking on {requested_date.strftime('%d/%m')} at "
+                    f"{requested_time.strftime('%H:%M')} for {guests} guests "
+                    f"from {sender_msisdn}"
+                )
+
                 for row in staff_rows:
                     send_message(
                         db=db,
                         business_msisdn=business_msisdn,
                         to_number=row.msisdn,
                         template_name="generic_business_update",
-                        template_params=[
-                            "Team"
-                        ],
+                        template_params=[booking_sentence],
                     )
 
             except Exception:
