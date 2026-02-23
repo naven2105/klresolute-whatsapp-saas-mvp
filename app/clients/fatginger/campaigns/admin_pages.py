@@ -7,6 +7,7 @@ Sprint 5 – Broadcast Campaign Engine (FatGinger only)
 Single URL dashboard.
 Create & Send immediately.
 Always uses Meta template: generic_business_update
+Adds single-line Fat Ginger branding inside {{1}}
 """
 
 import logging
@@ -42,12 +43,14 @@ router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
 
 def _build_text_sender(db: Session):
     def _sender(phone: str, message: str) -> None:
+        formatted_message = f"Fat Ginger Announcement: {message}"
+
         send_message(
             db=db,
             business_msisdn=FATGINGER_BUSINESS_MSISDN,
             to_number=phone,
             template_name="generic_business_update",
-            template_params=[message],
+            template_params=[formatted_message],
         )
     return _sender
 
