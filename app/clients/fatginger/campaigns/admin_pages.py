@@ -8,19 +8,14 @@ Project: KLResolute WhatsApp SaaS MVP
 Purpose:
 Server-rendered HTML admin pages for FatGinger Campaigns.
 
-Rules:
-- Tenant locked to r_fg__
-- No cross-tenant sending
-- Uses service layer for create + send
-- Reads logs directly
-
-NOTE:
-UI routes are intentionally NOT protected by header-based admin auth.
-This allows browser-based dashboard usage.
+Sprint 5 Scope:
+- Text campaigns supported
+- Image campaigns NOT yet supported at messenger layer
+- Service layer unchanged
 """
 
 import logging
-from typing import Optional, Callable, Any
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import RedirectResponse
@@ -29,14 +24,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.db import get_db
-
+from app.messaging.client_messenger import send_message
 from app.clients.fatginger.campaigns.service import (
     create_campaign,
     trigger_campaign_send,
 )
-
-# Import messenger module safely
-from app.messaging import client_messenger as cm
 
 logger = logging.getLogger(__name__)
 
@@ -46,82 +38,32 @@ TENANT_PREFIX = "r_fg__"
 T_CAMPAIGNS = f"{TENANT_PREFIX}campaigns"
 T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 
+# 🔒 FatGinger business number (locked for this tenant)
+FATGINGER_BUSINESS_MSISDN = "27787480252"
+
 router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
 
 
 # ---------------------------------------------------------
-# Messenger Adapters
+# Messaging Adapter Builders (Sprint 5 compliant)
 # ---------------------------------------------------------
 
-def _first_callable(*names: str) -> Optional[Callable[..., Any]]:
-    for n in names:
-        fn = getattr(cm, n, None)
-        if callable(fn):
-            return fn
-    return None
+def _build_text_sender(db: Session):
+    def _sender(phone: str, message: str) -> None:
+        send_message(
+            db=db,
+            business_msisdn=FATGINGER_BUSINESS_MSISDN,
+            to_number=phone,
+            text=message,
+        )
+    return _sender
 
 
-def _send_text(phone: str, message: str) -> None:
-    fn = _first_callable("send_text_message", "send_message", "send_text")
-    if not fn:
-        raise RuntimeError("No text send function found in app.messaging.client_messenger")
-
-    try:
-        fn(phone, message)
-        return
-    except TypeError:
-        pass
-
-    try:
-        fn(to=phone, text=message)
-        return
-    except TypeError:
-        pass
-
-    try:
-        fn(to=phone, message=message)
-        return
-    except TypeError:
-        pass
-
-    raise RuntimeError("Text send function exists but signature is incompatible.")
-
-
-def _send_image(phone: str, image_url: str, caption: Optional[str]) -> None:
-    fn = _first_callable(
-        "send_image_message",
-        "send_media_message",
-        "send_media",
-        "send_image",
-    )
-    if not fn:
-        raise RuntimeError("No image/media send function found in app.messaging.client_messenger")
-
-    try:
-        fn(phone, image_url, caption)
-        return
-    except TypeError:
-        pass
-
-    try:
-        fn(phone, image_url, caption=caption)
-        return
-    except TypeError:
-        pass
-
-    try:
-        fn(to=phone, image_url=image_url, caption=caption)
-        return
-    except TypeError:
-        pass
-
-    try:
-        fn(to=phone, media_url=image_url, caption=caption)
-        return
-    except TypeError:
-        pass
-
-    raise RuntimeError("Image/media send function exists but signature is incompatible.")
+def _build_image_sender(db: Session):
+    def _sender(phone: str, image_url: str, caption: Optional[str]) -> None:
+        # Sprint 5 scope: image sending not implemented yet
+        raise RuntimeError("Image sending not implemented for FatGinger in Sprint 5.")
+    return _sender
 
 
 # ---------------------------------------------------------
@@ -204,8 +146,8 @@ def campaign_send(
     trigger_campaign_send(
         db=db,
         campaign_id=campaign_id,
-        send_text=_send_text,
-        send_image=_send_image,
+        send_text=_build_text_sender(db),
+        send_image=_build_image_sender(db),
     )
 
     return RedirectResponse(
