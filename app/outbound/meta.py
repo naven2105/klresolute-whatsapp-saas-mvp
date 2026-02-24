@@ -67,16 +67,9 @@ class MetaWhatsAppClient:
         )
 
     # =========================================================
-    # 🔽 MEDIA DOWNLOAD (NEW)
+    # 🔽 MEDIA DOWNLOAD
     # =========================================================
     def download_media(self, media_id: str) -> bytes:
-        """
-        Download media bytes from Meta Cloud API.
-
-        Flow:
-        1) GET media metadata (returns temporary URL)
-        2) GET binary using returned URL with Bearer auth
-        """
 
         if not media_id:
             raise MetaWhatsAppError("media_id required for download")
@@ -87,23 +80,13 @@ class MetaWhatsAppClient:
             "Authorization": f"Bearer {self._settings.access_token}",
         }
 
-        # Step 1: Resolve media URL
         media_meta_url = f"https://graph.facebook.com/v20.0/{media_id}"
 
-        try:
-            meta_resp = self._session.get(
-                media_meta_url,
-                headers=headers,
-                timeout=30,
-            )
-        except Exception as exc:
-            logger.error(
-                "META_MEDIA_META_HTTP_EXCEPTION | media_id=%s | error=%s",
-                media_id,
-                exc,
-                exc_info=True,
-            )
-            raise
+        meta_resp = self._session.get(
+            media_meta_url,
+            headers=headers,
+            timeout=30,
+        )
 
         if meta_resp.status_code != 200:
             logger.error(
@@ -118,54 +101,19 @@ class MetaWhatsAppClient:
         media_url = meta_json.get("url")
 
         if not media_url:
-            logger.error(
-                "META_MEDIA_META_NO_URL | media_id=%s | response=%s",
-                media_id,
-                meta_json,
-            )
             raise MetaWhatsAppError("Media URL missing from Meta response")
 
-        logger.info(
-            "META_MEDIA_URL_RESOLVED | media_id=%s",
-            media_id,
+        binary_resp = self._session.get(
+            media_url,
+            headers=headers,
+            timeout=60,
         )
 
-        # Step 2: Download binary
-        try:
-            binary_resp = self._session.get(
-                media_url,
-                headers=headers,
-                timeout=60,
-            )
-        except Exception as exc:
-            logger.error(
-                "META_MEDIA_BINARY_HTTP_EXCEPTION | media_id=%s | error=%s",
-                media_id,
-                exc,
-                exc_info=True,
-            )
-            raise
-
         if binary_resp.status_code != 200:
-            logger.error(
-                "META_MEDIA_BINARY_HTTP_ERROR | media_id=%s | status=%s",
-                media_id,
-                binary_resp.status_code,
-            )
             raise MetaWhatsAppError("Failed to download media binary")
 
         if not binary_resp.content:
-            logger.error(
-                "META_MEDIA_BINARY_EMPTY | media_id=%s",
-                media_id,
-            )
             raise MetaWhatsAppError("Downloaded media is empty")
-
-        logger.info(
-            "META_MEDIA_DOWNLOAD_SUCCESS | media_id=%s | bytes=%s",
-            media_id,
-            len(binary_resp.content),
-        )
 
         return binary_resp.content
 
@@ -259,6 +207,57 @@ class MetaWhatsAppClient:
         return self._post(payload, f"TEMPLATE:{template_name}")
 
     # =========================================================
+    # INTERACTIVE BUTTON MESSAGE (RESTORED FOR SURVEY)
+    # =========================================================
+    def send_interactive_button_message(
+        self,
+        *,
+        to_msisdn: str,
+        header_text: str,
+        body_text: str,
+        buttons: list[dict],
+    ) -> MetaSendResult:
+
+        if not to_msisdn:
+            raise MetaWhatsAppError("to_msisdn required")
+
+        if not body_text:
+            raise MetaWhatsAppError("Interactive body_text required")
+
+        if not buttons:
+            raise MetaWhatsAppError("At least one button required")
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to_msisdn,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "header": {
+                    "type": "text",
+                    "text": header_text,
+                },
+                "body": {
+                    "text": body_text,
+                },
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": b["id"],
+                                "title": b["title"],
+                            },
+                        }
+                        for b in buttons
+                    ]
+                },
+            },
+        }
+
+        return self._post(payload, "INTERACTIVE_BUTTON")
+
+    # =========================================================
     # INTERNAL POST
     # =========================================================
     def _post(self, payload: Dict[str, Any], label: str) -> MetaSendResult:
@@ -268,21 +267,12 @@ class MetaWhatsAppClient:
             "Content-Type": "application/json",
         }
 
-        try:
-            resp = self._session.post(
-                self._settings.messages_url,
-                json=payload,
-                headers=headers,
-                timeout=30,
-            )
-        except Exception as exc:
-            logger.error(
-                "META_HTTP_EXCEPTION | type=%s | error=%s",
-                label,
-                exc,
-                exc_info=True,
-            )
-            raise
+        resp = self._session.post(
+            self._settings.messages_url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
 
         raw_text = resp.text
 
