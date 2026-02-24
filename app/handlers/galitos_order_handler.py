@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.services.order_service import create_order, OrderCreate
-from app.services.galitos_staff_notifier import notify_galitos_staff
+from app.clients.galitos.services.galitos_staff_notifier import notify_galitos_staff
 from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("galitos_order_handler")

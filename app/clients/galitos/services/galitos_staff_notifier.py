@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/services/galitos_staff_notifier.py
-Path: app/services/galitos_staff_notifier.py
+File: app/clients/galitos/services/galitos_staff_notifier.py
+Path: app/clients/galitos/services/galitos_staff_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: UUID Identity Consolidation

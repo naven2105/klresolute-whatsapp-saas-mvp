@@ -147,6 +147,28 @@ def _extract_message(payload: dict):
                 status.get("timestamp"),
                 status.get("conversation"),
             )
+
+            # ✅ Minimal enhancement: log Meta error details (if provided)
+            errors = status.get("errors") or []
+            if errors:
+                for e in errors:
+                    # Keep fields defensive: Meta sometimes varies structure
+                    logger.warning(
+                        "PAYLOAD_STATUS_ERROR | "
+                        "recipient_id=%s | "
+                        "status_id=%s | "
+                        "code=%s | "
+                        "title=%s | "
+                        "message=%s | "
+                        "details=%s",
+                        status.get("recipient_id"),
+                        status.get("id"),
+                        e.get("code"),
+                        e.get("title"),
+                        e.get("message"),
+                        e.get("error_data") or e.get("details") or e,
+                    )
+
             return None, None, None, None
 
         if not messages:
