@@ -27,7 +27,8 @@ NO Meta client creation here.
 import logging
 from sqlalchemy.orm import Session
 
-from app.handlers.admin_surveys import handle_admin_surveys
+from app.clients.galitos.handlers.admin_surveys import handle_admin_surveys
+
 from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
 

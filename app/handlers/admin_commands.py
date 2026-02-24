@@ -23,7 +23,7 @@ import time
 import hashlib
 from sqlalchemy.orm import Session
 
-from app.handlers.admin_surveys import handle_admin_surveys
+from app.clients.galitos.handlers.admin_surveys import handle_admin_surveys
 from app.handlers.admin_messaging import handle_admin_messaging
 from app.utils.admin import is_admin_message
 

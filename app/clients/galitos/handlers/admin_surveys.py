@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/handlers/admin_surveys.py
-Path: app/handlers/admin_surveys.py
+File: app/clients/galitos/handlers/admin_surveys.py
+Path: app/clients/galitos/admin_surveys.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Role:
@@ -54,7 +54,7 @@ from app.modules.survey.survey_constants import (
 
 from app.utils.admin import is_admin_message
 
-logger = logging.getLogger("admin_surveys")
+logger = logging.getLogger("Galitos admin_surveys")
 
 _SURVEY_TYPED_RE = re.compile(
     r"^\s*survey\s+(sentiment|frequency|helpfulness)\s*:\s*(.+)\s*$",
