@@ -1,14 +1,38 @@
-from __future__ import annotations
-
 """
 File: app/clients/fatginger/campaigns/admin_pages.py
-Sprint 5 – Broadcast Campaign Engine (FatGinger only)
+Path: app/clients/fatginger/campaigns/admin_pages.py
+Project: KLResolute WhatsApp SaaS MVP
 
-Single URL dashboard.
-Create & Send immediately.
-Always uses Meta template: generic_business_update
-Adds single-line Fat Ginger branding inside {{1}}
+Sprint: 5 – Broadcast Campaign Engine (FatGinger)
+
+Purpose:
+Single-URL admin dashboard for creating and sending marketing campaigns.
+Campaigns are sent immediately using approved Meta template messaging.
+Adds branded single-line formatting inside template parameter {{1}}.
+
+Scope:
+- Tenant locked to r_fg__
+- Uses Meta template: generic_business_update
+- No session text messages
+- No image sending (reserved for future sprint)
+- No scheduling
+- No segmentation
+- No analytics dashboard
+- No cross-tenant logic
+
+Design Rules:
+- Must not modify dispatcher
+- Must not affect booking or menu flows
+- STOP users excluded via marketing_opt_in filter
+- All outbound messaging routed through client_messenger
+- Single mobile-friendly URL for demo simplicity
+
+Change Policy:
+- Preserve tenant isolation
+- Do not introduce shared multi-tenant logic
+- Do not remove functionality without explicit agreement
 """
+from __future__ import annotations
 
 import logging
 from typing import Optional
@@ -31,19 +55,17 @@ templates = Jinja2Templates(directory="templates")
 
 TENANT_PREFIX = "r_fg__"
 T_CAMPAIGNS = f"{TENANT_PREFIX}campaigns"
+T_LOGS = f"{TENANT_PREFIX}broadcast_logs"
 
 FATGINGER_BUSINESS_MSISDN = "27787480252"
 
 router = APIRouter(prefix="/admin/fatginger/ui", tags=["FatGinger Campaign UI"])
 
 
-# ---------------------------------------------------------
-# Messaging Adapter (Meta template only)
-# ---------------------------------------------------------
-
 def _build_text_sender(db: Session):
     def _sender(phone: str, message: str) -> None:
-        formatted_message = f"Fat Ginger Announcement: {message}"
+
+        formatted_message = f"👋 Fat Ginger Announcement — {message}"
 
         send_message(
             db=db,
@@ -57,13 +79,9 @@ def _build_text_sender(db: Session):
 
 def _build_image_sender(db: Session):
     def _sender(phone: str, image_url: str, caption: Optional[str]) -> None:
-        raise RuntimeError("Image campaigns not implemented in Sprint 5.")
+        raise RuntimeError("Image sending not implemented.")
     return _sender
 
-
-# ---------------------------------------------------------
-# Single Dashboard Page
-# ---------------------------------------------------------
 
 @router.get("/campaigns")
 def campaign_dashboard(request: Request, db: Session = Depends(get_db)):
