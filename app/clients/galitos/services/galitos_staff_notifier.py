@@ -5,7 +5,7 @@ File: app/clients/galitos/services/galitos_staff_notifier.py
 Path: app/clients/galitos/services/galitos_staff_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint: UUID Identity Consolidation
+Sprint: Sprint 9 – Replace Marketing Order Template with Utility for Order Delivery
 
 Purpose:
 Notify Galitos staff when a customer order is confirmed.
@@ -16,6 +16,7 @@ Rules:
 - MUST fail safely (no exceptions propagated)
 - MUST log clearly for debugging
 - Business-scoped Meta client required
+- MUST use Utility template: order_notification
 """
 
 import logging
@@ -26,7 +27,8 @@ from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("galitos_staff_notifier")
 
-STAFF_TEMPLATE_NAME = "generic_business_update"
+# 🔁 Sprint 9 Change: Marketing → Utility template
+STAFF_TEMPLATE_NAME = "order_notification"
 
 
 def notify_galitos_staff(
@@ -130,16 +132,17 @@ def notify_galitos_staff(
 
         try:
             logger.info(
-                "ORDER_STAFF_NOTIFY_SEND_TEMPLATE | client_id=%s | msisdn=%s",
+                "ORDER_STAFF_NOTIFY_SEND_TEMPLATE | client_id=%s | msisdn=%s | template=%s",
                 client_id,
                 msisdn,
+                STAFF_TEMPLATE_NAME,
             )
 
             meta.send_template(
                 to_msisdn=msisdn,
                 template_name=STAFF_TEMPLATE_NAME,
                 language_code="en_US",
-                body_params=[message],
+                body_params=[message],  # full single-line order string in {{1}}
             )
 
             logger.info(
