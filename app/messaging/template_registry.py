@@ -3,7 +3,7 @@
 # Path: app/messaging/template_registry.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 10 – Template Governance & Cleanup
+# Sprint 12 – Backward Compatibility Patch
 #
 # Purpose:
 # Centralised registry for all WhatsApp template names.
@@ -13,6 +13,10 @@
 # - No hardcoded template strings elsewhere
 # - Single source of truth for template references
 # - Supports multi-tenant isolation
+#
+# Change:
+# - Added ORDER_NOTIFICATION alias for backward compatibility
+#   (used by legacy inbound import)
 #
 # Change Policy:
 # - Do not remove templates without confirming usage
@@ -25,6 +29,9 @@
 # ===============================
 
 FG_ORDER_NOTIFICATION = "order_notification"
+
+# Backward compatibility (legacy imports)
+ORDER_NOTIFICATION = FG_ORDER_NOTIFICATION
 
 
 # ===============================
