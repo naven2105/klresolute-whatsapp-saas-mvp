@@ -24,6 +24,8 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
+from app.messaging.template_registry import MAGEN_INSPECTION_COMPLETED
+
 from app.clients.magen.inspection.pdf_worker import (
     generate_and_send_inspection_pdf,
 )
@@ -124,7 +126,7 @@ def handle_inbound(
                 db=db,
                 business_msisdn=business_msisdn,
                 to_number=sender,
-                template_name="magen_inspection_completed",
+                template_name=MAGEN_INSPECTION_COMPLETED,
                 language_code="en_US",
             )
 
