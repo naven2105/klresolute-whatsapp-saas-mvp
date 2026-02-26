@@ -14,10 +14,6 @@ LOCKED:
 - No module rewrites
 - Only routing + logging
 - Guard rails for visibility
-
-Update:
-- Removed shared feedback handler
-- Feedback now routed per client folder
 """
 
 import logging
@@ -250,33 +246,23 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
         # ---- GALITOS ORDERS ----
         if profile.client_code == "GALITOS":
-            logger.info("GALITOS_BRANCH_ENTER")
-
             handled = galitos_order_handler.handle_order_message(
                 db=db,
                 from_number=sender,
                 message_text=body_text,
                 context={"business_msisdn": business_msisdn},
             )
-
-            logger.info("GALITOS_HANDLED=%s", handled)
-
             if handled:
                 return True
 
-        # ---- FAT GINGER MENU ----
+        # ---- FAT GINGER ----
         if profile.client_code == "FATGINGER":
-            logger.info("FATGINGER_BRANCH_ENTER")
-
             handled = handle_fatginger_inbound(
                 db=db,
                 sender_msisdn=sender,
                 business_msisdn=business_msisdn,
                 message_text=body_text,
             )
-
-            logger.info("FATGINGER_HANDLED=%s", handled)
-
             if handled:
                 return True
 
@@ -284,8 +270,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ANNOUNCEMENTS
     # --------------------------------------------------
     if "announcements" in profile.enabled_modules:
-        logger.info("ANNOUNCEMENTS_BRANCH_ENTER")
-
         handled = announcements_media_handler(
             db=db,
             sender=sender,
@@ -293,9 +277,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             client_id=client_id,
             business_msisdn=business_msisdn,
         )
-
-        logger.info("ANNOUNCEMENTS_HANDLED=%s", handled)
-
         if handled:
             return True
 
@@ -303,11 +284,6 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # INSPECTION
     # --------------------------------------------------
     if "inspection" in profile.enabled_modules:
-        logger.info(
-            "INSPECTION_BRANCH_ENTER | client_code=%s",
-            profile.client_code,
-        )
-
         try:
             handled = magen_inspection_handler(
                 db=db,
@@ -315,49 +291,27 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 sender=sender,
                 business_msisdn=business_msisdn,
             )
-
-            logger.info("INSPECTION_HANDLER_RETURN=%s", handled)
-
             if handled:
                 return True
-
         except Exception:
-            logger.exception(
-                "INSPECTION_HANDLER_EXCEPTION | client_code=%s",
-                profile.client_code,
-            )
-
-    else:
-        logger.info("INSPECTION_BRANCH_SKIPPED")
+            logger.exception("INSPECTION_HANDLER_EXCEPTION")
 
     # --------------------------------------------------
     # SURVEY
     # --------------------------------------------------
     if "survey" in profile.enabled_modules:
-        logger.info("SURVEY_BRANCH_ENTER")
-
         handled = survey_handler.handle(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
         )
-
-        logger.info("SURVEY_HANDLED=%s", handled)
-
         if handled:
             return True
 
     # --------------------------------------------------
-    # TIER1 FALLBACK
+    # FALLBACK
     # --------------------------------------------------
-    logger.warning(
-        "FALLBACK_TRIGGERED | client_id=%s | sender=%s | msg_type=%s",
-        client_id,
-        sender,
-        msg.get("type"),
-    )
-
     body = (msg.get("text", {}) or {}).get("body", "")
 
     return bool(
