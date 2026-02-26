@@ -3,20 +3,19 @@
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 4 – Auto Join + Welcome Menu Foundation
+# Sprint 12 – Template Governance Cleanup
 #
 # Purpose:
 # FatGinger Client-Specific Inbound Handler
 #
-# Pattern:
-# - Client-specific inbound
-# - No dispatcher changes
-# - Isolation preserved
-# - Deterministic marketing foundation
+# Update:
+# - Replaced legacy ORDER_NOTIFICATION import
+# - Now uses FG_ORDER_NOTIFICATION from registry
 #
-# Sprint 6 Patch:
-# Staff booking notifications use template
-# Single-line booking sentence inserted into {{1}}
+# Isolation:
+# - No dispatcher changes
+# - No behavioural changes
+# - Template governance aligned
 # ==================================================
 
 from __future__ import annotations
@@ -29,8 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
-
-from app.messaging.template_registry import ORDER_NOTIFICATION
+from app.messaging.template_registry import FG_ORDER_NOTIFICATION
 
 logger = logging.getLogger("fatginger.inbound")
 
@@ -138,9 +136,6 @@ def handle_fatginger_inbound(
 
     try:
 
-        # --------------------------------------------------
-        # STOP / UNSUBSCRIBE
-        # --------------------------------------------------
         if msg.lower() in ("stop", "unsubscribe"):
 
             db.execute(
@@ -166,9 +161,6 @@ def handle_fatginger_inbound(
 
             return True
 
-        # --------------------------------------------------
-        # AUTO CUSTOMER CREATION (ATOMIC)
-        # --------------------------------------------------
         result = db.execute(
             text(
                 """
@@ -191,9 +183,6 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # --------------------------------------------------
-        # BOOKING INTAKE
-        # --------------------------------------------------
         if msg.lower().startswith("book"):
 
             parsed = _parse_booking(msg)
@@ -227,7 +216,6 @@ def handle_fatginger_inbound(
 
             db.commit()
 
-            # Customer confirmation
             send_message(
                 db=db,
                 business_msisdn=business_msisdn,
@@ -258,7 +246,7 @@ def handle_fatginger_inbound(
                         db=db,
                         business_msisdn=business_msisdn,
                         to_number=row.msisdn,
-                        template_name=ORDER_NOTIFICATION,
+                        template_name=FG_ORDER_NOTIFICATION,
                         template_params=[booking_sentence],
                     )
 
@@ -267,9 +255,6 @@ def handle_fatginger_inbound(
 
             return True
 
-        # --------------------------------------------------
-        # MENU / FOOD
-        # --------------------------------------------------
         if msg.lower() in ("menu", "food"):
 
             result = db.execute(
@@ -299,9 +284,6 @@ def handle_fatginger_inbound(
 
             return True
 
-        # --------------------------------------------------
-        # DRINKS
-        # --------------------------------------------------
         if msg.lower() == "drinks":
 
             result = db.execute(
