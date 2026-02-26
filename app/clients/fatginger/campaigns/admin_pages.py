@@ -48,6 +48,8 @@ from app.clients.fatginger.campaigns.service import (
     trigger_campaign_send,
 )
 
+from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
+
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
@@ -70,7 +72,7 @@ def _build_text_sender(db: Session):
             db=db,
             business_msisdn=FATGINGER_BUSINESS_MSISDN,
             to_number=phone,
-            template_name="generic_business_update",
+            template_name=FG_CAMPAIGN_TEMPLATE,
             template_params=[formatted_message],
         )
     return _sender
