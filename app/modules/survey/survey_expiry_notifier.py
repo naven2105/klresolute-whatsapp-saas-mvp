@@ -27,6 +27,7 @@ from sqlalchemy import text
 from app.outbound.factory import get_meta_client
 from app.modules.survey.close_survey import close_survey_and_notify as close_survey
 from app.modules.survey.summary import build_survey_summary_text
+from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
 
 logger = logging.getLogger("survey_expiry_notifier")
 
@@ -138,9 +139,10 @@ async def _run_forever() -> None:
 
                         for admin in admins:
                             try:
-                                meta.send_generic_business_update_template(
+                                meta.send_template(
                                     to_msisdn=admin,
-                                    blob_text=summary_single,
+                                    template_name=FG_CAMPAIGN_TEMPLATE,
+                                    body_params=[summary_single],
                                 )
                                 logger.info(
                                     "EXPIRY_NOTIFY_ADMIN_OK | to=%s | survey_id=%s",
