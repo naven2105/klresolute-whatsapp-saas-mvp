@@ -5,7 +5,7 @@ File: app/clients/galitos/services/galitos_staff_notifier.py
 Path: app/clients/galitos/services/galitos_staff_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint: Sprint 9 – Replace Marketing Order Template with Utility for Order Delivery
+Sprint: Sprint 12 – Template Governance Alignment
 
 Purpose:
 Notify Galitos staff when a customer order is confirmed.
@@ -16,7 +16,7 @@ Rules:
 - MUST fail safely (no exceptions propagated)
 - MUST log clearly for debugging
 - Business-scoped Meta client required
-- MUST use Utility template: order_notification
+- MUST use Utility template from template_registry
 """
 
 import logging
@@ -24,11 +24,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
+from app.messaging.template_registry import FG_ORDER_NOTIFICATION
 
 logger = logging.getLogger("galitos_staff_notifier")
 
-# 🔁 Sprint 9 Change: Marketing → Utility template
-STAFF_TEMPLATE_NAME = "order_notification"
+# 🔁 Governance Alignment: use registry constant
+STAFF_TEMPLATE_NAME = FG_ORDER_NOTIFICATION
 
 
 def notify_galitos_staff(
@@ -120,7 +121,7 @@ def notify_galitos_staff(
         return
 
     # -------------------------------------------------
-    # Business-scoped Meta client (FIXED)
+    # Business-scoped Meta client
     # -------------------------------------------------
     meta = get_meta_client(
         db=db,
@@ -142,7 +143,7 @@ def notify_galitos_staff(
                 to_msisdn=msisdn,
                 template_name=STAFF_TEMPLATE_NAME,
                 language_code="en_US",
-                body_params=[message],  # full single-line order string in {{1}}
+                body_params=[message],
             )
 
             logger.info(
