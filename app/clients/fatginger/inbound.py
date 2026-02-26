@@ -31,6 +31,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
 
+from app.messaging.template_registry import ORDER_NOTIFICATION
+
 logger = logging.getLogger("fatginger.inbound")
 
 
@@ -257,7 +259,7 @@ def handle_fatginger_inbound(
                         db=db,
                         business_msisdn=business_msisdn,
                         to_number=row.msisdn,
-                        template_name="generic_business_update",
+                        template_name=ORDER_NOTIFICATION,
                         template_params=[booking_sentence],
                     )
 
