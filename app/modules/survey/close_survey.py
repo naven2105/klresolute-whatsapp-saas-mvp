@@ -24,6 +24,7 @@ import logging
 from app.modules.survey.survey_models import Survey
 from app.modules.survey.summary import build_survey_summary_text
 from app.outbound.factory import get_meta_client
+from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
 
 logger = logging.getLogger("survey.close")
 
@@ -68,9 +69,10 @@ def close_survey_and_notify(
             closed_by=closed_by,
         )
 
-        meta.send_generic_business_update_template(
+        meta.send_template(
             to_msisdn=business_msisdn,
-            blob_text=summary,
+            template_name=FG_CAMPAIGN_TEMPLATE,
+            body_params=[summary],
         )
 
         logger.info(
