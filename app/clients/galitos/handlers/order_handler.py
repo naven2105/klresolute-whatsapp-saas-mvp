@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/handlers/galitos_order_handler.py
-Path: app/handlers/galitos_order_handler.py
+File: app/clients/galitos/handlers/order_handler.py
+Path: app/clients/galitos/handlers/order_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration Hardening
@@ -27,7 +27,7 @@ from app.services.order_service import create_order, OrderCreate
 from app.clients.galitos.services.galitos_staff_notifier import notify_galitos_staff
 from app.messaging.client_messenger import send_message
 
-logger = logging.getLogger("galitos_order_handler")
+logger = logging.getLogger("clients.galitos.order_handler")
 
 # safety: auto-expire orders after 10 minutes
 ORDER_TIMEOUT_MINUTES = 10

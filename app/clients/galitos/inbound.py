@@ -17,7 +17,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.handlers.galitos_order_handler import handle_order_message
+from app.clients.galitos.handlers.order_handler import handle_order_message
 from app.handlers.client_commands import handle_client_command as client_commands
 
 logger = logging.getLogger("clients.galitos")

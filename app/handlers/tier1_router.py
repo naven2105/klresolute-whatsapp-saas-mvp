@@ -38,7 +38,9 @@ from app.clients.galitos.customer_commands import (
     handle_client_command as handle_customer_commands,
 )
 
-from app.handlers.tier1_admin_entry_galitos import handle_admin_entry
+# ✅ UPDATED IMPORT — tenant module now properly isolated
+from app.clients.galitos.handlers.tier1_admin_entry import handle_admin_entry
+
 from app.services.contacts_service import add_contact
 
 logger = logging.getLogger("handlers.tier1_router")
@@ -207,9 +209,6 @@ def handle_client_command(
             )
             return True
 
-        # ----------------------------------
-        # GLOBAL CONTACT AUTO-JOIN (SILENT)
-        # ----------------------------------
         try:
             add_contact(db, msisdn=sender_number)
         except Exception:
@@ -231,9 +230,6 @@ def handle_client_command(
             contact_number=sender_number,
         )
 
-        # ----------------------------------
-        # STATUS NOTICE (if active)
-        # ----------------------------------
         status_text = (
             get_active_status(
                 db=db,
