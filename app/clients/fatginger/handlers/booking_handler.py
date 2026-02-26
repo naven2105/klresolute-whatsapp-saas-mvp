@@ -3,7 +3,7 @@
 # Path: app/clients/fatginger/handlers/booking_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – FatGinger Campaign & Alert Standardisation
+# Sprint 16 – FatGinger Booking Handler Extraction
 #
 # Purpose:
 # Dedicated FatGinger booking handler
@@ -11,7 +11,7 @@
 # Isolation:
 # - No dispatcher changes
 # - No cross-tenant impact
-# - Staff alerts standardised
+# - Uses template registry (governance preserved)
 # ==================================================
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
 from app.messaging.client_messenger import send_message
+from app.messaging.template_registry import FG_ORDER_NOTIFICATION
 
 logger = logging.getLogger("fatginger.booking_handler")
 
@@ -65,7 +67,7 @@ def handle_booking(
     )
 
     # --------------------------------------------------
-    # 3. Staff alert (standardised template)
+    # 3. Staff alert (registry-controlled template)
     # --------------------------------------------------
     try:
         result = db.execute(
@@ -79,12 +81,10 @@ def handle_booking(
 
         staff_rows = result.fetchall()
 
-        alert_variable = (
-            f"New booking | "
-            f"{requested_date.strftime('%d/%m')} "
-            f"{requested_time.strftime('%H:%M')} | "
-            f"{guests} guests | "
-            f"{sender_msisdn}. Please confirm."
+        booking_sentence = (
+            f"New booking on {requested_date.strftime('%d/%m')} at "
+            f"{requested_time.strftime('%H:%M')} for {guests} guests "
+            f"from {sender_msisdn}"
         )
 
         for row in staff_rows:
@@ -92,8 +92,8 @@ def handle_booking(
                 db=db,
                 business_msisdn=business_msisdn,
                 to_number=row.msisdn,
-                template_name="klr_notification_v2__english_us",
-                template_params=[alert_variable],
+                template_name=FG_ORDER_NOTIFICATION,
+                template_params=[booking_sentence],
             )
 
     except Exception:
