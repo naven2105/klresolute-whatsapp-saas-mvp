@@ -16,7 +16,6 @@
 #
 # Sprint 6 Patch:
 # Staff booking notifications use template
-# generic_business_update (en_US)
 # Single-line booking sentence inserted into {{1}}
 # ==================================================
 

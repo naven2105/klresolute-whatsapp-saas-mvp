@@ -12,7 +12,6 @@ Adds branded single-line formatting inside template parameter {{1}}.
 
 Scope:
 - Tenant locked to r_fg__
-- Uses Meta template: generic_business_update
 - No session text messages
 - No image sending (reserved for future sprint)
 - No scheduling
