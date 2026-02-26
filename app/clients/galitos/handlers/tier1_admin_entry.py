@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/clients/galitos/handlers/tier1_admin_entry_galitos.py
-Path: app/clients/galitos/handlers/tier1_admin_entry_galitos.py
+File: app/clients/galitos/handlers/tier1_admin_entry.py
+Path: app/clients/galitos/handlers/tier1_admin_entry.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
