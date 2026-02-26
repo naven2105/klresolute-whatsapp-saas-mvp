@@ -26,6 +26,8 @@ from app.menus.customers.galitos_food_menu import handle_galitos_menu
 
 from app.utils.admin import is_admin_message
 
+from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
+
 logger = logging.getLogger("galitos.customer_commands")
 
 
@@ -258,9 +260,10 @@ def handle_client_command(
             db.delete(contact)
             db.commit()
 
-        meta.send_generic_business_update_template(
+        meta.send_template(
             to_msisdn=sender,
-            blob_text="You have been removed. You will no longer receive updates.",
+            template_name=FG_CAMPAIGN_TEMPLATE,
+            body_params=["You have been removed. You will no longer receive updates."],
         )
         return True
 
@@ -281,10 +284,11 @@ def handle_client_command(
             db.add(Contact(contact_number=sender))
             db.commit()
 
-        meta.send_generic_business_update_template(
+        meta.send_template(
             to_msisdn=sender,
-            blob_text="You have been added back. You will receive updates again.",
-        )
+            template_name=FG_CAMPAIGN_TEMPLATE,          
+            body_params=["You have been added back. You will receive updates again."]
+        )        
         return True
 
     _send_customer_menu(db=db, sender=sender, client_id=client_id)
