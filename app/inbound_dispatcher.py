@@ -4,6 +4,8 @@ from __future__ import annotations
 File: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
 
+Sprint 13 – Client Feedback Isolation
+
 Purpose:
 Central inbound routing entry point.
 
@@ -12,6 +14,10 @@ LOCKED:
 - No module rewrites
 - Only routing + logging
 - Guard rails for visibility
+
+Update:
+- Removed shared feedback handler
+- Feedback now routed per client folder
 """
 
 import logging
@@ -20,13 +26,18 @@ from sqlalchemy import text
 
 from app.profiles.client_profile import get_client_profile
 from app.handlers.tier1_router import handle_client_command as tier1_handle
-from app.handlers.feedback_handler import handle_feedback_message
 from app.handlers import galitos_order_handler
 
-# Client-specific inspection handler (Magen only for now)
+# Client-specific feedback handlers
+from app.clients.galitos.feedback.handler import handle_feedback_message as galitos_feedback_handler
+from app.clients.fatginger.feedback.handler import handle_feedback_message as fatginger_feedback_handler
+from app.clients.pilateshq.feedback.handler import handle_feedback_message as pilates_feedback_handler
+from app.clients.magen.feedback.handler import handle_feedback_message as magen_feedback_handler
+
+# Client-specific inspection handler
 from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
 
-# NEW: FatGinger client-specific inbound
+# Client-specific inbound
 from app.clients.fatginger.inbound import handle_fatginger_inbound
 
 from app.modules.survey import handler as survey_handler
@@ -87,7 +98,6 @@ def _resolve_uuid_client_id(
         logger.info(
             "CLIENT_RESOLVED | business_msisdn=%s | client_id=%s",
             business_msisdn,
-            client_id,
         )
 
         return client_id
@@ -181,16 +191,57 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
             admin_numbers = {row["msisdn"] for row in admin_rows}
 
-            handled = handle_feedback_message(
-                db=db,
-                sender_number=sender,
-                message_text=body_text,
-                media_id=None,
-                media_type=None,
-                client_id=client_id,
-                admin_numbers=admin_numbers,
-                business_msisdn=business_msisdn,
-            )
+            if profile.client_code == "GALITOS":
+                handled = galitos_feedback_handler(
+                    db=db,
+                    sender_number=sender,
+                    message_text=body_text,
+                    media_id=None,
+                    media_type=None,
+                    client_id=client_id,
+                    admin_numbers=admin_numbers,
+                    business_msisdn=business_msisdn,
+                )
+
+            elif profile.client_code == "FATGINGER":
+                handled = fatginger_feedback_handler(
+                    db=db,
+                    sender_number=sender,
+                    message_text=body_text,
+                    media_id=None,
+                    media_type=None,
+                    client_id=client_id,
+                    admin_numbers=admin_numbers,
+                    business_msisdn=business_msisdn,
+                )
+
+            elif profile.client_code == "PILATESHQ":
+                handled = pilates_feedback_handler(
+                    db=db,
+                    sender_number=sender,
+                    message_text=body_text,
+                    media_id=None,
+                    media_type=None,
+                    client_id=client_id,
+                    admin_numbers=admin_numbers,
+                    business_msisdn=business_msisdn,
+                )
+
+            elif profile.client_code == "MAGEN":
+                handled = magen_feedback_handler(
+                    db=db,
+                    sender_number=sender,
+                    message_text=body_text,
+                    media_id=None,
+                    media_type=None,
+                    client_id=client_id,
+                    admin_numbers=admin_numbers,
+                    business_msisdn=business_msisdn,
+                )
+
+            else:
+                logger.warning("FEEDBACK_SKIP | unknown_client=%s", profile.client_code)
+                handled = False
 
             logger.info("FEEDBACK_HANDLED=%s", handled)
 
@@ -249,7 +300,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             return True
 
     # --------------------------------------------------
-    # INSPECTION (DB-driven)
+    # INSPECTION
     # --------------------------------------------------
     if "inspection" in profile.enabled_modules:
         logger.info(
