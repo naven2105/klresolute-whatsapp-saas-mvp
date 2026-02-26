@@ -3,19 +3,19 @@
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 12 – Template Governance Cleanup
+# Sprint 16 – Booking Logic Extraction
 #
 # Purpose:
 # FatGinger Client-Specific Inbound Handler
 #
 # Update:
-# - Replaced legacy ORDER_NOTIFICATION import
-# - Now uses FG_ORDER_NOTIFICATION from registry
+# - Booking logic extracted to handlers/booking_handler.py
+# - Staff alert now standardised via new handler
 #
 # Isolation:
 # - No dispatcher changes
 # - No behavioural changes
-# - Template governance aligned
+# - Template governance preserved
 # ==================================================
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
-from app.messaging.template_registry import FG_ORDER_NOTIFICATION
+from app.clients.fatginger.handlers.booking_handler import handle_booking
 
 logger = logging.getLogger("fatginger.inbound")
 
@@ -136,6 +136,7 @@ def handle_fatginger_inbound(
 
     try:
 
+        # ---------------- STOP / UNSUBSCRIBE ----------------
         if msg.lower() in ("stop", "unsubscribe"):
 
             db.execute(
@@ -161,6 +162,7 @@ def handle_fatginger_inbound(
 
             return True
 
+        # ---------------- AUTO REGISTER CUSTOMER ----------------
         result = db.execute(
             text(
                 """
@@ -183,6 +185,7 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
+        # ---------------- BOOKING ----------------
         if msg.lower().startswith("book"):
 
             parsed = _parse_booking(msg)
@@ -198,63 +201,18 @@ def handle_fatginger_inbound(
 
             guests, requested_date, requested_time = parsed
 
-            db.execute(
-                text(
-                    """
-                    INSERT INTO r_fg__booking_requests
-                    (customer_phone, guest_count, requested_date, requested_time)
-                    VALUES (:phone, :guests, :date, :time)
-                    """
-                ),
-                {
-                    "phone": sender_msisdn,
-                    "guests": guests,
-                    "date": requested_date,
-                    "time": requested_time,
-                },
-            )
-
-            db.commit()
-
-            send_message(
+            handle_booking(
                 db=db,
+                sender_msisdn=sender_msisdn,
                 business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text="Your booking request has been received. The restaurant will confirm shortly.",
+                guests=guests,
+                requested_date=requested_date,
+                requested_time=requested_time,
             )
-
-            try:
-                result = db.execute(
-                    text(
-                        """
-                        SELECT msisdn
-                        FROM r_fg__staff
-                        """
-                    )
-                )
-
-                staff_rows = result.fetchall()
-
-                booking_sentence = (
-                    f"New booking on {requested_date.strftime('%d/%m')} at "
-                    f"{requested_time.strftime('%H:%M')} for {guests} guests "
-                    f"from {sender_msisdn}"
-                )
-
-                for row in staff_rows:
-                    send_message(
-                        db=db,
-                        business_msisdn=business_msisdn,
-                        to_number=row.msisdn,
-                        template_name=FG_ORDER_NOTIFICATION,
-                        template_params=[booking_sentence],
-                    )
-
-            except Exception:
-                logger.exception("FG_STAFF_FORWARD_FAIL")
 
             return True
 
+        # ---------------- MENU ----------------
         if msg.lower() in ("menu", "food"):
 
             result = db.execute(
@@ -284,6 +242,7 @@ def handle_fatginger_inbound(
 
             return True
 
+        # ---------------- DRINKS ----------------
         if msg.lower() == "drinks":
 
             result = db.execute(
