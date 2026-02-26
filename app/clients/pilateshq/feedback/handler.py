@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 """
-File: app/clients/galitos/feedback/handler.py
+File: app/clients/pilateshq/feedback/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint 13 – Client Feedback Isolation (Galitos)
+Sprint 13 – Client Feedback Isolation (PilatesHQ)
 
 Purpose:
-Galitos-specific feedback handler.
+PilatesHQ-specific feedback handler.
 
 Notes:
 - Behaviour identical to legacy shared handler
@@ -21,12 +21,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
-from app.messaging.template_registry import GALITOS_NOTIFICATION
+from app.messaging.template_registry import PHQ_ADMIN_ALERT
 
-logger = logging.getLogger("galitos.feedback")
+logger = logging.getLogger("pilateshq.feedback")
 
-ADMIN_TEMPLATE_NAME = GALITOS_NOTIFICATION
-CUSTOMER_ACK_TEMPLATE_NAME = GALITOS_NOTIFICATION
+ADMIN_TEMPLATE_NAME = PHQ_ADMIN_ALERT
+CUSTOMER_ACK_TEMPLATE_NAME = PHQ_ADMIN_ALERT
 
 
 # -------------------------------------------------
