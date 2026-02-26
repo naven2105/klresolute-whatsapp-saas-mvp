@@ -3,25 +3,18 @@
 # Path: app/messaging/template_registry.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 12 – Backward Compatibility Patch
+# Sprint 12 – Template Governance Update
 #
 # Purpose:
 # Centralised registry for all WhatsApp template names.
 #
+# Update:
+# - Added Galitos utility template klr_notification_v1
+#
 # Rules:
 # - Constants only (no logic)
 # - No hardcoded template strings elsewhere
-# - Single source of truth for template references
-# - Supports multi-tenant isolation
-#
-# Change:
-# - Added ORDER_NOTIFICATION alias for backward compatibility
-#   (used by legacy inbound import)
-#
-# Change Policy:
-# - Do not remove templates without confirming usage
-# - Marketing templates retained temporarily where required
-# - Future upgrades must occur here first
+# - Single source of truth
 # ==================================================
 
 # ===============================
@@ -30,8 +23,12 @@
 
 FG_ORDER_NOTIFICATION = "order_notification"
 
-# Backward compatibility (legacy imports)
-ORDER_NOTIFICATION = FG_ORDER_NOTIFICATION
+
+# ===============================
+# GALITOS
+# ===============================
+
+GALITOS_NOTIFICATION = "klr_notification_v1"
 
 
 # ===============================
