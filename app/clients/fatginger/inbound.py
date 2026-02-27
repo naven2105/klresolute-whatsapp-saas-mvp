@@ -3,19 +3,20 @@
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – Booking Logic Extraction
+# Sprint 16 – Role Separation Foundation
 #
 # Purpose:
 # FatGinger Client-Specific Inbound Handler
 #
 # Update:
-# - Booking logic extracted to handlers/booking_handler.py
-# - Staff alert now standardised via new handler
+# - Added role detection (admin, staff, customer)
+# - Prevented admin/staff from auto customer registration
+# - STOP logic restricted to customers only
 #
 # Isolation:
 # - No dispatcher changes
-# - No behavioural changes
-# - Template governance preserved
+# - No campaign logic yet
+# - Booking logic unchanged
 # ==================================================
 
 from __future__ import annotations
@@ -136,8 +137,31 @@ def handle_fatginger_inbound(
 
     try:
 
-        # ---------------- STOP / UNSUBSCRIBE ----------------
-        if msg.lower() in ("stop", "unsubscribe"):
+        # --------------------------------------------------
+        # Role Detection
+        # --------------------------------------------------
+        role = "customer"
+
+        admin_check = db.execute(
+            text("SELECT 1 FROM r_fg__admins WHERE msisdn = :phone LIMIT 1"),
+            {"phone": sender_msisdn},
+        ).fetchone()
+
+        if admin_check:
+            role = "admin"
+        else:
+            staff_check = db.execute(
+                text("SELECT 1 FROM r_fg__staff WHERE msisdn = :phone LIMIT 1"),
+                {"phone": sender_msisdn},
+            ).fetchone()
+
+            if staff_check:
+                role = "staff"
+
+        # --------------------------------------------------
+        # STOP / UNSUBSCRIBE (Customers Only)
+        # --------------------------------------------------
+        if role == "customer" and msg.lower() in ("stop", "unsubscribe"):
 
             db.execute(
                 text(
@@ -162,31 +186,37 @@ def handle_fatginger_inbound(
 
             return True
 
-        # ---------------- AUTO REGISTER CUSTOMER ----------------
-        result = db.execute(
-            text(
-                """
-                INSERT INTO r_fg__customers (phone)
-                VALUES (:phone)
-                ON CONFLICT (phone) DO NOTHING
-                """
-            ),
-            {"phone": sender_msisdn},
-        )
+        # --------------------------------------------------
+        # AUTO REGISTER CUSTOMER (Customers Only)
+        # --------------------------------------------------
+        if role == "customer":
 
-        db.commit()
-
-        if result.rowcount == 1:
-
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text=WELCOME_MESSAGE,
+            result = db.execute(
+                text(
+                    """
+                    INSERT INTO r_fg__customers (phone)
+                    VALUES (:phone)
+                    ON CONFLICT (phone) DO NOTHING
+                    """
+                ),
+                {"phone": sender_msisdn},
             )
 
-        # ---------------- BOOKING ----------------
-        if msg.lower().startswith("book"):
+            db.commit()
+
+            if result.rowcount == 1:
+
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    text=WELCOME_MESSAGE,
+                )
+
+        # --------------------------------------------------
+        # BOOKING (Customers Only)
+        # --------------------------------------------------
+        if role == "customer" and msg.lower().startswith("book"):
 
             parsed = _parse_booking(msg)
 
@@ -212,8 +242,10 @@ def handle_fatginger_inbound(
 
             return True
 
-        # ---------------- MENU ----------------
-        if msg.lower() in ("menu", "food"):
+        # --------------------------------------------------
+        # MENU (Customers Only)
+        # --------------------------------------------------
+        if role == "customer" and msg.lower() in ("menu", "food"):
 
             result = db.execute(
                 text(
@@ -242,8 +274,10 @@ def handle_fatginger_inbound(
 
             return True
 
-        # ---------------- DRINKS ----------------
-        if msg.lower() == "drinks":
+        # --------------------------------------------------
+        # DRINKS (Customers Only)
+        # --------------------------------------------------
+        if role == "customer" and msg.lower() == "drinks":
 
             result = db.execute(
                 text(
