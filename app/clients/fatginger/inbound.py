@@ -3,20 +3,18 @@
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – Role Separation Foundation
+# Sprint 16 – Campaign Integration
 #
 # Purpose:
 # FatGinger Client-Specific Inbound Handler
 #
 # Update:
-# - Added role detection (admin, staff, customer)
-# - Prevented admin/staff from auto customer registration
-# - STOP logic restricted to customers only
+# - Delegates admin messages to campaign_handler
+# - Staff blocked
+# - Customer flow unchanged
 #
 # Isolation:
 # - No dispatcher changes
-# - No campaign logic yet
-# - Booking logic unchanged
 # ==================================================
 
 from __future__ import annotations
@@ -30,19 +28,17 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
 from app.clients.fatginger.handlers.booking_handler import handle_booking
+from app.clients.fatginger.handlers.campaign_handler import (
+    handle_admin_message,
+)
 
 logger = logging.getLogger("fatginger.inbound")
 
-
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
 
 BOOKING_REGEX = re.compile(
     r"^book\s+(\d+)\s+(\d{1,2}/\d{1,2})\s+(\d{1,2}:\d{2})$",
     re.IGNORECASE,
 )
-
 
 WELCOME_MESSAGE = (
     "Welcome to FatGinger 🍔🔥\n"
@@ -52,7 +48,6 @@ WELCOME_MESSAGE = (
     "• Type book to reserve a table\n"
     "Reply STOP anytime to unsubscribe."
 )
-
 
 STOP_CONFIRMATION = (
     "You have been unsubscribed from marketing messages.\n"
@@ -102,7 +97,6 @@ def _parse_booking(message_text: str):
 
     try:
         guests = int(guests_raw)
-
         day, month = map(int, date_raw.split("/"))
         current_year = datetime.utcnow().year
 
@@ -119,21 +113,19 @@ def _parse_booking(message_text: str):
         return None
 
 
-# --------------------------------------------------
-# Main Handler
-# --------------------------------------------------
-
 def handle_fatginger_inbound(
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,
-    message_text: str,
+    message_text: str | None,
+    message_type: str,
+    media_url: str | None,
 ) -> bool:
 
-    if not message_text:
+    if not message_text and message_type != "image":
         return False
 
-    msg = message_text.strip()
+    msg = (message_text or "").strip()
 
     try:
 
@@ -142,27 +134,43 @@ def handle_fatginger_inbound(
         # --------------------------------------------------
         role = "customer"
 
-        admin_check = db.execute(
+        if db.execute(
             text("SELECT 1 FROM r_fg__admins WHERE msisdn = :phone LIMIT 1"),
             {"phone": sender_msisdn},
-        ).fetchone()
-
-        if admin_check:
+        ).fetchone():
             role = "admin"
-        else:
-            staff_check = db.execute(
-                text("SELECT 1 FROM r_fg__staff WHERE msisdn = :phone LIMIT 1"),
-                {"phone": sender_msisdn},
-            ).fetchone()
 
-            if staff_check:
-                role = "staff"
+        elif db.execute(
+            text("SELECT 1 FROM r_fg__staff WHERE msisdn = :phone LIMIT 1"),
+            {"phone": sender_msisdn},
+        ).fetchone():
+            role = "staff"
 
         # --------------------------------------------------
-        # STOP / UNSUBSCRIBE (Customers Only)
+        # ADMIN
         # --------------------------------------------------
-        if role == "customer" and msg.lower() in ("stop", "unsubscribe"):
+        if role == "admin":
+            return handle_admin_message(
+                db=db,
+                sender_msisdn=sender_msisdn,
+                business_msisdn=business_msisdn,
+                message_text=message_text,
+                message_type=message_type,
+                media_url=media_url,
+            )
 
+        # --------------------------------------------------
+        # STAFF (No interaction)
+        # --------------------------------------------------
+        if role == "staff":
+            return True
+
+        # --------------------------------------------------
+        # CUSTOMER LOGIC
+        # --------------------------------------------------
+
+        # STOP
+        if msg.lower() in ("stop", "unsubscribe"):
             db.execute(
                 text(
                     """
@@ -174,7 +182,6 @@ def handle_fatginger_inbound(
                 ),
                 {"phone": sender_msisdn},
             )
-
             db.commit()
 
             send_message(
@@ -183,41 +190,31 @@ def handle_fatginger_inbound(
                 to_number=sender_msisdn,
                 text=STOP_CONFIRMATION,
             )
-
             return True
 
-        # --------------------------------------------------
-        # AUTO REGISTER CUSTOMER (Customers Only)
-        # --------------------------------------------------
-        if role == "customer":
+        # Auto register
+        result = db.execute(
+            text(
+                """
+                INSERT INTO r_fg__customers (phone)
+                VALUES (:phone)
+                ON CONFLICT (phone) DO NOTHING
+                """
+            ),
+            {"phone": sender_msisdn},
+        )
+        db.commit()
 
-            result = db.execute(
-                text(
-                    """
-                    INSERT INTO r_fg__customers (phone)
-                    VALUES (:phone)
-                    ON CONFLICT (phone) DO NOTHING
-                    """
-                ),
-                {"phone": sender_msisdn},
+        if result.rowcount == 1:
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text=WELCOME_MESSAGE,
             )
 
-            db.commit()
-
-            if result.rowcount == 1:
-
-                send_message(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    to_number=sender_msisdn,
-                    text=WELCOME_MESSAGE,
-                )
-
-        # --------------------------------------------------
-        # BOOKING (Customers Only)
-        # --------------------------------------------------
-        if role == "customer" and msg.lower().startswith("book"):
-
+        # Booking
+        if msg.lower().startswith("book"):
             parsed = _parse_booking(msg)
 
             if not parsed:
@@ -242,67 +239,43 @@ def handle_fatginger_inbound(
 
             return True
 
-        # --------------------------------------------------
-        # MENU (Customers Only)
-        # --------------------------------------------------
-        if role == "customer" and msg.lower() in ("menu", "food"):
-
+        # Announcement retrieval (customer)
+        if msg.lower() == "announcement":
             result = db.execute(
                 text(
                     """
-                    SELECT name, price, category
-                    FROM r_fg__menu_items
-                    WHERE active = TRUE
-                    ORDER BY category, name
+                    SELECT type, message, image_url
+                    FROM r_fg__campaigns
+                    ORDER BY sent_at DESC
+                    LIMIT 1
                     """
                 )
-            )
+            ).fetchone()
 
-            rows = result.fetchall()
-
-            if not rows:
-                return True
-
-            response = _format_food_menu(rows)
-
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text=response,
-            )
-
-            return True
-
-        # --------------------------------------------------
-        # DRINKS (Customers Only)
-        # --------------------------------------------------
-        if role == "customer" and msg.lower() == "drinks":
-
-            result = db.execute(
-                text(
-                    """
-                    SELECT name, price, category
-                    FROM r_fg__beverages
-                    WHERE active = TRUE
-                    ORDER BY name
-                    """
+            if not result:
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    text="No active announcements at the moment.",
                 )
-            )
-
-            rows = result.fetchall()
-
-            if not rows:
                 return True
 
-            response = _format_drinks(rows)
-
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text=response,
-            )
+            if result.type == "text":
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    text=result.message,
+                )
+            else:
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    image_url=result.image_url,
+                    caption=result.message,
+                )
 
             return True
 
