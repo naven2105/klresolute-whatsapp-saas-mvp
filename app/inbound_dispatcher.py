@@ -262,6 +262,8 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
                 sender_msisdn=sender,
                 business_msisdn=business_msisdn,
                 message_text=body_text,
+                message_type="text",
+                media_url=None,
             )
             if handled:
                 return True
