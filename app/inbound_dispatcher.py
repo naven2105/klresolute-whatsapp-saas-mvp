@@ -4,7 +4,7 @@ from __future__ import annotations
 File: app/inbound_dispatcher.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint 13 – Client Feedback Isolation
+Sprint 16 – FatGinger Image Routing Patch
 
 Purpose:
 Central inbound routing entry point.
@@ -45,9 +45,6 @@ from app.modules.announcements.admin_announcements_media_handler import (
 logger = logging.getLogger("inbound.dispatcher")
 
 
-# --------------------------------------------------
-# DB Reset Guard
-# --------------------------------------------------
 def _reset_session(db: Session) -> None:
     try:
         db.rollback()
@@ -55,9 +52,6 @@ def _reset_session(db: Session) -> None:
         logger.warning("DB_ROLLBACK_FAIL | err=%s", str(e))
 
 
-# --------------------------------------------------
-# Client Resolution
-# --------------------------------------------------
 def _resolve_uuid_client_id(
     db: Session,
     *,
@@ -106,9 +100,6 @@ def _resolve_uuid_client_id(
         return None
 
 
-# --------------------------------------------------
-# Dispatch
-# --------------------------------------------------
 def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bool:
 
     logger.info(
@@ -267,6 +258,27 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             )
             if handled:
                 return True
+
+    # --------------------------------------------------
+    # IMAGE ROUTING (Sprint 16 Patch)
+    # --------------------------------------------------
+    if msg.get("type") == "image" and profile.client_code == "FATGINGER":
+
+        image_data = msg.get("image", {}) or {}
+        media_id = image_data.get("id")
+        caption = image_data.get("caption")
+
+        handled = handle_fatginger_inbound(
+            db=db,
+            sender_msisdn=sender,
+            business_msisdn=business_msisdn,
+            message_text=caption,
+            message_type="image",
+            media_url=media_id,
+        )
+
+        if handled:
+            return True
 
     # --------------------------------------------------
     # ANNOUNCEMENTS
