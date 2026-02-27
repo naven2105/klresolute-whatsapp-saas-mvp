@@ -55,39 +55,6 @@ STOP_CONFIRMATION = (
 )
 
 
-def _format_food_menu(rows) -> str:
-    burgers = []
-    pizzas = []
-
-    for row in rows:
-        if row.category == "BURGER":
-            burgers.append(f"• {row.name} – R{int(row.price)}")
-        elif row.category == "PIZZA":
-            pizzas.append(f"• {row.name} – R{int(row.price)}")
-
-    response = "🍔 Fat Ginger Menu\n\n"
-
-    if burgers:
-        response += "BURGERS\n"
-        response += "\n".join(burgers)
-        response += "\n\n"
-
-    if pizzas:
-        response += "PIZZAS\n"
-        response += "\n".join(pizzas)
-
-    return response.strip()
-
-
-def _format_drinks(rows) -> str:
-    lines = [f"• {row.name} – R{int(row.price)}" for row in rows]
-
-    response = "🥤 Drinks\n\n"
-    response += "\n".join(lines)
-
-    return response.strip()
-
-
 def _parse_booking(message_text: str):
     match = BOOKING_REGEX.match(message_text.strip())
     if not match:
@@ -122,6 +89,7 @@ def handle_fatginger_inbound(
     media_url: str | None,
 ) -> bool:
 
+    # Allow image-only messages
     if not message_text and message_type != "image":
         return False
 
@@ -130,7 +98,7 @@ def handle_fatginger_inbound(
     try:
 
         # --------------------------------------------------
-        # Role Detection
+        # ROLE DETECTION
         # --------------------------------------------------
         role = "customer"
 
@@ -169,7 +137,7 @@ def handle_fatginger_inbound(
         # CUSTOMER LOGIC
         # --------------------------------------------------
 
-        # STOP
+        # STOP / UNSUBSCRIBE
         if msg.lower() in ("stop", "unsubscribe"):
             db.execute(
                 text(
@@ -192,7 +160,7 @@ def handle_fatginger_inbound(
             )
             return True
 
-        # Auto register
+        # AUTO REGISTER
         result = db.execute(
             text(
                 """
@@ -213,7 +181,7 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # Booking
+        # BOOKING
         if msg.lower().startswith("book"):
             parsed = _parse_booking(msg)
 
@@ -239,7 +207,7 @@ def handle_fatginger_inbound(
 
             return True
 
-        # Announcement retrieval (customer)
+        # ANNOUNCEMENT RETRIEVAL
         if msg.lower() == "announcement":
             result = db.execute(
                 text(
@@ -262,11 +230,16 @@ def handle_fatginger_inbound(
                 return True
 
             if result.type == "text":
+                formatted = (
+                    "📢 Fat Ginger Announcement\n\n"
+                    f"{result.message}"
+                )
+
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=result.message,
+                    text=formatted,
                 )
             else:
                 send_message(
