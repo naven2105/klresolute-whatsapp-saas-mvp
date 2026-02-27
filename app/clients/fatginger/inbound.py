@@ -246,7 +246,7 @@ def handle_fatginger_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    image_url=result.image_url,
+                    image_id=result.image_url,
                     caption=result.message,
                 )
 
