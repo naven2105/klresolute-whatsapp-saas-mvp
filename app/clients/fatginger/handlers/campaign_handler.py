@@ -205,7 +205,6 @@ def _create_pending(
         )
         return True
 
-    # Cancel previous if exists
     if admin_msisdn in pending_campaigns:
         del pending_campaigns[admin_msisdn]
         send_message(
@@ -303,19 +302,32 @@ def _execute_broadcast(
     for row in recipients:
         try:
             if campaign_type == "text":
+                formatted_message = (
+                    "📢 Fat Ginger Announcement\n\n"
+                    f"{message}"
+                )
+
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=row.phone,
-                    text=message,
+                    text=formatted_message,
                 )
             else:
+                if message:
+                    formatted_caption = (
+                        "📢 Fat Ginger Announcement\n\n"
+                        f"{message}"
+                    )
+                else:
+                    formatted_caption = None
+
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=row.phone,
                     image_url=image_url,
-                    caption=message,
+                    caption=formatted_caption,
                 )
 
             sent_count += 1
