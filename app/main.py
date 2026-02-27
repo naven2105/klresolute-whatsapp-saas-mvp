@@ -40,12 +40,6 @@ from fastapi.staticfiles import StaticFiles
 from app.webhooks import router as webhooks_router
 from app.admin.routes import router as admin_router
 from app.clients.magen.admin.routes import router as magen_admin_router
-from app.clients.fatginger.campaigns.admin_routes import (
-    router as fg_campaign_admin_router,
-)
-from app.clients.fatginger.campaigns.admin_pages import (
-    router as fg_campaign_ui_router,
-)
 
 from app.modules.survey.survey_expiry_notifier import start_survey_expiry_notifier
 from app.clients.magen.inspection.auto_close_worker import (
@@ -85,12 +79,6 @@ app.include_router(admin_router)
 
 # Magen admin
 app.include_router(magen_admin_router)
-
-# FatGinger campaign admin (API endpoints)
-app.include_router(fg_campaign_admin_router)
-
-# FatGinger campaign admin (HTML UI)
-app.include_router(fg_campaign_ui_router)
 
 # -------------------------------------------------------------------
 # Background worker: Magen auto-close
