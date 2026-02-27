@@ -6,6 +6,7 @@ Path: app/messaging/client_messenger.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Migration Hardening
++ Sprint 16 – Image Support Patch
 
 Purpose:
 Thin messaging helpers for client-facing messages.
@@ -13,6 +14,7 @@ Thin messaging helpers for client-facing messages.
 Enhancement:
 - Defensive DB rollback before outbound settings load
 - Prevent aborted transaction cascade failures
+- Added image message support (Sprint 16)
 """
 
 import logging
@@ -32,16 +34,19 @@ def send_message(
     to_number: str,
     text: str | None = None,
     template_name: str | None = None,
-    template_params: Optional[List[str]] = None,   # ✅ ADDED
+    template_params: Optional[List[str]] = None,
+    image_id: str | None = None,        # ✅ ADDED
+    caption: str | None = None,         # ✅ ADDED
     language_code: str = "en_US",
 ) -> None:
 
     logger.info(
-        "SEND_MESSAGE_START | business=%s | to=%s | has_text=%s | has_template=%s",
+        "SEND_MESSAGE_START | business=%s | to=%s | has_text=%s | has_template=%s | has_image=%s",
         business_msisdn,
         to_number,
         bool(text),
         bool(template_name),
+        bool(image_id),
     )
 
     if not db:
@@ -59,21 +64,33 @@ def send_message(
         )
         raise RuntimeError("business_msisdn is required for outbound messaging")
 
-    if text and template_name:
+    # -------------------------------------------------
+    # UPDATED VALIDATION (extended, not replaced)
+    # -------------------------------------------------
+
+    payload_count = 0
+    if text:
+        payload_count += 1
+    if template_name:
+        payload_count += 1
+    if image_id:
+        payload_count += 1
+
+    if payload_count > 1:
         logger.error(
-            "SEND_MESSAGE_ABORT | reason=both_text_and_template | business=%s | to=%s",
+            "SEND_MESSAGE_ABORT | reason=multiple_payload_types | business=%s | to=%s",
             business_msisdn,
             to_number,
         )
-        raise ValueError("Provide either text or template_name, not both")
+        raise ValueError("Provide only one of text, template_name, or image_id")
 
-    if not text and not template_name:
+    if payload_count == 0:
         logger.error(
             "SEND_MESSAGE_ABORT | reason=no_payload | business=%s | to=%s",
             business_msisdn,
             to_number,
         )
-        raise ValueError("Either text or template_name must be provided")
+        raise ValueError("Either text, template_name, or image_id must be provided")
 
     # -------------------------------------------------
     # Defensive rollback to clear aborted transactions
@@ -102,6 +119,9 @@ def send_message(
 
     meta_client = MetaWhatsAppClient(settings=settings)
 
+    # -------------------------------------------------
+    # TEXT MESSAGE (unchanged)
+    # -------------------------------------------------
     if text:
         logger.info(
             "SEND_MESSAGE_EXEC | type=session | business=%s | to=%s",
@@ -114,6 +134,25 @@ def send_message(
         )
         return
 
+    # -------------------------------------------------
+    # IMAGE MESSAGE (ADDED – Sprint 16)
+    # -------------------------------------------------
+    if image_id:
+        logger.info(
+            "SEND_MESSAGE_EXEC | type=image | business=%s | to=%s",
+            business_msisdn,
+            to_number,
+        )
+        meta_client.send_image_message(
+            to_msisdn=to_number,
+            media_id=image_id,
+            caption=caption,
+        )
+        return
+
+    # -------------------------------------------------
+    # TEMPLATE MESSAGE (unchanged)
+    # -------------------------------------------------
     logger.info(
         "SEND_MESSAGE_EXEC | type=template | business=%s | to=%s | template=%s",
         business_msisdn,
@@ -125,5 +164,5 @@ def send_message(
         to_msisdn=to_number,
         template_name=template_name,
         language_code=language_code,
-        body_params=template_params,   # ✅ ADDED
+        body_params=template_params,
     )
