@@ -32,18 +32,9 @@ from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("fatginger.campaign_handler")
 
-# --------------------------------------------------
-# In-Memory Pending Store (Per Admin)
-# --------------------------------------------------
-
 pending_campaigns: dict[str, dict] = {}
-
 EXPIRY_SECONDS = 60
 
-
-# --------------------------------------------------
-# Public Entry
-# --------------------------------------------------
 
 def handle_admin_message(
     db: Session,
@@ -57,16 +48,12 @@ def handle_admin_message(
     now = datetime.utcnow()
     msg = (message_text or "").strip()
 
-    # --------------------------------------------------
-    # 1️⃣ Check Pending
-    # --------------------------------------------------
     pending = pending_campaigns.get(sender_msisdn)
 
     if pending:
 
         created_at = pending["created_at"]
 
-        # Expired?
         if now - created_at > timedelta(seconds=EXPIRY_SECONDS):
 
             send_message(
@@ -80,7 +67,6 @@ def handle_admin_message(
             pending = None
 
         else:
-            # Active confirmation
             if msg.lower() == "yes":
                 _execute_broadcast(
                     db=db,
@@ -101,7 +87,6 @@ def handle_admin_message(
                 del pending_campaigns[sender_msisdn]
                 return True
 
-            # Unknown while pending
             send_message(
                 db=db,
                 business_msisdn=business_msisdn,
@@ -111,11 +96,6 @@ def handle_admin_message(
             del pending_campaigns[sender_msisdn]
             return True
 
-    # --------------------------------------------------
-    # 2️⃣ New Campaign Trigger
-    # --------------------------------------------------
-
-    # Text trigger: announcement:
     if message_type == "text" and msg.lower().startswith("announcement:"):
 
         campaign_text = msg[len("announcement:") :].strip()
@@ -138,7 +118,6 @@ def handle_admin_message(
             image_url=None,
         )
 
-    # Image trigger
     if message_type == "image":
 
         return _create_pending(
@@ -150,7 +129,6 @@ def handle_admin_message(
             image_url=media_url,
         )
 
-    # Explicit admin menu
     if message_type == "text" and msg.lower() == "admin":
         send_message(
             db=db,
@@ -160,7 +138,6 @@ def handle_admin_message(
         )
         return True
 
-    # Fallback
     send_message(
         db=db,
         business_msisdn=business_msisdn,
@@ -169,10 +146,6 @@ def handle_admin_message(
     )
     return True
 
-
-# --------------------------------------------------
-# Pending Creation
-# --------------------------------------------------
 
 def _create_pending(
     db: Session,
@@ -250,10 +223,6 @@ def _create_pending(
     return True
 
 
-# --------------------------------------------------
-# Broadcast Execution
-# --------------------------------------------------
-
 def _execute_broadcast(
     db: Session,
     business_msisdn: str,
@@ -322,11 +291,12 @@ def _execute_broadcast(
                 else:
                     formatted_caption = None
 
+                # ✅ FIXED PARAM NAME HERE
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=row.phone,
-                    image_url=image_url,
+                    image_id=image_url,
                     caption=formatted_caption,
                 )
 
@@ -384,10 +354,6 @@ def _execute_broadcast(
         text=summary,
     )
 
-
-# --------------------------------------------------
-# Admin Menu
-# --------------------------------------------------
 
 def _admin_menu() -> str:
     return (
