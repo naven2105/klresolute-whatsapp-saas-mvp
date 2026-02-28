@@ -2,45 +2,34 @@ from __future__ import annotations
 
 """
 File: app/modules/survey/handler.py
-Path: app/modules/survey/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Purpose:
-Inbound entry point for Survey module.
-
-Responsibilities (LOCKED):
-- Decide if inbound message is survey-related
-- Route admin survey commands
-- Route customer survey responses
-- Delegate all logic to survey services / handlers
-- Return True if message was handled
-
-Guards:
-- DB-backed client profile MUST be resolved with db
-- Survey module must never raise
-- Clear logs for: checked / missing / continued
-
-NO database schema logic here.
-NO Meta client creation here.
+MVP Survey Simplification:
+- Single survey type
+- 3 fixed options: Positive / Neutral / Negative
+- Template-based quick reply responses
 """
 
 import logging
 from sqlalchemy.orm import Session
 
-from app.clients.galitos.handlers.admin_surveys import handle_admin_surveys
-
 from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
-
 from app.modules.survey.service import (
     get_active_survey,
     record_response,
 )
 from app.modules.survey.constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
-
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("module.survey")
+
+
+VALID_RESPONSES = {
+    "POSITIVE": "POSITIVE",
+    "NEUTRAL": "NEUTRAL",
+    "NEGATIVE": "NEGATIVE",
+}
 
 
 def handle(
@@ -50,87 +39,42 @@ def handle(
     sender: str,
     business_msisdn: str,
 ) -> bool:
-    """
-    Entry point for Survey module.
-    """
 
-    # ----------------------------------
-    # Resolve client profile (DB-backed)
-    # ----------------------------------
     profile = get_client_profile(
         business_msisdn,
         db=db,
     )
 
     if not profile:
-        logger.info(
-            "SURVEY_SKIP | reason=profile_not_resolved | business=%s | sender=%s",
-            business_msisdn,
-            sender,
-        )
         return False
 
     if "survey" not in profile.enabled_modules:
-        logger.info(
-            "SURVEY_SKIP | reason=module_disabled | business=%s | sender=%s",
-            business_msisdn,
-            sender,
-        )
         return False
 
     msg_type = msg.get("type")
 
-    # ----------------------------------
-    # ADMIN SURVEY COMMANDS (TEXT)
-    # ----------------------------------
-    if msg_type == "text":
-        body = msg.get("text", {}).get("body", "").strip()
-        if not body:
-            return False
-
-        if is_admin_message(
-            db=db,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        ):
-            logger.info(
-                "SURVEY_ADMIN_COMMAND | sender=%s | business=%s",
-                sender,
-                business_msisdn,
-            )
-            return handle_admin_surveys(
-                db=db,
-                sender_number=sender,
-                message_text=body,
-                business_msisdn=business_msisdn,
-            )
-
-    # ----------------------------------
-    # CUSTOMER SURVEY RESPONSE (BUTTON)
-    # ----------------------------------
+    # -------------------------------------------------
+    # CUSTOMER SURVEY RESPONSE (QUICK REPLY BUTTON)
+    # -------------------------------------------------
     if msg_type == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
         if not reply:
             return False
 
-        button_id = reply.get("id")
-        if not button_id:
+        button_text = (reply.get("title") or "").strip().upper()
+
+        if button_text not in VALID_RESPONSES:
             return False
 
         survey = get_active_survey(db, business_msisdn)
         if not survey:
-            logger.info(
-                "SURVEY_RESPONSE_IGNORED | reason=no_active_survey | sender=%s | business=%s",
-                sender,
-                business_msisdn,
-            )
             return True
 
         recorded = record_response(
             db=db,
             survey=survey,
             client_number=sender,
-            button_id=button_id,
+            button_id=button_text,
         )
 
         if recorded:
@@ -140,19 +84,18 @@ def handle(
                 to_number=sender,
                 text=CUSTOMER_SURVEY_THANK_YOU_TEMPLATE,
             )
-            logger.info(
-                "SURVEY_RESPONSE_RECORDED | survey_id=%s | sender=%s | button=%s",
-                survey.id,
-                sender,
-                button_id,
-            )
-        else:
-            logger.info(
-                "SURVEY_RESPONSE_DUPLICATE | survey_id=%s | sender=%s",
-                survey.id,
-                sender,
-            )
 
         return True
+
+    # -------------------------------------------------
+    # Ignore admin text here (handled elsewhere)
+    # -------------------------------------------------
+    if msg_type == "text":
+        if is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        ):
+            return False
 
     return False
