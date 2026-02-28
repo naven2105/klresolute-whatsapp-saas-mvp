@@ -24,7 +24,7 @@ from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 from app.modules.survey.handler import handle as survey_handler  # kept (no removals)
 
-# ✅ Survey imports (existing)
+# Survey imports
 from app.modules.survey.survey_service import (
     auto_close_expired_surveys,
     get_active_survey,
@@ -32,7 +32,7 @@ from app.modules.survey.survey_service import (
 from app.modules.survey.service import record_response
 from app.modules.survey.summary import build_survey_summary_text
 
-# ✅ RESTORE: delegate admin survey commands
+# Delegate admin survey commands
 from app.clients.galitos.handlers.admin_surveys import handle_admin_surveys
 
 from app.menus.admin.galitos_admin_menu import GALITOS_ADMIN_MENU
@@ -45,12 +45,6 @@ logger = logging.getLogger("handlers.tier1.admin")
 # -------------------------------------------------
 
 def _format_admin_menu(menu: dict) -> str:
-    """
-    Converts GALITOS_ADMIN_MENU dictionary into WhatsApp text.
-    Pure formatter.
-    No DB.
-    No outbound logic.
-    """
     text_block = menu.get("text")
     if isinstance(text_block, str) and text_block.strip():
         return text_block.strip()
@@ -142,13 +136,6 @@ def handle_admin_entry(
     msg: dict | None,
     business_msisdn: str | None,
 ) -> bool:
-    """
-    Returns True if handled.
-
-    GUARANTEE:
-    - Admin must ALWAYS receive a response.
-    - Never raises; never breaks caller.
-    """
     try:
         if not business_msisdn:
             logger.error(
@@ -160,7 +147,7 @@ def handle_admin_entry(
         upper = (message_text or "").strip().upper()
 
         # ----------------------------------
-        # Survey auto-close (safe)
+        # Survey auto-close
         # ----------------------------------
         try:
             closed = auto_close_expired_surveys(db, business_msisdn)
@@ -180,15 +167,22 @@ def handle_admin_entry(
             )
 
         # ----------------------------------
-        # Survey button replies
+        # Survey button replies (FIXED: template + interactive)
         # ----------------------------------
-        if msg and msg.get("type") == "interactive":
+        if msg:
             try:
-                button_id = (
-                    msg.get("interactive", {})
-                    .get("button_reply", {})
-                    .get("id")
-                )
+                button_id = None
+
+                if msg.get("type") == "interactive":
+                    button_id = (
+                        msg.get("interactive", {})
+                        .get("button_reply", {})
+                        .get("id")
+                    )
+
+                elif msg.get("type") == "button":
+                    button_id = msg.get("button", {}).get("payload")
+
                 if button_id:
                     active = get_active_survey(db, business_msisdn)
                     if active and record_response(
@@ -203,7 +197,8 @@ def handle_admin_entry(
                             text_msg="Thank you for your response.",
                             db=db,
                         )
-                return True
+                    return True
+
             except Exception:
                 logger.exception(
                     "ADMIN_SURVEY_RESPONSE_FAIL | sender=%s",
@@ -212,7 +207,7 @@ def handle_admin_entry(
                 return True
 
         # ----------------------------------
-        # ✅ RESTORE: Survey admin commands (text)
+        # Survey admin commands (text)
         # ----------------------------------
         if handle_admin_surveys(
             db=db,
@@ -223,7 +218,7 @@ def handle_admin_entry(
             return True
 
         # ----------------------------------
-        # Admin menu (explicit)
+        # Admin menu
         # ----------------------------------
         if upper == "MENU":
             _send_text(
@@ -235,13 +230,8 @@ def handle_admin_entry(
             return True
 
         # ----------------------------------
-        # GUARANTEED RESPONSE (fallback)
+        # Fallback (always respond)
         # ----------------------------------
-        logger.info(
-            "ADMIN_NO_MATCH | sender=%s | text=%r | action=send_menu",
-            sender_number,
-            message_text,
-        )
         _send_text(
             business_msisdn=business_msisdn,
             to_number=sender_number,
