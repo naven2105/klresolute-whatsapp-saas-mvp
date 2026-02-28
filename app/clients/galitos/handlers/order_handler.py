@@ -78,9 +78,16 @@ def handle_order_message(
     *,
     db: Session,
     from_number: str,
-    message_text: str,
+    message_text: str | None = None,
+    text: str | None = None,  # ← added for dispatcher compatibility
     context: Dict[str, Any],
 ) -> bool:
+
+    # ---- Minimal compatibility normalisation ----
+    if message_text is None and text is not None:
+        message_text = text
+    message_text = message_text or ""
+    # ---------------------------------------------
 
     # Defensive: if earlier SQL in the request failed, clear it first.
     try:
@@ -250,7 +257,6 @@ def handle_order_message(
             state["id"],
         )
 
-        # Defensive: clear transaction state before notifier DB reads
         try:
             db.rollback()
             logger.info("ORDER_NOTIFY_DB_RESET | client_id=%s", state.get("client_id"))
