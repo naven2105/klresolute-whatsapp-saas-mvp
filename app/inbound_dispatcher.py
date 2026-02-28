@@ -1,46 +1,38 @@
+# ==================================================
+# File: inbound_dispatcher.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Sprint 17 – Tenant Isolation Refactor (Final Phase)
+#
+# Purpose:
+# Central inbound routing entry point.
+#
+# Responsibilities:
+# - Reset DB session
+# - Resolve tenant (client_id + profile)
+# - Route to tenant-specific dispatcher
+# - Return immediately
+#
+# Isolation:
+# - No business logic
+# - No module execution
+# - No cross-client routing
+# - No fallback
+# ==================================================
+
 from __future__ import annotations
-
-"""
-File: app/inbound_dispatcher.py
-Project: KLResolute WhatsApp SaaS MVP
-
-Sprint 16 – FatGinger Image Routing Patch
-
-Purpose:
-Central inbound routing entry point.
-
-LOCKED:
-- No business logic
-- No module rewrites
-- Only routing + logging
-- Guard rails for visibility
-"""
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.profiles.client_profile import get_client_profile
-from app.handlers.tier1_router import handle_client_command as tier1_handle
-from app.clients.galitos.handlers import order_handler
 
-# Client-specific feedback handlers
-from app.clients.galitos.feedback.handler import handle_feedback_message as galitos_feedback_handler
-from app.clients.fatginger.feedback.handler import handle_feedback_message as fatginger_feedback_handler
-from app.clients.pilateshq.feedback.handler import handle_feedback_message as pilates_feedback_handler
-from app.clients.magen.feedback.handler import handle_feedback_message as magen_feedback_handler
-
-# Client-specific inspection handler
-from app.clients.magen.inbound import handle_inbound as magen_inspection_handler
-
-# Client-specific inbound
-from app.clients.fatginger.inbound import handle_fatginger_inbound
-
-from app.modules.survey import handler as survey_handler
-
-from app.modules.announcements.admin_announcements_media_handler import (
-    handle_media_message as announcements_media_handler,
-)
+# Tenant dispatchers
+from app.clients.fatginger.dispatcher import dispatch as fatginger_dispatch
+from app.clients.galitos.dispatcher import dispatch as galitos_dispatch
+from app.clients.magen.dispatcher import dispatch as magen_dispatch
+from app.clients.pilateshq.dispatcher import dispatch as pilates_dispatch
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -83,14 +75,7 @@ def _resolve_uuid_client_id(
             )
             return None
 
-        client_id = str(row["client_id"])
-
-        logger.info(
-            "CLIENT_RESOLVED | business_msisdn=%s | client_id=%s",
-            business_msisdn,
-        )
-
-        return client_id
+        return str(row["client_id"])
 
     except Exception:
         logger.exception(
@@ -138,203 +123,59 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     logger.info(
-        "PROFILE_RESOLVED | client_id=%s | client_code=%s | modules=%s",
+        "PROFILE_RESOLVED | client_id=%s | client_code=%s",
         profile.client_id,
         profile.client_code,
-        profile.enabled_modules,
     )
 
     # --------------------------------------------------
-    # TEXT HANDLING
+    # TENANT ROUTING (HARD ISOLATION)
     # --------------------------------------------------
-    if msg.get("type") == "text":
-        body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
-        logger.info(
-            "TEXT_RECEIVED | sender=%s | body='%s'",
-            sender,
-            body_text,
-        )
-
-        # ---- Feedback ----
-        if body_text.lower().startswith("feedback:"):
-            logger.info("FEEDBACK_BRANCH_ENTER")
-
-            admin_rows = (
-                db.execute(
-                    text(
-                        """
-                        SELECT msisdn
-                        FROM client_admins
-                        WHERE client_code = :code
-                          AND is_active = true
-                        """
-                    ),
-                    {"code": profile.client_code},
-                )
-                .mappings()
-                .all()
-            )
-
-            admin_numbers = {row["msisdn"] for row in admin_rows}
-
-            if profile.client_code == "GALITOS":
-                handled = galitos_feedback_handler(
-                    db=db,
-                    sender_number=sender,
-                    message_text=body_text,
-                    media_id=None,
-                    media_type=None,
-                    client_id=client_id,
-                    admin_numbers=admin_numbers,
-                    business_msisdn=business_msisdn,
-                )
-
-            elif profile.client_code == "FATGINGER":
-                handled = fatginger_feedback_handler(
-                    db=db,
-                    sender_number=sender,
-                    message_text=body_text,
-                    media_id=None,
-                    media_type=None,
-                    client_id=client_id,
-                    admin_numbers=admin_numbers,
-                    business_msisdn=business_msisdn,
-                )
-
-            elif profile.client_code == "PILATESHQ":
-                handled = pilates_feedback_handler(
-                    db=db,
-                    sender_number=sender,
-                    message_text=body_text,
-                    media_id=None,
-                    media_type=None,
-                    client_id=client_id,
-                    admin_numbers=admin_numbers,
-                    business_msisdn=business_msisdn,
-                )
-
-            elif profile.client_code == "MAGEN":
-                handled = magen_feedback_handler(
-                    db=db,
-                    sender_number=sender,
-                    message_text=body_text,
-                    media_id=None,
-                    media_type=None,
-                    client_id=client_id,
-                    admin_numbers=admin_numbers,
-                    business_msisdn=business_msisdn,
-                )
-
-            else:
-                logger.warning("FEEDBACK_SKIP | unknown_client=%s", profile.client_code)
-                handled = False
-
-            logger.info("FEEDBACK_HANDLED=%s", handled)
-
-            if handled:
-                return True
-
-        # ---- GALITOS ORDERS ----
-        if profile.client_code == "GALITOS":
-            handled = order_handler.handle_order_message(
-                db=db,
-                from_number=sender,
-                message_text=body_text,
-                context={"business_msisdn": business_msisdn},
-            )
-            if handled:
-                return True
-
-        # ---- FAT GINGER ----
-        if profile.client_code == "FATGINGER":
-            handled = handle_fatginger_inbound(
-                db=db,
-                sender_msisdn=sender,
-                business_msisdn=business_msisdn,
-                message_text=body_text,
-                message_type="text",
-                media_url=None,
-            )
-            if handled:
-                return True
-
-    # --------------------------------------------------
-    # IMAGE ROUTING (Sprint 16 Patch)
-    # --------------------------------------------------
-    if msg.get("type") == "image" and profile.client_code == "FATGINGER":
-
-        image_data = msg.get("image", {}) or {}
-        media_id = image_data.get("id")
-        caption = image_data.get("caption")
-
-        handled = handle_fatginger_inbound(
+    if profile.client_code == "FATGINGER":
+        return fatginger_dispatch(
             db=db,
-            sender_msisdn=sender,
-            business_msisdn=business_msisdn,
-            message_text=caption,
-            message_type="image",
-            media_url=media_id,
-        )
-
-        if handled:
-            return True
-
-    # --------------------------------------------------
-    # ANNOUNCEMENTS
-    # --------------------------------------------------
-    if "announcements" in profile.enabled_modules:
-        handled = announcements_media_handler(
-            db=db,
-            sender=sender,
             msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            profile=profile,
             client_id=client_id,
-            business_msisdn=business_msisdn,
         )
-        if handled:
-            return True
 
-    # --------------------------------------------------
-    # INSPECTION
-    # --------------------------------------------------
-    if "inspection" in profile.enabled_modules:
-        try:
-            handled = magen_inspection_handler(
-                db=db,
-                msg=msg,
-                sender=sender,
-                business_msisdn=business_msisdn,
-            )
-            if handled:
-                return True
-        except Exception:
-            logger.exception("INSPECTION_HANDLER_EXCEPTION")
-
-    # --------------------------------------------------
-    # SURVEY
-    # --------------------------------------------------
-    if "survey" in profile.enabled_modules:
-        handled = survey_handler.handle(
+    if profile.client_code == "GALITOS":
+        return galitos_dispatch(
             db=db,
             msg=msg,
             sender=sender,
             business_msisdn=business_msisdn,
+            profile=profile,
+            client_id=client_id,
         )
-        if handled:
-            return True
 
-    # --------------------------------------------------
-    # FALLBACK
-    # --------------------------------------------------
-    body = (msg.get("text", {}) or {}).get("body", "")
-
-    return bool(
-        tier1_handle(
+    if profile.client_code == "MAGEN":
+        return magen_dispatch(
             db=db,
-            sender_number=sender,
-            message_text=body,
             msg=msg,
-            resolved_client_id=client_id,
-            resolved_business_number=business_msisdn,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            profile=profile,
+            client_id=client_id,
         )
+
+    if profile.client_code == "PILATESHQ":
+        return pilates_dispatch(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            profile=profile,
+            client_id=client_id,
+        )
+
+    logger.warning(
+        "UNKNOWN_CLIENT_CODE | business=%s | client_code=%s",
+        business_msisdn,
+        profile.client_code,
     )
+
+    return True
