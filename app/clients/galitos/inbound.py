@@ -68,7 +68,7 @@ def handle_inbound(
     if handle_order_message(
         db=db,
         from_number=sender,
-        text=text,
+        message_text=text,  # ✅ fixed keyword
         context={
             "client": "galitos",
             "kl_client_id": galitos_client_id,
@@ -85,7 +85,7 @@ def handle_inbound(
     # 2) NON-ORDER → CUSTOMER MENU / HELP / FOOD
     # -------------------------------------------------
     handled = client_commands(
-        db=db,   
+        db=db,
         sender_number=sender,
         message_text=text,
         msg=msg,
