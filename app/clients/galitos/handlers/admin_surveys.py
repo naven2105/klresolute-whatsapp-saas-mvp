@@ -189,7 +189,7 @@ def handle_admin_surveys(
                 business_msisdn=business_msisdn,
                 to_number=c.contact_number,
                 template_name=SURVEY_TEMPLATE_V1,
-                template_variables=[question],
+                template_params=[question],
             )
 
         send_message(
