@@ -2,12 +2,13 @@ from __future__ import annotations
 
 """
 File: app/clients/galitos/handlers/admin_surveys.py
+Path: app/clients/galitos/handlers/admin_surveys.py
 Project: KLResolute WhatsApp SaaS MVP
 
 MVP Survey Simplification:
 - Single survey type
-- Uses Marketing template survey_v1
-- No interactive session dependency
+- Uses Utility template survey_v1
+- END SURVEY returns closure report
 """
 
 import logging
@@ -29,7 +30,6 @@ from app.modules.survey.summary import build_survey_summary_text
 from app.modules.survey.survey_constants import (
     ADMIN_SURVEY_STARTED_TEMPLATE,
     ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE,
-    ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
 )
 
 from app.utils.admin import is_admin_message
@@ -93,9 +93,9 @@ def handle_admin_surveys(
             pass
 
         # -------------------------------------------------
-        # CLOSE
+        # END SURVEY (FIXED)
         # -------------------------------------------------
-        if upper == "SURVEY END":
+        if upper == "END SURVEY":
 
             active = get_active_survey(db, business_number)
             if not active:
@@ -103,13 +103,12 @@ def handle_admin_surveys(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_number,
-                    text=_sanitize_template_text(
-                        ADMIN_SURVEY_NO_ACTIVE_TEMPLATE
-                    ),
+                    text="⚠️ No active survey.",
                 )
                 return True
 
             close_survey(db, active, manual=True)
+
             summary = build_survey_summary_text(db, active)
 
             send_message(
@@ -122,7 +121,7 @@ def handle_admin_surveys(
             return True
 
         # -------------------------------------------------
-        # START (Single Survey Type)
+        # START SURVEY
         # -------------------------------------------------
         m = _SURVEY_RE.match(text_clean)
         if not m:
@@ -160,7 +159,7 @@ def handle_admin_surveys(
             return True
 
         # -------------------------------------------------
-        # SEND MARKETING TEMPLATE (Re-engagement safe)
+        # SEND TEMPLATE
         # -------------------------------------------------
         admin_numbers = {
             row[0]
