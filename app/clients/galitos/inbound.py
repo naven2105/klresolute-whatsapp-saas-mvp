@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 from app.clients.galitos.handlers.order_handler import handle_order_message
 from app.handlers.client_commands import handle_client_command as client_commands
+from app.modules.survey.handler import handle as survey_handle  # ✅ inserted
 
 logger = logging.getLogger("clients.galitos")
 
@@ -68,7 +69,7 @@ def handle_inbound(
     if handle_order_message(
         db=db,
         from_number=sender,
-        message_text=text,  # ✅ fixed keyword
+        message_text=text,
         context={
             "client": "galitos",
             "kl_client_id": galitos_client_id,
@@ -82,7 +83,18 @@ def handle_inbound(
         return True
 
     # -------------------------------------------------
-    # 2) NON-ORDER → CUSTOMER MENU / HELP / FOOD
+    # 2) SURVEY MODULE (admin + customer responses)
+    # -------------------------------------------------
+    if survey_handle(
+        db=db,
+        msg=msg,
+        sender=sender,
+        business_msisdn=business_msisdn,
+    ):
+        return True
+
+    # -------------------------------------------------
+    # 3) NON-ORDER → CUSTOMER MENU / HELP / FOOD
     # -------------------------------------------------
     handled = client_commands(
         db=db,
