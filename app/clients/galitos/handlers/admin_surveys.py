@@ -2,8 +2,12 @@ from __future__ import annotations
 
 """
 File: app/clients/galitos/handlers/admin_surveys.py
-Path: app/clients/galitos/admin_surveys.py
 Project: KLResolute WhatsApp SaaS MVP
+
+MVP Survey Simplification:
+- Single survey type
+- Uses Marketing template survey_v1
+- No interactive session dependency
 """
 
 import logging
@@ -12,10 +16,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.models import Contact
-from app.outbound.factory import get_meta_client
 from app.messaging.client_messenger import send_message
+from app.messaging.template_registry import SURVEY_TEMPLATE_V1
 from app.profiles.client_profile import get_client_profile
-
 from app.modules.survey.survey_service import (
     start_survey,
     get_active_survey,
@@ -24,23 +27,16 @@ from app.modules.survey.survey_service import (
 )
 from app.modules.survey.summary import build_survey_summary_text
 from app.modules.survey.survey_constants import (
-    SURVEY_COMMAND_END,
     ADMIN_SURVEY_STARTED_TEMPLATE,
     ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE,
     ADMIN_SURVEY_NO_ACTIVE_TEMPLATE,
-    SURVEY_BUTTON_SETS,
 )
 
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("Galitos admin_surveys")
 
-_SURVEY_TYPED_RE = re.compile(
-    r"^\s*survey\s+(sentiment|frequency|helpfulness)\s*:\s*(.+)\s*$",
-    re.IGNORECASE,
-)
-
-_SURVEY_DEFAULT_RE = re.compile(
+_SURVEY_RE = re.compile(
     r"^\s*survey\s*:\s*(.+)\s*$",
     re.IGNORECASE,
 )
@@ -50,8 +46,7 @@ def _sanitize_template_text(text: str) -> str:
     if not text:
         return ""
     text = text.replace("\n", " ").replace("\t", " ")
-    text = re.sub(r"\s{2,}", " ", text)
-    return text.strip()
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 def handle_admin_surveys(
@@ -62,21 +57,13 @@ def handle_admin_surveys(
     business_msisdn: str,
 ) -> bool:
 
-    logger.info("SURVEY_ENTER | sender=%s | raw=%r", sender_number, message_text)
-
     try:
         if not is_admin_message(
             db=db,
             sender=sender_number,
             business_msisdn=business_msisdn,
         ):
-            logger.info("SURVEY_SKIP | reason=not_admin")
             return False
-
-        meta = get_meta_client(
-            db=db,
-            business_msisdn=business_msisdn,
-        )
 
         profile = get_client_profile(
             business_msisdn,
@@ -89,7 +76,9 @@ def handle_admin_surveys(
         upper = text_clean.upper()
         business_number = business_msisdn
 
+        # -------------------------------------------------
         # AUTO CLOSE
+        # -------------------------------------------------
         try:
             closed = auto_close_expired_surveys(db, business_number)
             if closed:
@@ -103,8 +92,10 @@ def handle_admin_surveys(
         except Exception:
             pass
 
+        # -------------------------------------------------
         # CLOSE
-        if upper == SURVEY_COMMAND_END:
+        # -------------------------------------------------
+        if upper == "SURVEY END":
 
             active = get_active_survey(db, business_number)
             if not active:
@@ -128,26 +119,16 @@ def handle_admin_surveys(
                 text=_sanitize_template_text(summary),
             )
 
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_number,
-                text="Survey closed successfully.",
-            )
-
             return True
 
-        # START
-        m = _SURVEY_TYPED_RE.match(text_clean)
-        if m:
-            survey_type = m.group(1).upper()
-            question = m.group(2).strip()
-        else:
-            m2 = _SURVEY_DEFAULT_RE.match(text_clean)
-            if not m2:
-                return False
-            survey_type = "SENTIMENT"
-            question = m2.group(1).strip()
+        # -------------------------------------------------
+        # START (Single Survey Type)
+        # -------------------------------------------------
+        m = _SURVEY_RE.match(text_clean)
+        if not m:
+            return False
+
+        question = m.group(1).strip()
 
         active_existing = get_active_survey(db, business_number)
         if active_existing:
@@ -172,15 +153,15 @@ def handle_admin_surveys(
             db=db,
             business_number=business_number,
             question=question,
-            button_set=survey_type,
+            button_set="MVP",
         )
 
         if not started or not survey:
             return True
 
-        # SEND INTERACTIVE
-        buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
-
+        # -------------------------------------------------
+        # SEND MARKETING TEMPLATE (Re-engagement safe)
+        # -------------------------------------------------
         admin_numbers = {
             row[0]
             for row in db.execute(
@@ -196,7 +177,6 @@ def handle_admin_surveys(
             ).all()
         }
 
-        # 🔹 RESTORED ORIGINAL BEHAVIOUR (NO CONVERSATION DEPENDENCY)
         contacts = (
             db.query(Contact)
             .filter(~Contact.contact_number.in_(admin_numbers))
@@ -204,11 +184,12 @@ def handle_admin_surveys(
         )
 
         for c in contacts:
-            meta.send_interactive_button_message(
-                to_msisdn=c.contact_number,
-                header_text="🗳️ Quick question",
-                body_text=question,
-                buttons=[{"id": b["id"], "title": b["text"]} for b in buttons_def],
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=c.contact_number,
+                template_name=SURVEY_TEMPLATE_V1,
+                template_variables=[question],
             )
 
         send_message(
