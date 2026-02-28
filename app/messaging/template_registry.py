@@ -10,6 +10,7 @@
 #
 # Update:
 # - Added Galitos utility template klr_notification_v1
+# - Added shared Marketing survey template survey_v1
 #
 # Rules:
 # - Constants only (no logic)
@@ -29,6 +30,13 @@ FG_ORDER_NOTIFICATION = "order_notification"
 # ===============================
 
 GALITOS_NOTIFICATION = "klr_notification_v1"
+
+
+# ===============================
+# SURVEY (Marketing)
+# ===============================
+
+SURVEY_TEMPLATE_V1 = "survey_v1"
 
 
 # ===============================
