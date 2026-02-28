@@ -11,7 +11,7 @@ import re
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.models import Contact, Conversation, WhatsAppNumber
+from app.models import Contact
 from app.outbound.factory import get_meta_client
 from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
@@ -89,14 +89,11 @@ def handle_admin_surveys(
         upper = text_clean.upper()
         business_number = business_msisdn
 
-        # -------------------------------------------------
-        # AUTO CLOSE (silent)
-        # -------------------------------------------------
+        # AUTO CLOSE
         try:
             closed = auto_close_expired_surveys(db, business_number)
             if closed:
                 summary = build_survey_summary_text(db, closed)
-
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
@@ -106,9 +103,7 @@ def handle_admin_surveys(
         except Exception:
             pass
 
-        # -------------------------------------------------
         # CLOSE
-        # -------------------------------------------------
         if upper == SURVEY_COMMAND_END:
 
             active = get_active_survey(db, business_number)
@@ -142,9 +137,7 @@ def handle_admin_surveys(
 
             return True
 
-        # -------------------------------------------------
         # START
-        # -------------------------------------------------
         m = _SURVEY_TYPED_RE.match(text_clean)
         if m:
             survey_type = m.group(1).upper()
@@ -185,12 +178,9 @@ def handle_admin_surveys(
         if not started or not survey:
             return True
 
-        # -------------------------------------------------
-        # SEND INTERACTIVE (APPROVED EXCEPTION)
-        # -------------------------------------------------
+        # SEND INTERACTIVE
         buttons_def = SURVEY_BUTTON_SETS[survey_type]["buttons"]
 
-        # FIX 1: Correct admin lookup using client_code
         admin_numbers = {
             row[0]
             for row in db.execute(
@@ -206,17 +196,10 @@ def handle_admin_surveys(
             ).all()
         }
 
-        # FIX 2: Tenant-scoped contact selection via conversations
+        # 🔹 RESTORED ORIGINAL BEHAVIOUR (NO CONVERSATION DEPENDENCY)
         contacts = (
             db.query(Contact)
-            .join(Conversation, Conversation.contact_id == Contact.contact_id)
-            .join(
-                WhatsAppNumber,
-                WhatsAppNumber.wa_number_id == Conversation.wa_number_id,
-            )
-            .filter(WhatsAppNumber.destination_number == business_msisdn)
             .filter(~Contact.contact_number.in_(admin_numbers))
-            .distinct()
             .all()
         )
 
