@@ -32,7 +32,7 @@ from app.clients.fatginger.feedback.handler import (
 from app.modules.announcements.admin_announcements_media_handler import (
     handle_media_message as announcements_media_handler,
 )
-from app.modules.survey import handler as survey_handler
+
 
 logger = logging.getLogger("fatginger.dispatcher")
 
@@ -127,20 +127,6 @@ def dispatch(
         if handled:
             return True
 
-    # --------------------------------------------------
-    # SURVEY MODULE (FG scoped)
-    # --------------------------------------------------
-    if "survey" in profile.enabled_modules:
-
-        handled = survey_handler.handle(
-            db=db,
-            msg=msg,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        )
-
-        if handled:
-            return True
 
     # --------------------------------------------------
     # SAFE TERMINATION

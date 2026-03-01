@@ -22,15 +22,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
-from app.modules.survey.handler import handle as survey_handler  # kept (no removals)
+from app.clients.galitos.survey.handler import handle as survey_handler
 
 # Survey imports
-from app.modules.survey.survey_service import (
+from app.clients.galitos.survey.survey_service import (
     auto_close_expired_surveys,
     get_active_survey,
 )
-from app.modules.survey.service import record_response
-from app.modules.survey.summary import build_survey_summary_text
+from app.clients.galitos.survey.service import record_response
+from app.clients.galitos.survey.summary import build_survey_summary_text
 
 # Delegate admin survey commands
 from app.clients.galitos.handlers.admin_surveys import handle_admin_surveys

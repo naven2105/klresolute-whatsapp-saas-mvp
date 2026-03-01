@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from app.clients.galitos.handlers.order_handler import handle_order_message
 from app.handlers.client_commands import handle_client_command as client_commands
-from app.modules.survey.handler import handle as survey_handle
+from app.clients.galitos.survey.handler import handle as survey_handle
 
 logger = logging.getLogger("clients.galitos")
 
