@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/modules/survey/handler.py
+File: app/clients/galitos/survey/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 MVP Survey Simplification:

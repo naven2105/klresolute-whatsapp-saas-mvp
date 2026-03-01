@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/modules/survey/survey_service.py
-Path: app/modules/survey/survey_service.py
+File: app/clients/galitos/survey/survey_service.py
+Path: app/clients/galitos/survey/survey_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Role:

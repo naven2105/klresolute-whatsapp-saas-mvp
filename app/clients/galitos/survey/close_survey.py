@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/modules/survey/close_survey.py
-Path: app/modules/survey/close_survey.py
+File: app/clients/galitos/survey/close_survey.py
+Path: app/clients/galitos/survey/close_survey.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration

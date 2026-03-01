@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/modules/survey/survey_expiry_notifier.py
-Path: app/modules/survey/survey_expiry_notifier.py
+File: app/clients/galitos/survey/survey_expiry_notifier.py
+Path: app/clients/galitos/survey/survey_expiry_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration

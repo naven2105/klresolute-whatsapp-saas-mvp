@@ -34,7 +34,7 @@ from app.clients.galitos.feedback.handler import (
 from app.modules.announcements.admin_announcements_media_handler import (
     handle_media_message as announcements_media_handler,
 )
-from app.modules.survey import handler as survey_handler
+from app.clients.galitos.survey import handler as survey_handler
 
 logger = logging.getLogger("galitos.dispatcher")
 

@@ -5,7 +5,7 @@ Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
 LEGACY SHIM.
-Keep old import paths working while the codebase migrates to app/modules/survey.
+Keep old import paths working while the codebase migrates to app/clients/galitos/survey.
 """
 
 from app.clients.galitos.survey.constants import (
