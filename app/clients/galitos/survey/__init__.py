@@ -8,14 +8,14 @@ LEGACY SHIM.
 Keep old import paths working while the codebase migrates to app/modules/survey.
 """
 
-from app.modules.survey.constants import (
+from app.clients.galitos.survey.constants import (
     DEFAULT_SURVEY_DURATION_HOURS,
     SURVEY_BUTTON_SETS,
     SUPPORTED_SURVEY_COMMANDS,
     SURVEY_COMMAND_END,
 )
 
-from app.modules.survey.lifecycle import (
+from app.clients.galitos.survey.lifecycle import (
     start_survey,
     get_active_survey,
     close_survey,
@@ -24,7 +24,7 @@ from app.modules.survey.lifecycle import (
     build_survey_summary_text,
 )
 
-from app.modules.survey.models import Survey, SurveyResponse
+from app.clients.galitos.survey.models import Survey, SurveyResponse
 
 __all__ = [
     "DEFAULT_SURVEY_DURATION_HOURS",

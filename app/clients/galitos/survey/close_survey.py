@@ -21,8 +21,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 import logging
 
-from app.modules.survey.survey_models import Survey
-from app.modules.survey.summary import build_survey_summary_text
+from app.clients.galitos.survey.survey_models import Survey
+from app.clients.galitos.survey.summary import build_survey_summary_text
 from app.outbound.factory import get_meta_client
 from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
 

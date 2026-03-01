@@ -19,7 +19,7 @@ import logging
 from sqlalchemy.orm import Session
 
 # ---- Survey module imports (UPDATED) ----
-from app.modules.survey.service import (
+from app.clients.galitos.survey.service import (
     get_expired_active_surveys,
     close_survey,
 )

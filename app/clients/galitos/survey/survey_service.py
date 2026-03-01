@@ -33,8 +33,8 @@ from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.modules.survey.survey_models import Survey, SurveyResponse
-from app.modules.survey.survey_constants import (
+from app.clients.galitos.survey.survey_models import Survey, SurveyResponse
+from app.clients.galitos.survey.survey_constants import (
     DEFAULT_SURVEY_DURATION_HOURS,
     SURVEY_STATUS_ACTIVE,
     SURVEY_STATUS_CLOSED,

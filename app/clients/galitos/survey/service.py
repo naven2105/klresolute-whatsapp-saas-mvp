@@ -24,8 +24,8 @@ This file MUST remain thin.
 import logging
 from sqlalchemy.orm import Session
 
-from app.modules.survey.models import Survey
-from app.modules.survey.lifecycle import (
+from app.clients.galitos.survey.models import Survey
+from app.clients.galitos.survey.lifecycle import (
     get_active_survey as _get_active_survey,
     record_response as _record_response,
 )

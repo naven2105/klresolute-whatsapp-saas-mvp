@@ -10,6 +10,6 @@ LEGACY SHIM.
 Re-exports module ORM models to prevent duplicate table definitions.
 """
 
-from app.modules.survey.models import Survey, SurveyResponse
+from app.clients.galitos.survey.models import Survey, SurveyResponse
 
 __all__ = ["Survey", "SurveyResponse"]

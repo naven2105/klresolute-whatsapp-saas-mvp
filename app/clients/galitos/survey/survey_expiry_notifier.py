@@ -25,8 +25,8 @@ from typing import Optional
 from sqlalchemy import text
 
 from app.outbound.factory import get_meta_client
-from app.modules.survey.close_survey import close_survey_and_notify as close_survey
-from app.modules.survey.summary import build_survey_summary_text
+from app.clients.galitos.survey.close_survey import close_survey_and_notify as close_survey
+from app.clients.galitos.survey.summary import build_survey_summary_text
 from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
 
 logger = logging.getLogger("survey_expiry_notifier")
@@ -96,7 +96,7 @@ async def _run_forever() -> None:
                         continue
 
                     try:
-                        from app.modules.survey.survey_models import Survey  # type: ignore
+                        from app.clients.galitos.survey.survey_models import Survey  # type: ignore
 
                         obj: Optional[Survey] = db.get(Survey, survey_id)  # type: ignore[attr-defined]
                         if not obj:

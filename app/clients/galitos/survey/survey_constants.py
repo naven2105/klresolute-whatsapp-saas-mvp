@@ -11,4 +11,4 @@ Re-exports module constants to prevent runtime import crashes.
 Do not add logic here.
 """
 
-from app.modules.survey.constants import *  # noqa: F401,F403
+from app.clients.galitos.survey.constants import *  # noqa: F401,F403

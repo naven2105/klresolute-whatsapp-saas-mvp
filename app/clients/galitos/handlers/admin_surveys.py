@@ -20,14 +20,14 @@ from app.models import Contact
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import SURVEY_TEMPLATE_V1
 from app.profiles.client_profile import get_client_profile
-from app.modules.survey.survey_service import (
+from app.clients.galitos.survey.survey_service import (
     start_survey,
     get_active_survey,
     close_survey,
     auto_close_expired_surveys,
 )
-from app.modules.survey.summary import build_survey_summary_text
-from app.modules.survey.survey_constants import (
+from app.clients.galitos.survey.summary import build_survey_summary_text
+from app.clients.galitos.survey.survey_constants import (
     ADMIN_SURVEY_STARTED_TEMPLATE,
     ADMIN_SURVEY_ALREADY_ACTIVE_TEMPLATE,
 )

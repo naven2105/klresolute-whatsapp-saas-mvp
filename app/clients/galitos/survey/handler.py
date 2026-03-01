@@ -15,11 +15,11 @@ from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
 from app.profiles.client_profile import get_client_profile
-from app.modules.survey.service import (
+from app.clients.galitos.survey.service import (
     get_active_survey,
     record_response,
 )
-from app.modules.survey.constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
+from app.clients.galitos.survey.constants import CUSTOMER_SURVEY_THANK_YOU_TEMPLATE
 from app.utils.admin import is_admin_message
 
 logger = logging.getLogger("module.survey")
