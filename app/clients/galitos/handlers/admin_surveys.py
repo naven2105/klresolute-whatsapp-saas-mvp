@@ -152,7 +152,7 @@ def handle_admin_surveys(
             db=db,
             business_number=business_number,
             question=question,
-            button_set="MVP",
+            button_set="STANDARD",
         )
 
         if not started or not survey:
