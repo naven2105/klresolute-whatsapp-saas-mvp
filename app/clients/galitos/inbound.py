@@ -3,14 +3,6 @@ from __future__ import annotations
 """
 File: app/clients/galitos/inbound.py
 Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-Inbound router for Galitos WhatsApp number.
-
-RULES (LOCKED):
-- Orders are handled ONLY by galitos_order_handler
-- Non-order text must fall through to client_commands
-- This handler must CLAIM the message if it sends anything
 """
 
 import logging
@@ -19,7 +11,7 @@ from sqlalchemy import text
 
 from app.clients.galitos.handlers.order_handler import handle_order_message
 from app.handlers.client_commands import handle_client_command as client_commands
-from app.modules.survey.handler import handle as survey_handle  # ✅ inserted
+from app.modules.survey.handler import handle as survey_handle
 
 logger = logging.getLogger("clients.galitos")
 
@@ -53,10 +45,11 @@ def handle_inbound(
     if business_msisdn != GALITOS_BUSINESS_MSISDN:
         return False
 
-    if msg.get("type") != "text":
-        return False
+    msg_type = msg.get("type")
 
-    text = (msg.get("text", {}) or {}).get("body", "") or ""
+    text = ""
+    if msg_type == "text":
+        text = (msg.get("text", {}) or {}).get("body", "") or ""
 
     # -------------------------------------------------
     # Resolve Galitos client ID ONCE
@@ -64,26 +57,7 @@ def handle_inbound(
     galitos_client_id = _get_galitos_client_id(db)
 
     # -------------------------------------------------
-    # 1) ORDER FLOW (state-driven)
-    # -------------------------------------------------
-    if handle_order_message(
-        db=db,
-        from_number=sender,
-        message_text=text,
-        context={
-            "client": "galitos",
-            "kl_client_id": galitos_client_id,
-        },
-    ):
-        logger.info(
-            "GALITOS_ORDER_HANDLER_USED | sender=%s | text=%r",
-            sender,
-            text,
-        )
-        return True
-
-    # -------------------------------------------------
-    # 2) SURVEY MODULE (admin + customer responses)
+    # 1) SURVEY MODULE (must run for button + text)
     # -------------------------------------------------
     if survey_handle(
         db=db,
@@ -94,15 +68,37 @@ def handle_inbound(
         return True
 
     # -------------------------------------------------
+    # 2) ORDER FLOW (text only)
+    # -------------------------------------------------
+    if msg_type == "text":
+        if handle_order_message(
+            db=db,
+            from_number=sender,
+            message_text=text,
+            context={
+                "client": "galitos",
+                "kl_client_id": galitos_client_id,
+            },
+        ):
+            logger.info(
+                "GALITOS_ORDER_HANDLER_USED | sender=%s | text=%r",
+                sender,
+                text,
+            )
+            return True
+
+    # -------------------------------------------------
     # 3) NON-ORDER → CUSTOMER MENU / HELP / FOOD
     # -------------------------------------------------
-    handled = client_commands(
-        db=db,
-        sender_number=sender,
-        message_text=text,
-        msg=msg,
-        resolved_client_id=galitos_client_id,
-        resolved_business_number=business_msisdn,
-    )
+    if msg_type == "text":
+        handled = client_commands(
+            db=db,
+            sender_number=sender,
+            message_text=text,
+            msg=msg,
+            resolved_client_id=galitos_client_id,
+            resolved_business_number=business_msisdn,
+        )
+        return bool(handled)
 
-    return bool(handled)
+    return False
