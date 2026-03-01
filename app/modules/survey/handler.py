@@ -53,16 +53,23 @@ def handle(
 
     msg_type = msg.get("type")
 
-    # -------------------------------------------------
-    # CUSTOMER SURVEY RESPONSE (QUICK REPLY BUTTON)
-    # -------------------------------------------------
+    button_text = None
+
+    # ----------------------------------------------
+    # INTERACTIVE (legacy interactive buttons)
+    # ----------------------------------------------
     if msg_type == "interactive":
         reply = msg.get("interactive", {}).get("button_reply")
-        if not reply:
-            return False
+        if reply:
+            button_text = (reply.get("title") or "").strip().upper()
 
-        button_text = (reply.get("title") or "").strip().upper()
+    # ----------------------------------------------
+    # TEMPLATE QUICK REPLY BUTTON (type=button)
+    # ----------------------------------------------
+    elif msg_type == "button":
+        button_text = (msg.get("button", {}).get("text") or "").strip().upper()
 
+    if button_text:
         if button_text not in VALID_RESPONSES:
             return False
 
@@ -87,9 +94,9 @@ def handle(
 
         return True
 
-    # -------------------------------------------------
-    # Ignore admin text here (handled elsewhere)
-    # -------------------------------------------------
+    # ----------------------------------------------
+    # Ignore admin text here
+    # ----------------------------------------------
     if msg_type == "text":
         if is_admin_message(
             db=db,
