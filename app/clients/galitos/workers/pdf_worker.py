@@ -57,7 +57,7 @@ def generate_and_send_inspection_pdf(
             db=db,
         )
 
-        if not profile or profile.client_code != "GALITOS":
+        if not profile or profile.client_id != "906a5084-1add-4b7a-bda0-90b462c9b8a9":
             logger.info(
                 "GALITOS_PDF_SKIPPED_NON_GALITOS | id=%s | business=%s",
                 inspection_id,

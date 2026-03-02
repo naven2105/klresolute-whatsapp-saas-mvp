@@ -169,10 +169,10 @@ def handle_admin_surveys(
                     SELECT msisdn
                     FROM client_admins
                     WHERE client_id = :client_id
-                      AND is_active = TRUE
+                    AND is_active = TRUE
                     """
                 ),
-                {"client_code": profile.client_code},
+                {"client_id": profile.client_id},
             ).all()
         }
 
