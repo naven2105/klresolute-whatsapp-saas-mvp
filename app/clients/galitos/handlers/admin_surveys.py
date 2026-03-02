@@ -168,7 +168,7 @@ def handle_admin_surveys(
                     """
                     SELECT msisdn
                     FROM client_admins
-                    WHERE LOWER(client_code) = LOWER(:client_code)
+                    WHERE client_id = :client_id
                       AND is_active = TRUE
                     """
                 ),

@@ -101,13 +101,9 @@ def _admin_numbers(db: Session, *, business_msisdn: str) -> list[str]:
                     SELECT ca.msisdn
                     FROM client_admins ca
                     JOIN whatsapp_numbers w
-                      ON UPPER(ca.client_code) = (
-                          SELECT UPPER(c.client_name)
-                          FROM clients c
-                          WHERE c.client_id = w.client_id
-                          LIMIT 1
-                      )
+                      ON ca.client_id = w.client_id
                     WHERE w.destination_number = :business
+                      AND w.status = 'active'
                       AND ca.is_active = TRUE
                     """
                 ),
