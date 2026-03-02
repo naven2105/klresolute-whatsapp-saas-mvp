@@ -2,21 +2,19 @@ from __future__ import annotations
 
 """
 File: app/profiles/client_profile.py
-Path: app/profiles/client_profile.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Purpose:
-Client profile resolution (DB-driven).
+Sprint 21 – Final UUID Identity Model
 
-LOCKED RULES:
-- Client identity resolved strictly via whatsapp_numbers → clients
-- No hard-coded business numbers
-- Modules resolved via client_modules + modules
-- Admins resolved via client_admins (UUID only)
-- No business logic
-- No outbound messaging
+Purpose:
+Client profile resolution (DB-driven, UUID-only).
+
+Rules:
+- Identity resolved strictly via whatsapp_numbers → clients
+- No client_code anywhere
+- Modules via client_modules + modules
+- Admins via client_admins (UUID)
 - Read-only resolution only
-- Must log WHY resolution fails
 """
 
 import logging
@@ -36,7 +34,6 @@ logger = logging.getLogger("profiles.client_profile")
 class ClientProfile:
     client_id: str
     client_name: str
-    client_code: str  # kept for compatibility (derived only)
     enabled_modules: List[str]
     admin_numbers: List[str]
 
@@ -70,10 +67,10 @@ def get_client_profile(
         try:
             db.rollback()
         except Exception:
-            logger.warning("PROFILE_ROLLBACK_SKIP")
+            pass
 
         # -----------------------------------------------------------
-        # Resolve client via whatsapp_numbers → clients
+        # Resolve client via whatsapp_numbers
         # -----------------------------------------------------------
         client_row = (
             db.execute(
@@ -104,17 +101,15 @@ def get_client_profile(
 
         client_id = str(client_row["client_id"])
         client_name = str(client_row["client_name"])
-        client_code = client_name.upper()  # derived only
 
         logger.info(
-            "PROFILE_CLIENT_RESOLVED | business=%s | client_id=%s | client_name=%s",
+            "PROFILE_CLIENT_RESOLVED | business=%s | client_id=%s",
             business_msisdn,
             client_id,
-            client_name,
         )
 
         # -----------------------------------------------------------
-        # Modules (UUID-based)
+        # Modules
         # -----------------------------------------------------------
         modules = (
             db.execute(
@@ -136,14 +131,8 @@ def get_client_profile(
             .all()
         )
 
-        logger.info(
-            "PROFILE_MODULES_RESOLVED | client_id=%s | modules=%s",
-            client_id,
-            ",".join(modules) if modules else "-",
-        )
-
         # -----------------------------------------------------------
-        # Admins (UUID-only)
+        # Admins
         # -----------------------------------------------------------
         admins = (
             db.execute(
@@ -163,21 +152,14 @@ def get_client_profile(
         )
 
         logger.info(
-            "PROFILE_ADMINS_RESOLVED | client_id=%s | admin_count=%s",
+            "PROFILE_LOOKUP_SUCCESS | client_id=%s | admins=%s",
             client_id,
             len(admins),
-        )
-
-        logger.info(
-            "PROFILE_LOOKUP_SUCCESS | client_id=%s | business=%s",
-            client_id,
-            business_msisdn,
         )
 
         return ClientProfile(
             client_id=client_id,
             client_name=client_name,
-            client_code=client_code,
             enabled_modules=modules,
             admin_numbers=admins,
         )

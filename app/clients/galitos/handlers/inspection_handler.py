@@ -19,7 +19,7 @@ Rules:
 import logging
 from sqlalchemy.orm import Session
 
-from app.services.staff_resolver import resolve_staff
+from app.clients.galitos.services.staff_resolver import resolve_staff
 
 logger = logging.getLogger("clients.galitos.inspection")
 
@@ -35,6 +35,7 @@ def handle_inspection(
     message_text: str,
 ) -> bool:
 
+    # Hard tenant boundary
     if client_id != GALITOS_CLIENT_ID:
         return False
 
@@ -43,7 +44,6 @@ def handle_inspection(
     # -------------------------------------------------
     is_staff = resolve_staff(
         db=db,
-        client_id=client_id,
         sender_msisdn=sender_msisdn,
     )
 
@@ -55,6 +55,9 @@ def handle_inspection(
         )
         return False
 
-    # Existing inspection logic continues here
+    # -------------------------------------------------
+    # Inspection logic continues here
+    # (unchanged)
+    # -------------------------------------------------
 
     return True
