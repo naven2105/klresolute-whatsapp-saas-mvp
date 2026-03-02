@@ -10,7 +10,7 @@ Admin resolution utilities.
 Rules (LOCKED):
 - Fail closed
 - DB-driven
-- No hardcoded admin numbers
+- UUID identity only
 """
 
 import logging
@@ -32,15 +32,14 @@ def is_admin_message(
     """
 
     # ----------------------------------
-    # Resolve client_code from business_msisdn
+    # Resolve client_id from business_msisdn
     # ----------------------------------
     row = (
         db.execute(
             text(
                 """
-                SELECT c.client_name
+                SELECT w.client_id
                 FROM whatsapp_numbers w
-                JOIN clients c ON c.client_id = w.client_id
                 WHERE w.destination_number = :business
                   AND w.status = 'active'
                 LIMIT 1
@@ -60,10 +59,10 @@ def is_admin_message(
         )
         return False
 
-    client_code = str(row["client_name"]).upper()
+    client_id = row["client_id"]
 
     # ----------------------------------
-    # Check admin allowlist
+    # Check admin allowlist (UUID only)
     # ----------------------------------
     admin_row = (
         db.execute(
@@ -72,14 +71,14 @@ def is_admin_message(
                 SELECT 1
                 FROM client_admins
                 WHERE msisdn = :msisdn
-                  AND client_code = :client_code
+                  AND client_id = :client_id
                   AND is_active = TRUE
                 LIMIT 1
                 """
             ),
             {
                 "msisdn": sender,
-                "client_code": client_code,
+                "client_id": client_id,
             },
         )
         .first()
@@ -87,17 +86,17 @@ def is_admin_message(
 
     if not admin_row:
         logger.info(
-            "ADMIN_CHECK_FALSE | business=%s | client_code=%s | sender=%s",
+            "ADMIN_CHECK_FALSE | business=%s | client_id=%s | sender=%s",
             business_msisdn,
-            client_code,
+            client_id,
             sender,
         )
         return False
 
     logger.info(
-        "ADMIN_CHECK_TRUE | business=%s | client_code=%s | sender=%s",
+        "ADMIN_CHECK_TRUE | business=%s | client_id=%s | sender=%s",
         business_msisdn,
-        client_code,
+        client_id,
         sender,
     )
     return True
