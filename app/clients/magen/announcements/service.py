@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/modules/announcements/service.py
+File: app/clients/magen/announcements/service.py
 Path: app/modules/announcements/service.py
 Project: KLResolute WhatsApp SaaS MVP
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/modules/announcements/admin_announcements_media_handler.py
+File: app/client/magen/announcements/media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration

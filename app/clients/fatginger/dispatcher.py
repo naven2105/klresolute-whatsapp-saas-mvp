@@ -29,7 +29,8 @@ from app.clients.fatginger.inbound import handle_fatginger_inbound
 from app.clients.fatginger.feedback.handler import (
     handle_feedback_message as fatginger_feedback_handler,
 )
-from app.modules.announcements.admin_announcements_media_handler import (
+
+from app.clients.fatginger.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
 

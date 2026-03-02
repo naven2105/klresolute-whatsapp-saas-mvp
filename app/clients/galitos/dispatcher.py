@@ -23,7 +23,7 @@ from app.clients.galitos.inbound import handle_inbound as galitos_inbound
 from app.clients.galitos.feedback.handler import (
     handle_feedback_message as galitos_feedback_handler,
 )
-from app.modules.announcements.admin_announcements_media_handler import (
+from app.clients.galitos.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
 from app.clients.galitos.survey import handler as survey_handler

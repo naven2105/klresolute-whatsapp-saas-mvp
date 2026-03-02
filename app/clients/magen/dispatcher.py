@@ -23,9 +23,12 @@ from app.clients.magen.inbound import handle_inbound as magen_inbound
 from app.clients.magen.feedback.handler import (
     handle_feedback_message as magen_feedback_handler,
 )
-from app.modules.announcements.admin_announcements_media_handler import (
+
+
+from app.clients.magen.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
+
 
 logger = logging.getLogger("magen.dispatcher")
 
