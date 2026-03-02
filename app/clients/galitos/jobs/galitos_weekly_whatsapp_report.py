@@ -13,15 +13,12 @@ from app.db import SessionLocal
 from app.models import EventLog
 from app.messaging.client_messenger import send_message
 
-# --- LOGGING CONFIG (for standalone cron execution) ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
 logger = logging.getLogger("jobs.galitos_weekly_report")
-
-GALITOS_CLIENT_UUID = "906a5084-1add-4b7a-bda0-90b462c9b8a9"
 
 
 def send_weekly_whatsapp_report() -> None:
@@ -41,18 +38,17 @@ def send_weekly_whatsapp_report() -> None:
                            wn.client_id
                     FROM whatsapp_numbers wn
                     WHERE wn.status = 'active'
-                      AND wn.client_id = :client_id
+                      AND wn.client_id = (
+                          SELECT client_id
+                          FROM klresolute_client
+                          WHERE name = 'Galitos'
+                      )
                     """
-                ),
-                {"client_id": GALITOS_CLIENT_UUID},
+                )
             )
             .mappings()
             .all()
         )
-
-        if not businesses:
-            logger.warning("NO_BUSINESS_FOUND")
-            return
 
         for b in businesses:
 
@@ -114,16 +110,7 @@ def send_weekly_whatsapp_report() -> None:
             admin_rows = (
                 db.execute(
                     text(
-                        """
-                        SELECT ca.msisdn
-                        FROM client_admins ca
-                        JOIN klresolute_client kc
-                          ON UPPER(kc.name) = ca.client_code
-                        JOIN whatsapp_numbers wn
-                          ON wn.destination_number = kc.whatsapp_number
-                        WHERE wn.client_id = :client_id
-                          AND ca.is_active = TRUE
-                        """
+                        "SELECT msisdn FROM client_admins WHERE client_id = :client_id AND is_active = TRUE"
                     ),
                     {"client_id": client_uuid},
                 )
@@ -134,8 +121,6 @@ def send_weekly_whatsapp_report() -> None:
             if not admin_rows:
                 logger.warning("NO_ADMINS_FOUND")
                 continue
-
-            logger.info(f"ADMIN_COUNT | {len(admin_rows)}")
 
             for admin in admin_rows:
                 send_message(
