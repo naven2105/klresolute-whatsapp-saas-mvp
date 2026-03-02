@@ -11,10 +11,10 @@ Purpose:
 Background notifier that auto-closes expired ACTIVE surveys and notifies admins.
 
 Changes:
-- Removed global Meta client
-- Business-scoped Meta per survey
-- Defensive rollback protection
-- No env-based sender usage
+- UUID-only admin resolution
+- Business-scoped client_id lookup
+- No client_code usage
+- Behaviour unchanged
 """
 
 import asyncio
@@ -60,7 +60,7 @@ async def _run_forever() -> None:
         return
 
     try:
-        from app.db import SessionLocal  # type: ignore
+        from app.db import SessionLocal
     except Exception as exc:
         logger.error("EXPIRY_NOTIFIER_NO_SESSIONLOCAL | error=%s", exc, exc_info=True)
         return
@@ -96,9 +96,9 @@ async def _run_forever() -> None:
                         continue
 
                     try:
-                        from app.clients.galitos.survey.survey_models import Survey  # type: ignore
+                        from app.clients.galitos.survey.survey_models import Survey
 
-                        obj: Optional[Survey] = db.get(Survey, survey_id)  # type: ignore[attr-defined]
+                        obj: Optional[Survey] = db.get(Survey, survey_id)
                         if not obj:
                             logger.warning("EXPIRY_SURVEY_MISSING | survey_id=%s", survey_id)
                             continue
@@ -121,17 +121,44 @@ async def _run_forever() -> None:
                             business_msisdn=business_number,
                         )
 
+                        # Resolve client_id from whatsapp_numbers
+                        client_row = (
+                            db.execute(
+                                text(
+                                    """
+                                    SELECT client_id
+                                    FROM whatsapp_numbers
+                                    WHERE destination_number = :business
+                                      AND status = 'active'
+                                    LIMIT 1
+                                    """
+                                ),
+                                {"business": business_number},
+                            )
+                            .mappings()
+                            .first()
+                        )
+
+                        if not client_row:
+                            logger.error(
+                                "EXPIRY_CLIENT_RESOLUTION_FAIL | business=%s",
+                                business_number,
+                            )
+                            continue
+
+                        client_id = str(client_row["client_id"])
+
                         admins = (
                             db.execute(
                                 text(
                                     """
                                     SELECT msisdn
                                     FROM client_admins
-                                    WHERE client_code = :client
+                                    WHERE client_id = :client_id
                                       AND is_active = TRUE
                                     """
                                 ),
-                                {"client": business_number},
+                                {"client_id": client_id},
                             )
                             .scalars()
                             .all()
@@ -180,9 +207,6 @@ async def _run_forever() -> None:
 
 
 def start_survey_expiry_notifier() -> None:
-    """
-    Call once at FastAPI startup.
-    """
     try:
         asyncio.get_running_loop()
     except RuntimeError:
