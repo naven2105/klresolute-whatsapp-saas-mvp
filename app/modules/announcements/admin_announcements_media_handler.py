@@ -126,6 +126,7 @@ def handle_media_message(
         )
         return True
 
+    # UUID-only admin fetch
     try:
         admin_numbers = {
             row[0]
@@ -134,11 +135,11 @@ def handle_media_message(
                     """
                     SELECT msisdn
                     FROM client_admins
-                    WHERE client_code = :client_code
+                    WHERE client_id = :client_id
                       AND is_active = TRUE
                     """
                 ),
-                {"client_code": client_uuid},
+                {"client_id": client_uuid},
             ).all()
         }
     except Exception:
