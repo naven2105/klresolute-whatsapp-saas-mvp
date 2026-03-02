@@ -2,14 +2,14 @@
 # File: inbound_dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 17 – Tenant Isolation Refactor (Final Phase)
+# Sprint 20 – UUID Identity Alignment
 #
 # Purpose:
 # Central inbound routing entry point.
 #
 # Responsibilities:
 # - Reset DB session
-# - Resolve tenant (client_id + profile)
+# - Resolve tenant (UUID only)
 # - Route to tenant-specific dispatcher
 # - Return immediately
 #
@@ -18,6 +18,7 @@
 # - No module execution
 # - No cross-client routing
 # - No fallback
+# - UUID-based routing only
 # ==================================================
 
 from __future__ import annotations
@@ -123,16 +124,15 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         return True
 
     logger.info(
-        "PROFILE_RESOLVED | client_id=%s | client_code=%s",
-        profile.client_id,
-        profile.client_code,
+        "PROFILE_RESOLVED | client_id=%s",
+        client_id,
     )
 
     # --------------------------------------------------
-    # TENANT ROUTING (HARD ISOLATION)
+    # TENANT ROUTING (UUID HARD ISOLATION)
     # --------------------------------------------------
 
-    if profile.client_code == "FATGINGER":
+    if client_id == "254d478e-da3a-4239-be94-c26aa75d30c0":
         return fatginger_dispatch(
             db=db,
             msg=msg,
@@ -142,7 +142,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             client_id=client_id,
         )
 
-    if profile.client_code == "GALITOS":
+    if client_id == "906a5084-1add-4b7a-bda0-90b462c9b8a9":
         return galitos_dispatch(
             db=db,
             msg=msg,
@@ -152,7 +152,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             client_id=client_id,
         )
 
-    if profile.client_code == "MAGEN":
+    if client_id == "8e62632d-d778-4d18-818c-4ffec0532d47":
         return magen_dispatch(
             db=db,
             msg=msg,
@@ -162,7 +162,7 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
             client_id=client_id,
         )
 
-    if profile.client_code == "PILATESHQ":
+    if client_id == "405c3e31-3894-4f69-b219-fe19ed3fb362":
         return pilates_dispatch(
             db=db,
             msg=msg,
@@ -173,9 +173,9 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
         )
 
     logger.warning(
-        "UNKNOWN_CLIENT_CODE | business=%s | client_code=%s",
+        "UNKNOWN_CLIENT_ID | business=%s | client_id=%s",
         business_msisdn,
-        profile.client_code,
+        client_id,
     )
 
     return True
