@@ -12,7 +12,7 @@ LOCKED RULES:
 - Client identity resolved strictly via whatsapp_numbers → clients
 - No hard-coded business numbers
 - Modules resolved via client_modules + modules
-- Admins resolved via client_admins
+- Admins resolved via client_admins (UUID only)
 - No business logic
 - No outbound messaging
 - Read-only resolution only
@@ -36,7 +36,7 @@ logger = logging.getLogger("profiles.client_profile")
 class ClientProfile:
     client_id: str
     client_name: str
-    client_code: str   # 🔥 restored for dispatcher compatibility
+    client_code: str  # kept for compatibility (derived only)
     enabled_modules: List[str]
     admin_numbers: List[str]
 
@@ -73,7 +73,7 @@ def get_client_profile(
             logger.warning("PROFILE_ROLLBACK_SKIP")
 
         # -----------------------------------------------------------
-        # Resolve client via whatsapp_numbers
+        # Resolve client via whatsapp_numbers → clients
         # -----------------------------------------------------------
         client_row = (
             db.execute(
@@ -104,7 +104,7 @@ def get_client_profile(
 
         client_id = str(client_row["client_id"])
         client_name = str(client_row["client_name"])
-        client_code = client_name.upper()
+        client_code = client_name.upper()  # derived only
 
         logger.info(
             "PROFILE_CLIENT_RESOLVED | business=%s | client_id=%s | client_name=%s",
@@ -114,7 +114,7 @@ def get_client_profile(
         )
 
         # -----------------------------------------------------------
-        # Modules
+        # Modules (UUID-based)
         # -----------------------------------------------------------
         modules = (
             db.execute(
@@ -143,7 +143,7 @@ def get_client_profile(
         )
 
         # -----------------------------------------------------------
-        # Admins
+        # Admins (UUID-only)
         # -----------------------------------------------------------
         admins = (
             db.execute(
@@ -151,12 +151,12 @@ def get_client_profile(
                     """
                     SELECT msisdn
                     FROM client_admins
-                    WHERE client_code = :client_code
+                    WHERE client_id = :client_id
                       AND is_active = TRUE
                     ORDER BY msisdn
                     """
                 ),
-                {"client_code": client_code},
+                {"client_id": client_id},
             )
             .scalars()
             .all()
@@ -177,7 +177,7 @@ def get_client_profile(
         return ClientProfile(
             client_id=client_id,
             client_name=client_name,
-            client_code=client_code,  # 🔥 restored
+            client_code=client_code,
             enabled_modules=modules,
             admin_numbers=admins,
         )
