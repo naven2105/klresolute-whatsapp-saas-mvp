@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/jobs/galitos_weekly_whatsapp_report.py
+File: app/clients/galitos/jobs/weekly_whatsapp_report.py
 
 Purpose:
 Send weekly WhatsApp engagement summary to GALITOS admins only.
@@ -12,7 +12,7 @@ Rules (LOCKED):
 - No direct Meta client usage
 - No ADMIN_ALLOWLIST
 - Per-business isolation
-- GALITOS only
+- GALITOS only (UUID scoped)
 """
 
 import logging
@@ -25,6 +25,9 @@ from app.models import EventLog
 from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("jobs.galitos_weekly_report")
+
+# Authoritative Galitos UUID (resolved via whatsapp_numbers)
+GALITOS_CLIENT_UUID = "906a5084-1add-4b7a-bda0-90b462c9b8a9"
 
 
 def send_weekly_whatsapp_report() -> None:
@@ -41,14 +44,13 @@ def send_weekly_whatsapp_report() -> None:
                 text(
                     """
                     SELECT wn.destination_number,
-                           wn.client_id,
-                           c.client_name
+                           wn.client_id
                     FROM whatsapp_numbers wn
-                    JOIN clients c ON c.client_id = wn.client_id
                     WHERE wn.status = 'active'
-                      AND UPPER(c.client_name) = 'GALITOS'
+                      AND wn.client_id = :client_id
                     """
-                )
+                ),
+                {"client_id": GALITOS_CLIENT_UUID},
             )
             .mappings()
             .all()

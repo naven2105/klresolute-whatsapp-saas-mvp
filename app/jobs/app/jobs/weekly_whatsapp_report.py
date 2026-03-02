@@ -20,7 +20,7 @@ Rules:
 
 import logging
 
-from app.jobs.galitos_weekly_whatsapp_report import send_weekly_whatsapp_report
+from app.clients.galitos.jobs.galitos_weekly_whatsapp_report import send_weekly_whatsapp_report
 
 logger = logging.getLogger("jobs.weekly_whatsapp_report")
 
