@@ -3,22 +3,14 @@
 # Path: app/clients/galitos/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 17 – Tenant Isolation Refactor (Phase 2)
+# Sprint 20 – UUID Identity Alignment
 #
 # Purpose:
 # Galitos Tenant-Specific Dispatcher
 #
-# Responsibilities:
-# - Own all GALITOS inbound routing
-# - Handle feedback
-# - Delegate to existing inbound router
-# - Execute enabled modules (GALITOS scope only)
-# - Terminate safely (no cross-tenant fallback)
-#
 # Isolation:
-# - No tier1 router
-# - No global fallback
-# - No cross-client execution
+# - UUID-only identity
+# - No client_code usage
 # ==================================================
 
 from __future__ import annotations
@@ -73,11 +65,11 @@ def dispatch(
                         """
                         SELECT msisdn
                         FROM client_admins
-                        WHERE client_code = :code
-                          AND is_active = true
+                        WHERE client_id = :client_id
+                          AND is_active = TRUE
                         """
                     ),
-                    {"code": profile.client_code},
+                    {"client_id": client_id},
                 )
                 .mappings()
                 .all()
@@ -107,10 +99,10 @@ def dispatch(
             msg=msg,
         )
 
-        return True if handled else True  # Always terminate (hard isolation)
+        return True  # Hard isolation
 
     # --------------------------------------------------
-    # ANNOUNCEMENTS MODULE (GALITOS scoped)
+    # ANNOUNCEMENTS MODULE
     # --------------------------------------------------
     if "announcements" in profile.enabled_modules:
 
@@ -126,7 +118,7 @@ def dispatch(
             return True
 
     # --------------------------------------------------
-    # SURVEY MODULE (GALITOS scoped)
+    # SURVEY MODULE
     # --------------------------------------------------
     if "survey" in profile.enabled_modules:
 
@@ -140,9 +132,6 @@ def dispatch(
         if handled:
             return True
 
-    # --------------------------------------------------
-    # SAFE TERMINATION
-    # --------------------------------------------------
     logger.info("GALITOS_DISPATCH_TERMINATE_SAFE")
 
     return True
