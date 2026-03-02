@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/clients/galitos/jobs/weekly_whatsapp_report.py
+File: app/clients/galitos/jobs/galitos_weekly_whatsapp_report.py
 """
 
 import logging
@@ -12,6 +12,12 @@ from sqlalchemy import text
 from app.db import SessionLocal
 from app.models import EventLog
 from app.messaging.client_messenger import send_message
+
+# --- LOGGING CONFIG (for standalone cron execution) ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
 logger = logging.getLogger("jobs.galitos_weekly_report")
 
@@ -44,10 +50,16 @@ def send_weekly_whatsapp_report() -> None:
             .all()
         )
 
+        if not businesses:
+            logger.warning("NO_BUSINESS_FOUND")
+            return
+
         for b in businesses:
 
             business_msisdn = b["destination_number"]
             client_uuid = b["client_id"]
+
+            logger.info(f"PROCESSING_BUSINESS | {business_msisdn}")
 
             hours_count = (
                 db.query(EventLog)
@@ -87,6 +99,10 @@ def send_weekly_whatsapp_report() -> None:
                 .count()
             )
 
+            logger.info(
+                f"METRICS | hours={hours_count} | announcements={announcements_count} | total={total_engagement}"
+            )
+
             report_text = (
                 "📊 Weekly WhatsApp Engagement Summary\n\n"
                 f"• {hours_count} customers checked store hours\n"
@@ -115,6 +131,12 @@ def send_weekly_whatsapp_report() -> None:
                 .all()
             )
 
+            if not admin_rows:
+                logger.warning("NO_ADMINS_FOUND")
+                continue
+
+            logger.info(f"ADMIN_COUNT | {len(admin_rows)}")
+
             for admin in admin_rows:
                 send_message(
                     db=db,
@@ -122,6 +144,7 @@ def send_weekly_whatsapp_report() -> None:
                     to_number=admin["msisdn"],
                     text=report_text,
                 )
+                logger.info(f"SENT_TO | {admin['msisdn']}")
 
         logger.info("GALITOS_WEEKLY_REPORT_COMPLETE")
 
