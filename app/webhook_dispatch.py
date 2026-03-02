@@ -11,9 +11,8 @@ Tenant resolution + routing dispatch and fallback handling.
 Rules:
 - Tenant resolution
 - Route to client module
-- Handle fallback logic
 - Central error handling
-- No payload parsing
+- No business fallback logic
 """
 
 import logging
@@ -22,9 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.inbound_dispatcher import dispatch
-from app.handlers.tier1_router import handle_client_command
 from app.clients.magen.inspection.auto_close_worker import auto_close_expired_inspections
-
 
 logger = logging.getLogger("webhooks")
 
@@ -91,7 +88,6 @@ def dispatch_and_fallback(
     except Exception:
         logger.exception("AUTO_CLOSE_FAIL")
 
-    # ✅ Guaranteed-visible dispatch markers (stdout + warning)
     print(
         f"🚀 DISPATCH_CALL | sender={sender} | business={business_msisdn} | type={msg.get('type')}"
     )
@@ -117,31 +113,5 @@ def dispatch_and_fallback(
         business_msisdn,
     )
 
-    if not handled:
-        body = (
-            msg.get("text", {}).get("body", "").strip()
-            if msg.get("type") == "text"
-            else ""
-        )
-
-        logger.warning(
-            "FALLBACK_EVAL | sender=%s | body=%r",
-            sender,
-            body,
-        )
-
-        if body.upper() not in ("YES", "NO"):
-            client_id_uuid = _resolve_uuid_client_id(
-                db,
-                business_msisdn=business_msisdn,
-            )
-
-            if client_id_uuid is not None:
-                handle_client_command(
-                    db=db,
-                    sender_number=sender,
-                    message_text=body,
-                    msg=msg,
-                    resolved_client_id=client_id_uuid,
-                    resolved_business_number=business_msisdn,
-                )
+    # No global fallback.
+    # Tenant dispatchers are fully responsible for handling.
