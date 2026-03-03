@@ -3,9 +3,20 @@
 # Path: app/clients/fatginger/handlers/booking_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
+# Sprint 16 – FatGinger Booking Handler Extraction
+#
+# Purpose:
+# Dedicated FatGinger booking handler
+#
 # Update:
-# - Staff template failure no longer aborts booking flow
-# - Admin/customer confirmation always executes
+# - Staff template failure does not abort booking flow
+# - Per-recipient isolation: one bad staff number must not block others
+# - Skip self-send (business number) after normalisation
+#
+# Isolation:
+# - No dispatcher changes
+# - No cross-tenant impact
+# - Uses template registry (governance preserved)
 # ==================================================
 
 from __future__ import annotations
@@ -18,6 +29,18 @@ from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import FG_ORDER_NOTIFICATION
 
 logger = logging.getLogger("fatginger.booking_handler")
+
+
+def _normalise_sa_msisdn(raw: str) -> str:
+    """
+    Minimal SA normaliser (tenant-local):
+    - '0XXXXXXXXX' -> '27XXXXXXXXX'
+    - otherwise return raw trimmed
+    """
+    v = (raw or "").strip()
+    if v.startswith("0"):
+        return "27" + v[1:]
+    return v
 
 
 def handle_booking(
@@ -51,7 +74,8 @@ def handle_booking(
     db.commit()
 
     # --------------------------------------------------
-    # 2. Staff alert (do NOT abort if template fails)
+    # 2. Staff alert (template) — do NOT abort on failure
+    #    and do NOT allow one bad recipient to block others
     # --------------------------------------------------
     try:
         result = db.execute(
@@ -69,21 +93,39 @@ def handle_booking(
             f"Booking {requested_date.strftime('%d/%m')} "
             f"{requested_time.strftime('%H:%M')} "
             f"{guests} guests {sender_msisdn}"
-        )
+        ).replace("\n", " ").strip()
 
         for row in staff_rows:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=row.msisdn.replace("0", "27", 1)
-                if row.msisdn.startswith("0")
-                else row.msisdn,
-                template_name=FG_ORDER_NOTIFICATION,
-                template_params=[booking_sentence],
-            )
+            try:
+                to_msisdn = _normalise_sa_msisdn(getattr(row, "msisdn", "") or "")
+
+                # Skip sending template to the business number itself
+                if to_msisdn == business_msisdn:
+                    logger.warning(
+                        "FG_STAFF_TEMPLATE_SKIP_SELF | business=%s | staff_raw=%s | staff_norm=%s",
+                        business_msisdn,
+                        getattr(row, "msisdn", None),
+                        to_msisdn,
+                    )
+                    continue
+
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=to_msisdn,
+                    template_name=FG_ORDER_NOTIFICATION,
+                    template_params=[booking_sentence],
+                )
+
+            except Exception:
+                logger.exception(
+                    "FG_STAFF_TEMPLATE_SEND_FAIL | business=%s | staff_raw=%s",
+                    business_msisdn,
+                    getattr(row, "msisdn", None),
+                )
 
     except Exception:
-        logger.exception("FG_STAFF_TEMPLATE_FAIL_CONTINUE")
+        logger.exception("FG_STAFF_TEMPLATE_QUERY_FAIL_CONTINUE")
 
     # --------------------------------------------------
     # 3. Customer confirmation (ALWAYS execute)
