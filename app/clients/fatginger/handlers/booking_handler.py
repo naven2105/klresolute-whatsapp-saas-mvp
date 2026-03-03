@@ -84,7 +84,7 @@ def handle_booking(
         send_message(
             db=db,
             business_msisdn=business_msisdn,
-            to_number=row.msisdn,
+            to_number=row.msisdn.replace("0", "27", 1) if row.msisdn.startswith("0") else row.msisdn,
             template_name=FG_ORDER_NOTIFICATION,
             template_params=[booking_sentence],
         )
