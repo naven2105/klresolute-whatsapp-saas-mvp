@@ -2,6 +2,19 @@
 # File: inbound.py
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
+#
+# Sprint 16 – Campaign Integration
+#
+# Purpose:
+# FatGinger Client-Specific Inbound Handler
+#
+# Update:
+# - Delegates admin messages to campaign_handler
+# - Staff blocked
+# - Customer flow unchanged
+#
+# Isolation:
+# - No dispatcher changes
 # ==================================================
 
 from __future__ import annotations
@@ -13,16 +26,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
 from app.clients.fatginger.customer.booking_service import handle_booking_command
-from app.clients.fatginger.customer.menu_service import (
-    handle_menu_command,
-    handle_drinks_command,
-)
-from app.clients.fatginger.customer.main_menu_service import (
-    handle_main_menu,
-)
-from app.clients.fatginger.feedback.handler import (
-    handle_feedback_message,
-)
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
@@ -55,6 +58,7 @@ def handle_fatginger_inbound(
     media_url: str | None,
 ) -> bool:
 
+    # Allow image-only messages
     if not message_text and message_type != "image":
         return False
 
@@ -93,7 +97,7 @@ def handle_fatginger_inbound(
             )
 
         # --------------------------------------------------
-        # STAFF
+        # STAFF (No interaction)
         # --------------------------------------------------
         if role == "staff":
             return True
@@ -102,9 +106,8 @@ def handle_fatginger_inbound(
         # CUSTOMER LOGIC
         # --------------------------------------------------
 
-        lower_msg = msg.lower()
-
-        if lower_msg in ("stop", "leave", "unsubscribe"):
+        # STOP / UNSUBSCRIBE
+        if msg.lower() in ("stop", "unsubscribe"):
             db.execute(
                 text(
                     """
@@ -126,6 +129,7 @@ def handle_fatginger_inbound(
             )
             return True
 
+        # AUTO REGISTER
         result = db.execute(
             text(
                 """
@@ -146,22 +150,7 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # --------------------------------------------------
-        # FEEDBACK (before booking)
-        # --------------------------------------------------
-        if handle_feedback_message(
-            db=db,
-            sender_number=sender_msisdn,
-            message_text=message_text,
-            media_id=media_url,
-            media_type=message_type,
-            business_msisdn=business_msisdn,
-        ):
-            return True
-
-        # --------------------------------------------------
-        # BOOKING
-        # --------------------------------------------------
+        # BOOKING (delegated)
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -170,37 +159,50 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # --------------------------------------------------
-        # FOOD
-        # --------------------------------------------------
-        if handle_menu_command(
-            db=db,
-            sender_msisdn=sender_msisdn,
-            business_msisdn=business_msisdn,
-            message_text=msg,
-        ):
-            return True
+        # ANNOUNCEMENT / SPECIALS RETRIEVAL (campaign-based)
+        if msg.lower() in ("announcement", "special", "specials"):
+            result = db.execute(
+                text(
+                    """
+                    SELECT type, message, image_url
+                    FROM r_fg__campaigns
+                    ORDER BY sent_at DESC
+                    LIMIT 1
+                    """
+                )
+            ).fetchone()
 
-        # --------------------------------------------------
-        # DRINKS
-        # --------------------------------------------------
-        if handle_drinks_command(
-            db=db,
-            sender_msisdn=sender_msisdn,
-            business_msisdn=business_msisdn,
-            message_text=msg,
-        ):
-            return True
+            if not result:
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    text="No active specials at the moment.",
+                )
+                return True
 
-        # --------------------------------------------------
-        # MAIN MENU (fallback)
-        # --------------------------------------------------
-        return handle_main_menu(
-            db=db,
-            sender_msisdn=sender_msisdn,
-            business_msisdn=business_msisdn,
-            message_text=msg,
-        )
+            if result.type == "text":
+                formatted = (
+                    "📢 Fat Ginger Announcement\n\n"
+                    f"{result.message}"
+                )
+
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    text=formatted,
+                )
+            else:
+                send_message(
+                    db=db,
+                    business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    image_id=result.image_url,
+                    caption=result.message,
+                )
+
+            return True
 
     except SQLAlchemyError:
         db.rollback()
@@ -211,3 +213,5 @@ def handle_fatginger_inbound(
         db.rollback()
         logger.exception("FG_UNEXPECTED_ERROR")
         return True
+
+    return False
