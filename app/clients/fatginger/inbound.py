@@ -2,19 +2,6 @@
 # File: inbound.py
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 16 – Campaign Integration
-#
-# Purpose:
-# FatGinger Client-Specific Inbound Handler
-#
-# Update:
-# - Delegates admin messages to campaign_handler
-# - Staff blocked
-# - Customer flow unchanged
-#
-# Isolation:
-# - No dispatcher changes
 # ==================================================
 
 from __future__ import annotations
@@ -26,6 +13,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
 from app.clients.fatginger.customer.booking_service import handle_booking_command
+from app.clients.fatginger.customer.menu_service import (
+    handle_menu_command,
+    handle_drinks_command,
+)
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
@@ -57,7 +48,6 @@ def handle_fatginger_inbound(
     media_url: str | None,
 ) -> bool:
 
-    # Allow image-only messages
     if not message_text and message_type != "image":
         return False
 
@@ -96,7 +86,7 @@ def handle_fatginger_inbound(
             )
 
         # --------------------------------------------------
-        # STAFF (No interaction)
+        # STAFF
         # --------------------------------------------------
         if role == "staff":
             return True
@@ -105,7 +95,6 @@ def handle_fatginger_inbound(
         # CUSTOMER LOGIC
         # --------------------------------------------------
 
-        # STOP / UNSUBSCRIBE
         if msg.lower() in ("stop", "unsubscribe"):
             db.execute(
                 text(
@@ -128,7 +117,6 @@ def handle_fatginger_inbound(
             )
             return True
 
-        # AUTO REGISTER
         result = db.execute(
             text(
                 """
@@ -149,7 +137,9 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # BOOKING (delegated)
+        # --------------------------------------------------
+        # BOOKING
+        # --------------------------------------------------
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -158,7 +148,31 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # ANNOUNCEMENT RETRIEVAL
+        # --------------------------------------------------
+        # MENU
+        # --------------------------------------------------
+        if handle_menu_command(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
+
+        # --------------------------------------------------
+        # DRINKS
+        # --------------------------------------------------
+        if handle_drinks_command(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
+
+        # --------------------------------------------------
+        # ANNOUNCEMENT
+        # --------------------------------------------------
         if msg.lower() == "announcement":
             result = db.execute(
                 text(
