@@ -151,7 +151,7 @@ def send_message(
         return
 
     # -------------------------------------------------
-    # TEMPLATE MESSAGE (unchanged)
+    # TEMPLATE MESSAGE (unchanged payload, NEW failure propagation)
     # -------------------------------------------------
     logger.info(
         "SEND_MESSAGE_EXEC | type=template | business=%s | to=%s | template=%s",
@@ -160,9 +160,22 @@ def send_message(
         template_name,
     )
 
-    meta_client.send_template(
+    result = meta_client.send_template(
         to_msisdn=to_number,
         template_name=template_name,
         language_code=language_code,
         body_params=template_params,
     )
+
+    if not result.ok:
+        logger.error(
+            "SEND_MESSAGE_TEMPLATE_FAIL | business=%s | to=%s | template=%s | status=%s | response=%s",
+            business_msisdn,
+            to_number,
+            template_name,
+            result.status_code,
+            result.response_json,
+        )
+        raise RuntimeError(f"Template send failed: {template_name}")
+
+    return
