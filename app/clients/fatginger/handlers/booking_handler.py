@@ -3,19 +3,9 @@
 # Path: app/clients/fatginger/handlers/booking_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – FatGinger Booking Handler Extraction
-#
-# Purpose:
-# Dedicated FatGinger booking handler
-#
 # Update:
-# - Template-first business rule enforced
-# - Staff template must succeed before customer confirmation
-#
-# Isolation:
-# - No dispatcher changes
-# - No cross-tenant impact
-# - Uses template registry (governance preserved)
+# - Staff template failure no longer aborts booking flow
+# - Admin/customer confirmation always executes
 # ==================================================
 
 from __future__ import annotations
@@ -61,36 +51,42 @@ def handle_booking(
     db.commit()
 
     # --------------------------------------------------
-    # 2. Staff alert (template MUST succeed first)
+    # 2. Staff alert (do NOT abort if template fails)
     # --------------------------------------------------
-    result = db.execute(
-        text(
-            """
-            SELECT msisdn
-            FROM r_fg__staff
-            """
-        )
-    )
-
-    staff_rows = result.fetchall()
-
-    booking_sentence = (
-        f"Booking {requested_date.strftime('%d/%m')} "
-        f"{requested_time.strftime('%H:%M')} "
-        f"{guests} guests {sender_msisdn}"
-    ).replace("\n", " ").strip()
-
-    for row in staff_rows:
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=row.msisdn.replace("0", "27", 1) if row.msisdn.startswith("0") else row.msisdn,
-            template_name=FG_ORDER_NOTIFICATION,
-            template_params=[booking_sentence],
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT msisdn
+                FROM r_fg__staff
+                """
+            )
         )
 
+        staff_rows = result.fetchall()
+
+        booking_sentence = (
+            f"Booking {requested_date.strftime('%d/%m')} "
+            f"{requested_time.strftime('%H:%M')} "
+            f"{guests} guests {sender_msisdn}"
+        )
+
+        for row in staff_rows:
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=row.msisdn.replace("0", "27", 1)
+                if row.msisdn.startswith("0")
+                else row.msisdn,
+                template_name=FG_ORDER_NOTIFICATION,
+                template_params=[booking_sentence],
+            )
+
+    except Exception:
+        logger.exception("FG_STAFF_TEMPLATE_FAIL_CONTINUE")
+
     # --------------------------------------------------
-    # 3. Customer confirmation (ONLY after template success)
+    # 3. Customer confirmation (ALWAYS execute)
     # --------------------------------------------------
     send_message(
         db=db,
