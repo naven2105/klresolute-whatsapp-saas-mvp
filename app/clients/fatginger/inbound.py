@@ -20,6 +20,9 @@ from app.clients.fatginger.customer.menu_service import (
 from app.clients.fatginger.customer.main_menu_service import (
     handle_main_menu,
 )
+from app.clients.fatginger.feedback.handler import (
+    handle_feedback_message,
+)
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
@@ -144,6 +147,19 @@ def handle_fatginger_inbound(
             )
 
         # --------------------------------------------------
+        # FEEDBACK (before booking)
+        # --------------------------------------------------
+        if handle_feedback_message(
+            db=db,
+            sender_number=sender_msisdn,
+            message_text=message_text,
+            media_id=media_url,
+            media_type=message_type,
+            business_msisdn=business_msisdn,
+        ):
+            return True
+
+        # --------------------------------------------------
         # BOOKING
         # --------------------------------------------------
         if handle_booking_command(
@@ -177,49 +193,7 @@ def handle_fatginger_inbound(
             return True
 
         # --------------------------------------------------
-        # ANNOUNCEMENT (manual retrieval)
-        # --------------------------------------------------
-        if lower_msg == "announcement":
-            result = db.execute(
-                text(
-                    """
-                    SELECT type, message, image_url
-                    FROM r_fg__campaigns
-                    ORDER BY sent_at DESC
-                    LIMIT 1
-                    """
-                )
-            ).fetchone()
-
-            if not result:
-                send_message(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    to_number=sender_msisdn,
-                    text="No active announcements at the moment.",
-                )
-                return True
-
-            if result.type == "text":
-                send_message(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    to_number=sender_msisdn,
-                    text=f"📢 Fat Ginger Announcement\n\n{result.message}",
-                )
-            else:
-                send_message(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    to_number=sender_msisdn,
-                    image_id=result.image_url,
-                    caption=result.message,
-                )
-
-            return True
-
-        # --------------------------------------------------
-        # MAIN MENU (fallback + "menu")
+        # MAIN MENU (fallback)
         # --------------------------------------------------
         return handle_main_menu(
             db=db,
