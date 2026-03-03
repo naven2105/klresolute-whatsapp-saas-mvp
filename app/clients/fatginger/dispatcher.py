@@ -2,22 +2,6 @@
 # File: dispatcher.py
 # Path: app/clients/fatginger/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 17 – Tenant Isolation Refactor (Phase 1)
-#
-# Purpose:
-# FatGinger Tenant-Specific Dispatcher
-#
-# Responsibilities:
-# - Own all FATGINGER inbound routing
-# - Handle feedback
-# - Route text + image to inbound handler
-# - Execute enabled modules (FG scope only)
-# - Terminate safely (no cross-tenant fallback)
-#
-# Isolation:
-# - No tier1 router
-# - No cross-client execution
 # ==================================================
 
 from __future__ import annotations
@@ -29,11 +13,9 @@ from app.clients.fatginger.inbound import handle_fatginger_inbound
 from app.clients.fatginger.feedback.handler import (
     handle_feedback_message as fatginger_feedback_handler,
 )
-
 from app.clients.fatginger.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
-
 
 logger = logging.getLogger("fatginger.dispatcher")
 
@@ -72,9 +54,7 @@ def dispatch(
                 message_text=body_text,
                 media_id=None,
                 media_type=None,
-                client_id=client_id,
-                admin_numbers=set(),
-                business_msisdn=business_msisdn,
+                business_msisdn=business_msisdn,   # ✅ FIXED
             )
 
             if handled:
@@ -90,7 +70,7 @@ def dispatch(
             media_url=None,
         )
 
-        return True if handled else True  # Always terminate (hard isolation)
+        return True if handled else True
 
     # --------------------------------------------------
     # IMAGE MESSAGES
@@ -110,10 +90,10 @@ def dispatch(
             media_url=media_id,
         )
 
-        return True if handled else True  # Always terminate
+        return True if handled else True
 
     # --------------------------------------------------
-    # ANNOUNCEMENTS MODULE (FG scoped)
+    # ANNOUNCEMENTS MODULE
     # --------------------------------------------------
     if "announcements" in profile.enabled_modules:
 
@@ -128,10 +108,6 @@ def dispatch(
         if handled:
             return True
 
-
-    # --------------------------------------------------
-    # SAFE TERMINATION
-    # --------------------------------------------------
     logger.info("FG_DISPATCH_TERMINATE_SAFE")
 
     return True
