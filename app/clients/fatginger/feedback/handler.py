@@ -4,85 +4,27 @@ from __future__ import annotations
 File: app/clients/fatginger/feedback/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
-Sprint 13 – Client Feedback Isolation (FatGinger)
-
 Purpose:
-FatGinger-specific feedback handler.
+FatGinger-specific feedback handler (tenant-isolated).
 
-Notes:
-- Behaviour identical to legacy shared handler
-- No logic changes
-- No schema changes
-- Client-isolated ownership
+Rules:
+- Trigger: "feedback:"
+- Store in r_fg__feedback
+- Forward to admins (role='admin')
+- Acknowledge customer
+- No shared tables
 """
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.outbound.factory import get_meta_client
-from app.messaging.template_registry import FG_ORDER_NOTIFICATION
+from app.messaging.client_messenger import send_message
+from app.messaging.template_registry import PLATFORM_ADMIN_FEEDBACK
 
 logger = logging.getLogger("fatginger.feedback")
 
-ADMIN_TEMPLATE_NAME = FG_ORDER_NOTIFICATION
-CUSTOMER_ACK_TEMPLATE_NAME = FG_ORDER_NOTIFICATION
-
-
-# -------------------------------------------------
-# Outbound helpers
-# -------------------------------------------------
-
-def _send_customer_ack(
-    db: Session,
-    to_number: str,
-    business_msisdn: str,
-) -> None:
-    try:
-        meta = get_meta_client(
-            db=db,
-            business_msisdn=business_msisdn,
-        )
-
-        meta.send_template(
-            to_msisdn=to_number,
-            template_name=CUSTOMER_ACK_TEMPLATE_NAME,
-            language_code="en_US",
-            body_params=[
-                "🙏 Thank you for your feedback. It has been sent to the manager."
-            ],
-        )
-
-    except Exception:
-        logger.exception("FEEDBACK_ACK_FAIL | customer=%s", to_number)
-
-
-def _send_admin_alert(
-    db: Session,
-    to_number: str,
-    alert_text: str,
-    business_msisdn: str,
-) -> None:
-    try:
-        meta = get_meta_client(
-            db=db,
-            business_msisdn=business_msisdn,
-        )
-
-        meta.send_template(
-            to_msisdn=to_number,
-            template_name=ADMIN_TEMPLATE_NAME,
-            language_code="en_US",
-            body_params=[alert_text],
-        )
-
-    except Exception:
-        logger.exception("ADMIN_ALERT_FAIL | admin=%s", to_number)
-
-
-# -------------------------------------------------
-# Handler
-# -------------------------------------------------
 
 def handle_feedback_message(
     *,
@@ -91,53 +33,68 @@ def handle_feedback_message(
     message_text: str | None,
     media_id: str | None,
     media_type: str | None,
-    client_id,
-    admin_numbers: set[str],
     business_msisdn: str,
 ) -> bool:
 
     if not message_text and not media_id:
         return False
 
+    msg = (message_text or "").strip()
+
+    if not msg.lower().startswith("feedback:"):
+        return False
+
+    feedback_body = msg[len("feedback:") :].strip() if message_text else None
+
+    if not feedback_body and not media_id:
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_number,
+            text="Please provide feedback after 'feedback:'",
+        )
+        return True
+
     try:
+        # --------------------------------------------------
+        # Store feedback (tenant table)
+        # --------------------------------------------------
         db.execute(
             text(
                 """
-                INSERT INTO feedbacks (
-                    client_id,
-                    customer_msisdn,
-                    message_text,
-                    media_id,
-                    media_type,
-                    created_at
-                )
-                VALUES (
-                    :client_id,
-                    :customer_msisdn,
-                    :message_text,
-                    :media_id,
-                    :media_type,
-                    now()
-                )
+                INSERT INTO r_fg__feedback
+                (customer_msisdn, message_text, media_id, media_type)
+                VALUES (:customer_msisdn, :message_text, :media_id, :media_type)
                 """
             ),
             {
-                "client_id": client_id,
                 "customer_msisdn": sender_number,
-                "message_text": message_text,
+                "message_text": feedback_body,
                 "media_id": media_id,
                 "media_type": media_type,
             },
         )
         db.commit()
 
-    except Exception:
-        logger.exception("FEEDBACK_STORE_FAIL")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("FG_FEEDBACK_STORE_FAIL")
         return True
 
-    _send_customer_ack(db, sender_number, business_msisdn)
+    # --------------------------------------------------
+    # Fetch admins
+    # --------------------------------------------------
+    rows = db.execute(
+        text(
+            """
+            SELECT msisdn
+            FROM r_fg__staff
+            WHERE role = 'admin'
+            """
+        )
+    ).fetchall()
 
-    clean_message = (message_text or "Media received").replace("\n", " ").strip()
+    clean_message = (feedback_body or "Media received").replace("\n", " ").strip()
 
     alert_text = (
         f"New feedback received | "
@@ -145,7 +102,26 @@ def handle_feedback_message(
         f"Message: {clean_message}"
     )
 
-    for admin in admin_numbers:
-        _send_admin_alert(db, admin, alert_text, business_msisdn)
+    for row in rows:
+        try:
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=row.msisdn,
+                template_name=PLATFORM_ADMIN_FEEDBACK,
+                template_params=[alert_text],
+            )
+        except Exception:
+            logger.exception("FG_FEEDBACK_ADMIN_SEND_FAIL")
+
+    # --------------------------------------------------
+    # Customer acknowledgement (session message)
+    # --------------------------------------------------
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_number,
+        text="🙏 Thank you for your feedback. It has been sent to management.",
+    )
 
     return True
