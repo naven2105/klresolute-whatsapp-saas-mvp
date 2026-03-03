@@ -39,6 +39,7 @@ from app.webhook_guards import (
 )
 from app.webhook_dedupe import try_lock_provider_message
 from app.webhook_dispatch import dispatch_and_fallback
+from app.webhook_status_handler import handle_status_payload
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
@@ -59,6 +60,16 @@ async def whatsapp_webhook(
         "WEBHOOK_IN | content_length=%s",
         request.headers.get("content-length"),
     )
+
+    # ✅ Handle statuses-only payloads (delivery receipts / failures)
+    # This must occur BEFORE normal inbound extraction aborts.
+    try:
+        if handle_status_payload(db, payload):
+            logger.info("WEBHOOK_STATUS_HANDLED")
+            return Response(status_code=200)
+    except Exception:
+        logger.exception("WEBHOOK_STATUS_HANDLE_FAIL")
+        # Continue into normal extraction path (never block inbound handling)
 
     msg, sender, business_msisdn, provider_message_id = extract_message(payload)
 
