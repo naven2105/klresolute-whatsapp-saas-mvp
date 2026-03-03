@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.clients.galitos.handlers.order_handler import handle_order_message
-from app.handlers.client_commands import handle_client_command as client_commands
 from app.clients.galitos.survey.handler import handle as survey_handle
 
 logger = logging.getLogger("clients.galitos")
@@ -88,17 +87,10 @@ def handle_inbound(
             return True
 
     # -------------------------------------------------
-    # 3) NON-ORDER → CUSTOMER MENU / HELP / FOOD
+    # 3) NON-ORDER TEXT
+    # (Shared Tier-1 router removed during isolation)
     # -------------------------------------------------
     if msg_type == "text":
-        handled = client_commands(
-            db=db,
-            sender_number=sender,
-            message_text=text,
-            msg=msg,
-            resolved_client_id=galitos_client_id,
-            resolved_business_number=business_msisdn,
-        )
-        return bool(handled)
+        return False
 
     return False
