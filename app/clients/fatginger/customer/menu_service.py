@@ -6,13 +6,12 @@ Path: app/clients/fatginger/customer/menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger customer menu & drinks command handling (tenant-local).
+FatGinger customer food & drinks command handling (tenant-local).
 
 Rules:
 - Customer-only logic
 - No dispatcher logic
-- No admin logic
-- DB-driven menu rendering
+- DB-driven rendering
 - Returns True if handled
 """
 
@@ -22,6 +21,9 @@ from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 
 
+# --------------------------------------------------
+# FOOD MENU (previously handled "menu")
+# --------------------------------------------------
 def handle_menu_command(
     *,
     db: Session,
@@ -32,7 +34,8 @@ def handle_menu_command(
 
     msg = (message_text or "").strip().lower()
 
-    if msg not in ("menu", "food"):
+    # 🔒 NOW ONLY "food"
+    if msg != "food":
         return False
 
     rows = db.execute(
@@ -51,18 +54,18 @@ def handle_menu_command(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="Menu is currently unavailable.",
+            text="Food menu is currently unavailable.",
         )
         return True
 
-    lines = ["🍔 *FatGinger Menu*\n"]
+    lines = ["🍔 Food Menu\n"]
 
     current_category = None
 
     for row in rows:
         if row.category != current_category:
             current_category = row.category
-            lines.append(f"\n*{current_category}*")
+            lines.append(f"\n{current_category}")
 
         lines.append(f"- {row.name} — R{row.price}")
 
@@ -76,6 +79,9 @@ def handle_menu_command(
     return True
 
 
+# --------------------------------------------------
+# DRINKS MENU
+# --------------------------------------------------
 def handle_drinks_command(
     *,
     db: Session,
@@ -109,14 +115,14 @@ def handle_drinks_command(
         )
         return True
 
-    lines = ["🥤 *Beverages*\n"]
+    lines = ["🥤 Drinks Menu\n"]
 
     current_category = None
 
     for row in rows:
         if row.category != current_category:
             current_category = row.category
-            lines.append(f"\n*{current_category}*")
+            lines.append(f"\n{current_category}")
 
         lines.append(f"- {row.name} — R{row.price}")
 
