@@ -20,25 +20,18 @@
 from __future__ import annotations
 
 import logging
-import re
-from datetime import datetime, date
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
-from app.clients.fatginger.handlers.booking_handler import handle_booking
+from app.clients.fatginger.customer.booking_service import handle_booking_command
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
 
 logger = logging.getLogger("fatginger.inbound")
 
-
-BOOKING_REGEX = re.compile(
-    r"^book\s+(\d+)\s+(\d{1,2}/\d{1,2})\s+(\d{1,2}:\d{2})$",
-    re.IGNORECASE,
-)
 
 WELCOME_MESSAGE = (
     "Welcome to FatGinger 🍔🔥\n"
@@ -53,31 +46,6 @@ STOP_CONFIRMATION = (
     "You have been unsubscribed from marketing messages.\n"
     "You can still use menu and booking anytime."
 )
-
-
-def _parse_booking(message_text: str):
-    match = BOOKING_REGEX.match(message_text.strip())
-    if not match:
-        return None
-
-    guests_raw, date_raw, time_raw = match.groups()
-
-    try:
-        guests = int(guests_raw)
-        day, month = map(int, date_raw.split("/"))
-        current_year = datetime.utcnow().year
-
-        requested_date = date(current_year, month, day)
-
-        if requested_date < datetime.utcnow().date():
-            requested_date = date(current_year + 1, month, day)
-
-        requested_time = datetime.strptime(time_raw, "%H:%M").time()
-
-        return guests, requested_date, requested_time
-
-    except Exception:
-        return None
 
 
 def handle_fatginger_inbound(
@@ -181,30 +149,13 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # BOOKING
-        if msg.lower().startswith("book"):
-            parsed = _parse_booking(msg)
-
-            if not parsed:
-                send_message(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    to_number=sender_msisdn,
-                    text="Please use this format:\nbook 4 22/02 19:00",
-                )
-                return True
-
-            guests, requested_date, requested_time = parsed
-
-            handle_booking(
-                db=db,
-                sender_msisdn=sender_msisdn,
-                business_msisdn=business_msisdn,
-                guests=guests,
-                requested_date=requested_date,
-                requested_time=requested_time,
-            )
-
+        # BOOKING (delegated)
+        if handle_booking_command(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
             return True
 
         # ANNOUNCEMENT RETRIEVAL
