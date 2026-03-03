@@ -17,6 +17,9 @@ from app.clients.fatginger.customer.menu_service import (
     handle_menu_command,
     handle_drinks_command,
 )
+from app.clients.fatginger.customer.main_menu_service import (
+    handle_main_menu,
+)
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
@@ -27,7 +30,8 @@ logger = logging.getLogger("fatginger.inbound")
 WELCOME_MESSAGE = (
     "Welcome to FatGinger 🍔🔥\n"
     "You can:\n"
-    "• Type menu to see food\n"
+    "• Type menu to see options\n"
+    "• Type food to see food menu\n"
     "• Type drinks to see beverages\n"
     "• Type book to reserve a table\n"
     "Reply STOP anytime to unsubscribe."
@@ -95,7 +99,9 @@ def handle_fatginger_inbound(
         # CUSTOMER LOGIC
         # --------------------------------------------------
 
-        if msg.lower() in ("stop", "unsubscribe"):
+        lower_msg = msg.lower()
+
+        if lower_msg in ("stop", "leave", "unsubscribe"):
             db.execute(
                 text(
                     """
@@ -149,7 +155,7 @@ def handle_fatginger_inbound(
             return True
 
         # --------------------------------------------------
-        # MENU
+        # FOOD
         # --------------------------------------------------
         if handle_menu_command(
             db=db,
@@ -171,9 +177,9 @@ def handle_fatginger_inbound(
             return True
 
         # --------------------------------------------------
-        # ANNOUNCEMENT
+        # ANNOUNCEMENT (manual retrieval)
         # --------------------------------------------------
-        if msg.lower() == "announcement":
+        if lower_msg == "announcement":
             result = db.execute(
                 text(
                     """
@@ -195,16 +201,11 @@ def handle_fatginger_inbound(
                 return True
 
             if result.type == "text":
-                formatted = (
-                    "📢 Fat Ginger Announcement\n\n"
-                    f"{result.message}"
-                )
-
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=formatted,
+                    text=f"📢 Fat Ginger Announcement\n\n{result.message}",
                 )
             else:
                 send_message(
@@ -217,6 +218,16 @@ def handle_fatginger_inbound(
 
             return True
 
+        # --------------------------------------------------
+        # MAIN MENU (fallback + "menu")
+        # --------------------------------------------------
+        return handle_main_menu(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        )
+
     except SQLAlchemyError:
         db.rollback()
         logger.exception("FG_DB_ERROR")
@@ -226,5 +237,3 @@ def handle_fatginger_inbound(
         db.rollback()
         logger.exception("FG_UNEXPECTED_ERROR")
         return True
-
-    return False
