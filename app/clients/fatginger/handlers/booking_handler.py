@@ -75,10 +75,10 @@ def handle_booking(
     staff_rows = result.fetchall()
 
     booking_sentence = (
-        f"New booking on {requested_date.strftime('%d/%m')} at "
-        f"{requested_time.strftime('%H:%M')} for {guests} guests "
-        f"from {sender_msisdn}"
-    )
+        f"Booking {requested_date.strftime('%d/%m')} "
+        f"{requested_time.strftime('%H:%M')} "
+        f"{guests} guests {sender_msisdn}"
+    ).replace("\n", " ").strip()
 
     for row in staff_rows:
         send_message(
