@@ -1,33 +1,43 @@
+# ==================================================
+# File: admin_menu_service.py
+# Path: app/clients/fatginger/admin/admin_menu_service.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Purpose:
+# FatGinger Admin Menu
+#
+# Rules:
+# - Admin only
+# - Text only
+# - No dispatcher logic
+# ==================================================
+
 from __future__ import annotations
-
-"""
-File: admin_menu_service.py
-Path: app/clients/fatginger/admin/admin_menu_service.py
-Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-FatGinger admin menu handler.
-
-Rules:
-- Admin only
-- Returns True
-"""
 
 from sqlalchemy.orm import Session
 from app.messaging.client_messenger import send_message
 
 
 ADMIN_MENU_TEXT = (
-    "🔧 FatGinger Admin Menu\n\n"
-    "Available commands:\n\n"
-    "survey: <question>\n"
-    "Send a customer survey\n\n"
-    "campaign: <message>\n"
-    "Send marketing campaign\n\n"
-    "announcement: <message>\n"
-    "Send announcement\n\n"
+    "🛠️ Admin Menu\n\n"
+    "📊 Surveys\n\n"
+    "Start a survey:\n\n"
+    "SURVEY: <question>\n\n"
     "Example:\n"
-    "survey: How was your meal today?"
+    "SURVEY: How was your meal today?\n\n"
+    "Customers receive the survey and can respond.\n\n"
+    "────────────────\n\n"
+    "🎯 Announcement\n\n"
+    "Text announcement:\n"
+    "ANNOUNCEMENT: <message>\n\n"
+    "Image announcement:\n"
+    "Send an image with optional caption\n\n"
+    "A preview will be shown.\n"
+    "Reply YES to confirm sending.\n\n"
+    "Notes:\n"
+    "• Only one active announcement\n"
+    "• New announcement replaces previous one\n"
+    "• Customers type: announcements"
 )
 
 
