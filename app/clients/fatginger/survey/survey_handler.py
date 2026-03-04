@@ -35,10 +35,6 @@ def handle_survey_command(
     business_msisdn: str,
     message_text: str,
 ) -> bool:
-    """
-    Dispatcher entrypoint for survey commands.
-    Returns True if command handled.
-    """
 
     try:
 
@@ -105,12 +101,15 @@ def handle_survey_command(
 
             db.commit()
 
+            # ----------------------------------------
+            # Get opted-in customers
+            # ----------------------------------------
             customers = db.execute(
                 text(
                     """
-                    SELECT client_number
+                    SELECT phone
                     FROM r_fg__customers
-                    WHERE survey_opt_in = TRUE
+                    WHERE marketing_opt_in = TRUE
                     """
                 )
             ).fetchall()
@@ -120,7 +119,7 @@ def handle_survey_command(
                 try:
 
                     send_message(
-                        to=row.client_number,
+                        to=row.phone,
                         template=SURVEY_TEMPLATE_V1,
                         business_msisdn=business_msisdn,
                         variables={
