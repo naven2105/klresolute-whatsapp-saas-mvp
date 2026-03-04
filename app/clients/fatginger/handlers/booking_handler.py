@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
-from app.messaging.template_registry import FG_ORDER_NOTIFICATION
+from app.messaging.template_registry import PLATFORM_CLIENT_GENERIC
 
 logger = logging.getLogger("fatginger.booking_handler")
 
@@ -113,7 +113,7 @@ def handle_booking(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=to_msisdn,
-                    template_name=FG_ORDER_NOTIFICATION,
+                    template_name=PLATFORM_CLIENT_GENERIC,
                     template_params=[booking_sentence],
                 )
 
