@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import SURVEY_TEMPLATE_V1
+from app.clients.fatginger.survey.summary import build_survey_summary_text
 
 logger = logging.getLogger("fatginger.survey_handler")
 
@@ -179,22 +180,24 @@ def handle_survey_command(
 
             db.commit()
 
-            results = db.execute(
+            question_row = db.execute(
                 text(
                     """
-                    SELECT button_id, COUNT(*) as votes
-                    FROM r_fg__survey_responses
-                    WHERE survey_id = :survey_id
-                    GROUP BY button_id
+                    SELECT question
+                    FROM r_fg__surveys
+                    WHERE id = :survey_id
                     """
                 ),
                 {"survey_id": survey_id},
-            ).fetchall()
+            ).fetchone()
 
-            summary = "📊 Survey Results\n\n"
+            question = question_row.question if question_row else ""
 
-            for r in results:
-                summary += f"{r.button_id}: {r.votes}\n"
+            summary = build_survey_summary_text(
+                db=db,
+                survey_id=survey_id,
+                question=question,
+            )
 
             send_message(
                 db=db,
