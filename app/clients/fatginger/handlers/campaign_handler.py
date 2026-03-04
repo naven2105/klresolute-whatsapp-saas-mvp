@@ -3,7 +3,7 @@
 # Path: app/clients/fatginger/handlers/campaign_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – WhatsApp-Native Campaign Engine
+# Sprint 24 – Admin Menu Isolation
 #
 # Purpose:
 # Handles FatGinger admin campaign flow:
@@ -14,6 +14,10 @@
 # - YES / NO confirmation
 # - Broadcast execution
 # - DB insert (campaign + logs)
+#
+# Update (Sprint 24):
+# - Admin menu removed from campaign handler
+# - Unknown admin commands must fall back to admin_menu_service
 #
 # Isolation:
 # - FatGinger only
@@ -47,9 +51,13 @@ def handle_admin_message(
 
     now = datetime.utcnow()
     msg = (message_text or "").strip()
+    msg_lower = msg.lower()
 
     pending = pending_campaigns.get(sender_msisdn)
 
+    # --------------------------------------------------
+    # Pending confirmation state
+    # --------------------------------------------------
     if pending:
 
         created_at = pending["created_at"]
@@ -64,41 +72,43 @@ def handle_admin_message(
             )
 
             del pending_campaigns[sender_msisdn]
-            pending = None
+            return True
 
-        else:
-            if msg.lower() == "yes":
-                _execute_broadcast(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    admin_msisdn=sender_msisdn,
-                    pending=pending,
-                )
-                del pending_campaigns[sender_msisdn]
-                return True
-
-            if msg.lower() == "no":
-                send_message(
-                    db=db,
-                    business_msisdn=business_msisdn,
-                    to_number=sender_msisdn,
-                    text="Campaign cancelled.",
-                )
-                del pending_campaigns[sender_msisdn]
-                return True
-
-            send_message(
+        if msg_lower == "yes":
+            _execute_broadcast(
                 db=db,
                 business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text=_admin_menu(),
+                admin_msisdn=sender_msisdn,
+                pending=pending,
             )
             del pending_campaigns[sender_msisdn]
             return True
 
-    if message_type == "text" and msg.lower().startswith("announcement:"):
+        if msg_lower == "no":
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text="Campaign cancelled.",
+            )
+            del pending_campaigns[sender_msisdn]
+            return True
 
-        campaign_text = msg[len("announcement:") :].strip()
+        # Invalid confirmation response
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Please reply YES to send or NO to cancel.",
+        )
+        return True
+
+    # --------------------------------------------------
+    # Text campaign trigger
+    # --------------------------------------------------
+    if message_type == "text" and msg_lower.startswith("announcement:"):
+
+        campaign_text = msg.split(":", 1)[1].strip()
 
         if not campaign_text:
             send_message(
@@ -118,6 +128,9 @@ def handle_admin_message(
             image_url=None,
         )
 
+    # --------------------------------------------------
+    # Image campaign trigger
+    # --------------------------------------------------
     if message_type == "image":
 
         return _create_pending(
@@ -129,22 +142,10 @@ def handle_admin_message(
             image_url=media_url,
         )
 
-    if message_type == "text" and msg.lower() == "admin":
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text=_admin_menu(),
-        )
-        return True
-
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text=_admin_menu(),
-    )
-    return True
+    # --------------------------------------------------
+    # Not a campaign command
+    # --------------------------------------------------
+    return False
 
 
 def _create_pending(
@@ -270,7 +271,9 @@ def _execute_broadcast(
 
     for row in recipients:
         try:
+
             if campaign_type == "text":
+
                 formatted_message = (
                     "📢 Fat Ginger Announcement\n\n"
                     f"{message}"
@@ -282,7 +285,9 @@ def _execute_broadcast(
                     to_number=row.phone,
                     text=formatted_message,
                 )
+
             else:
+
                 if message:
                     formatted_caption = (
                         "📢 Fat Ginger Announcement\n\n"
@@ -291,7 +296,6 @@ def _execute_broadcast(
                 else:
                     formatted_caption = None
 
-                # ✅ FIXED PARAM NAME HERE
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
@@ -304,6 +308,7 @@ def _execute_broadcast(
             status = "SENT"
 
         except Exception:
+
             failed_count += 1
             status = "FAILED"
 
@@ -352,12 +357,4 @@ def _execute_broadcast(
         business_msisdn=business_msisdn,
         to_number=admin_msisdn,
         text=summary,
-    )
-
-
-def _admin_menu() -> str:
-    return (
-        "Admin Menu:\n\n"
-        "• announcement: <text> – Send text campaign\n"
-        "• Send image with optional caption – Prepare image campaign"
     )
