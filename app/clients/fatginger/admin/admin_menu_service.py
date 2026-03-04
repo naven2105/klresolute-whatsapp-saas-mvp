@@ -20,23 +20,21 @@ from app.messaging.client_messenger import send_message
 
 ADMIN_MENU_TEXT = (
     "🛠️ Admin Menu\n\n"
+
     "📊 Surveys\n\n"
-    "Start a survey:\n\n"
-    "SURVEY: <question>\n\n"
+    "* survey: <question> – Send customer survey\n\n"
     "Example:\n"
-    "SURVEY: How was your meal today?\n\n"
-    "Customers receive the survey and can respond.\n\n"
+    "survey: How was your meal today?\n\n"
+
     "────────────────\n\n"
+
     "🎯 Announcement\n\n"
-    "Text announcement:\n"
-    "ANNOUNCEMENT: <message>\n\n"
-    "Image announcement:\n"
-    "Send an image with optional caption\n\n"
-    "A preview will be shown.\n"
-    "Reply YES to confirm sending.\n\n"
+    "* announcement: <text> – Send text announcement\n"
+    "* Send image with optional caption – Send image announcement\n\n"
+
     "Notes:\n"
     "• Only one active announcement\n"
-    "• New announcement replaces previous one\n"
+    "• New announcement replaces the previous one\n"
     "• Customers type: announcements"
 )
 
