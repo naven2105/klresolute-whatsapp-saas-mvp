@@ -41,10 +41,8 @@ from app.webhooks import router as webhooks_router
 from app.admin.routes import router as admin_router
 from app.clients.magen.admin.routes import router as magen_admin_router
 
-# UPDATED: Tenant-scoped survey expiry
-from app.clients.galitos.survey.survey_expiry_notifier import (
-    start_survey_expiry_notifier,
-)
+# NEW: Tenant worker registry
+from app.workers.tenant_workers import start_all_workers
 
 from app.clients.magen.inspection.auto_close_worker import (
     auto_close_expired_inspections,
@@ -69,6 +67,7 @@ app.include_router(webhooks_router)
 app.include_router(admin_router)
 app.include_router(magen_admin_router)
 
+
 async def magen_auto_close_loop() -> None:
     logger.info("MAGEN_AUTO_CLOSE_WORKER_START")
 
@@ -83,11 +82,15 @@ async def magen_auto_close_loop() -> None:
 
         await asyncio.sleep(60)
 
+
 @app.on_event("startup")
 async def startup() -> None:
-    # Tenant-scoped background job
-    start_survey_expiry_notifier()
+    # Start all tenant background workers
+    start_all_workers()
+
+    # Existing Magen inspection worker
     asyncio.create_task(magen_auto_close_loop())
+
 
 @app.get("/webhooks/whatsapp", response_class=PlainTextResponse)
 def verify_webhook(request: Request):
@@ -101,6 +104,7 @@ def verify_webhook(request: Request):
         return challenge
 
     raise HTTPException(status_code=403, detail="Webhook verification failed")
+
 
 @app.get("/health")
 def health():
