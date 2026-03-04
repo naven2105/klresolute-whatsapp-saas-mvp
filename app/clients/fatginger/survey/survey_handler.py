@@ -10,6 +10,11 @@ Admin survey command handler.
 
 Command:
 survey: <question>
+
+Standards:
+- Case insensitive command detection
+- Exact command spelling required
+- ':' required
 """
 
 import logging
@@ -30,11 +35,14 @@ def handle_survey_command(
 ) -> bool:
 
     msg = (message_text or "").strip()
+    msg_lower = msg.lower()
 
-    if not msg.lower().startswith("survey:"):
+    # Command detection (case-insensitive, colon required)
+    if not msg_lower.startswith("survey:"):
         return False
 
-    question = msg.split("survey:", 1)[1].strip()
+    # Extract question after first colon
+    question = msg.split(":", 1)[1].strip()
 
     if not question:
         send_message(
