@@ -61,9 +61,10 @@ def handle_survey_command(
             if active:
 
                 send_message(
-                    to=sender_msisdn,
-                    body=ACTIVE_SURVEY_WARNING,
+                    db=db,
                     business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    body=ACTIVE_SURVEY_WARNING,
                 )
 
                 return True
@@ -101,9 +102,7 @@ def handle_survey_command(
 
             db.commit()
 
-            # ----------------------------------------
             # Get opted-in customers
-            # ----------------------------------------
             customers = db.execute(
                 text(
                     """
@@ -119,22 +118,21 @@ def handle_survey_command(
                 try:
 
                     send_message(
-                        to=row.phone,
-                        template=SURVEY_TEMPLATE_V1,
+                        db=db,
                         business_msisdn=business_msisdn,
-                        variables={
-                            "question": question,
-                            "survey_id": survey_id,
-                        },
+                        to_number=row.phone,
+                        template_name=SURVEY_TEMPLATE_V1,
+                        template_params=[question],
                     )
 
                 except Exception:
                     logger.exception("SURVEY_BROADCAST_FAIL")
 
             send_message(
-                to=sender_msisdn,
-                body="✅ Survey started.",
+                db=db,
                 business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                body="✅ Survey started.",
             )
 
             return True
@@ -158,9 +156,10 @@ def handle_survey_command(
             if not survey:
 
                 send_message(
-                    to=sender_msisdn,
-                    body="No active survey.",
+                    db=db,
                     business_msisdn=business_msisdn,
+                    to_number=sender_msisdn,
+                    body="No active survey.",
                 )
 
                 return True
@@ -199,9 +198,10 @@ def handle_survey_command(
                 summary += f"{r.button_id}: {r.votes}\n"
 
             send_message(
-                to=sender_msisdn,
-                body=summary,
+                db=db,
                 business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                body=summary,
             )
 
             return True
