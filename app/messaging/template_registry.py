@@ -22,7 +22,7 @@
 # FATGINGER
 # ===============================
 
-FG_ORDER_NOTIFICATION = "order_notification"
+FG_BOOKING_NOTIFICATION = "order_notification"
 
 
 # ===============================
