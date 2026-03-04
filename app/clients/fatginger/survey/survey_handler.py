@@ -13,6 +13,7 @@
 # - Prevent multiple active surveys
 # - Allow manual close (END SURVEY)
 # - Broadcast survey template to opted-in customers
+# - Send survey results to admin when survey closes
 #
 # Rules:
 # - Case insensitive command matching
@@ -60,7 +61,7 @@ def handle_survey_command(
         result = db.execute(
             text(
                 """
-                SELECT id
+                SELECT id, question
                 FROM surveys
                 WHERE status = 'ACTIVE'
                 LIMIT 1
@@ -78,6 +79,7 @@ def handle_survey_command(
             return True
 
         survey_id = result.id
+        question = result.question
 
         db.execute(
             text(
@@ -93,11 +95,57 @@ def handle_survey_command(
 
         db.commit()
 
+        # --------------------------------------------------
+        # Generate survey results
+        # --------------------------------------------------
+        rows = db.execute(
+            text(
+                """
+                SELECT tag, COUNT(*) AS count
+                FROM survey_responses
+                WHERE survey_id = :sid
+                GROUP BY tag
+                """
+            ),
+            {"sid": survey_id},
+        ).fetchall()
+
+        positive = 0
+        neutral = 0
+        negative = 0
+
+        for row in rows:
+            if row.tag == "POSITIVE":
+                positive = row.count
+            elif row.tag == "NEUTRAL":
+                neutral = row.count
+            elif row.tag == "NEGATIVE":
+                negative = row.count
+
+        total = positive + neutral + negative
+
+        if total == 0:
+            report = (
+                "📊 Survey Results\n\n"
+                f"Question:\n{question}\n\n"
+                "No responses received."
+            )
+        else:
+            report = (
+                "📊 Survey Results\n\n"
+                f"Question:\n{question}\n\n"
+                "Responses:\n"
+                f"👍 Positive: {positive}\n"
+                f"😐 Neutral: {neutral}\n"
+                f"👎 Negative: {negative}\n\n"
+                f"Total responses: {total}"
+            )
+
         send_message(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="Survey closed.",
+            text=report,
         )
 
         return True
