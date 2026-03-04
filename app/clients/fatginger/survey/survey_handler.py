@@ -4,13 +4,6 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 25 – Tenant Survey Isolation
-#
-# Purpose:
-# Handles FatGinger admin survey commands.
-#
-# Commands:
-# SURVEY: <question>
-# END SURVEY
 # ==================================================
 
 from __future__ import annotations
@@ -38,12 +31,13 @@ ACTIVE_SURVEY_WARNING = (
 def handle_survey_command(
     *,
     db: Session,
-    admin_msisdn: str,
+    sender_msisdn: str,
     business_msisdn: str,
     message_text: str,
-) -> None:
+) -> bool:
     """
     Dispatcher entrypoint for survey commands.
+    Returns True if command handled.
     """
 
     try:
@@ -71,12 +65,12 @@ def handle_survey_command(
             if active:
 
                 send_message(
-                    to=admin_msisdn,
+                    to=sender_msisdn,
                     body=ACTIVE_SURVEY_WARNING,
                     business_msisdn=business_msisdn,
                 )
 
-                return
+                return True
 
             survey_id = str(uuid.uuid4())
 
@@ -139,12 +133,12 @@ def handle_survey_command(
                     logger.exception("SURVEY_BROADCAST_FAIL")
 
             send_message(
-                to=admin_msisdn,
+                to=sender_msisdn,
                 body="✅ Survey started.",
                 business_msisdn=business_msisdn,
             )
 
-            return
+            return True
 
         # ----------------------------------------
         # END SURVEY
@@ -165,12 +159,12 @@ def handle_survey_command(
             if not survey:
 
                 send_message(
-                    to=admin_msisdn,
+                    to=sender_msisdn,
                     body="No active survey.",
                     business_msisdn=business_msisdn,
                 )
 
-                return
+                return True
 
             survey_id = survey.id
 
@@ -206,12 +200,14 @@ def handle_survey_command(
                 summary += f"{r.button_id}: {r.votes}\n"
 
             send_message(
-                to=admin_msisdn,
+                to=sender_msisdn,
                 body=summary,
                 business_msisdn=business_msisdn,
             )
 
-            return
+            return True
+
+        return False
 
     except Exception:
 
@@ -221,3 +217,5 @@ def handle_survey_command(
             db.rollback()
         except Exception:
             pass
+
+        return False
