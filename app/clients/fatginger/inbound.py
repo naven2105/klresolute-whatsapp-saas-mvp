@@ -31,6 +31,7 @@ from app.clients.fatginger.handlers.campaign_handler import (
 )
 from app.clients.fatginger.survey.survey_handler import handle_survey_command
 from app.clients.fatginger.admin.admin_menu_service import handle_admin_menu
+from app.clients.fatginger.admin.admin_router import route_admin_message
 
 logger = logging.getLogger("fatginger.inbound")
 
@@ -95,34 +96,13 @@ def handle_fatginger_inbound(
         # ADMIN COMMANDS
         # --------------------------------------------------
         if role == "admin":
-
-            # Survey command
-            if handle_survey_command(
-                db=db,
-                sender_msisdn=sender_msisdn,
-                business_msisdn=business_msisdn,
-                message_text=msg,
-            ):
-                return True
-
-            # Campaign / Announcement handling
-            handled = handle_admin_message(
+            return route_admin_message(
                 db=db,
                 sender_msisdn=sender_msisdn,
                 business_msisdn=business_msisdn,
                 message_text=message_text,
                 message_type=message_type,
                 media_url=media_url,
-            )
-
-            if handled:
-                return True
-
-            # Unknown admin command → Admin menu
-            return handle_admin_menu(
-                db=db,
-                sender_msisdn=sender_msisdn,
-                business_msisdn=business_msisdn,
             )
 
         # --------------------------------------------------
