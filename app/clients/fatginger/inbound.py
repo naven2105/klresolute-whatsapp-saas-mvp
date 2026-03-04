@@ -2,19 +2,6 @@
 # File: inbound.py
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 16 – Campaign Integration
-#
-# Purpose:
-# FatGinger Client-Specific Inbound Handler
-#
-# Update:
-# - Delegates admin messages to campaign_handler
-# - Staff blocked
-# - Customer flow unchanged
-#
-# Isolation:
-# - No dispatcher changes
 # ==================================================
 
 from __future__ import annotations
@@ -53,6 +40,12 @@ STOP_CONFIRMATION = (
     "You can still use menu and booking anytime."
 )
 
+ABOUT_MESSAGE = (
+    "🍔 About FatGinger\n\n"
+    "FatGinger is your local spot for great burgers, drinks and specials.\n"
+    "We look forward to hosting you!"
+)
+
 
 def handle_fatginger_inbound(
     db: Session,
@@ -63,7 +56,6 @@ def handle_fatginger_inbound(
     media_url: str | None,
 ) -> bool:
 
-    # Allow image-only messages
     if not message_text and message_type != "image":
         return False
 
@@ -72,9 +64,6 @@ def handle_fatginger_inbound(
 
     try:
 
-        # --------------------------------------------------
-        # ROLE DETECTION
-        # --------------------------------------------------
         role = "customer"
 
         if db.execute(
@@ -89,9 +78,6 @@ def handle_fatginger_inbound(
         ).fetchone():
             role = "staff"
 
-        # --------------------------------------------------
-        # ADMIN
-        # --------------------------------------------------
         if role == "admin":
             return handle_admin_message(
                 db=db,
@@ -102,17 +88,10 @@ def handle_fatginger_inbound(
                 media_url=media_url,
             )
 
-        # --------------------------------------------------
-        # STAFF (No interaction)
-        # --------------------------------------------------
         if role == "staff":
             return True
 
-        # --------------------------------------------------
-        # CUSTOMER LOGIC
-        # --------------------------------------------------
-
-        # STOP / UNSUBSCRIBE
+        # STOP
         if msg_lower in ("stop", "unsubscribe"):
             db.execute(
                 text(
@@ -156,9 +135,7 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # --------------------------------------------------
-        # MENU COMMAND (CUSTOMER MAIN MENU)
-        # --------------------------------------------------
+        # MENU
         if msg_lower == "menu":
             return handle_main_menu(
                 db=db,
@@ -167,9 +144,7 @@ def handle_fatginger_inbound(
                 message_text=msg,
             )
 
-        # --------------------------------------------------
-        # FOOD / DRINKS (DB-DRIVEN)
-        # --------------------------------------------------
+        # FOOD
         if handle_menu_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -178,6 +153,7 @@ def handle_fatginger_inbound(
         ):
             return True
 
+        # DRINKS
         if handle_drinks_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -186,7 +162,17 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # BOOKING (delegated)
+        # ABOUT
+        if msg_lower == "about":
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text=ABOUT_MESSAGE,
+            )
+            return True
+
+        # BOOKING
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -195,7 +181,7 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # ANNOUNCEMENT / SPECIALS RETRIEVAL (campaign-based)
+        # SPECIALS
         if msg_lower in ("announcement", "special", "specials"):
             result = db.execute(
                 text(
@@ -250,7 +236,6 @@ def handle_fatginger_inbound(
         logger.exception("FG_UNEXPECTED_ERROR")
         return True
 
-    # FALLBACK → CUSTOMER MENU
     return handle_main_menu(
         db=db,
         sender_msisdn=sender_msisdn,
