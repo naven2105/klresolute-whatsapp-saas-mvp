@@ -2,6 +2,14 @@
 # File: inbound.py
 # Path: app/clients/fatginger/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
+#
+# Sprint 16 – Campaign Integration
+#
+# Purpose:
+# FatGinger Client-Specific Inbound Handler
+#
+# Isolation:
+# - No dispatcher changes
 # ==================================================
 
 from __future__ import annotations
@@ -21,6 +29,7 @@ from app.clients.fatginger.customer.menu_service import (
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
+from app.clients.fatginger.survey.survey_handler import handle_survey_command
 
 logger = logging.getLogger("fatginger.inbound")
 
@@ -64,6 +73,9 @@ def handle_fatginger_inbound(
 
     try:
 
+        # --------------------------------------------------
+        # ROLE DETECTION
+        # --------------------------------------------------
         role = "customer"
 
         if db.execute(
@@ -78,7 +90,20 @@ def handle_fatginger_inbound(
         ).fetchone():
             role = "staff"
 
+        # --------------------------------------------------
+        # ADMIN COMMANDS
+        # --------------------------------------------------
         if role == "admin":
+
+            # Survey command
+            if handle_survey_command(
+                db=db,
+                sender_msisdn=sender_msisdn,
+                business_msisdn=business_msisdn,
+                message_text=msg,
+            ):
+                return True
+
             return handle_admin_message(
                 db=db,
                 sender_msisdn=sender_msisdn,
@@ -88,10 +113,16 @@ def handle_fatginger_inbound(
                 media_url=media_url,
             )
 
+        # --------------------------------------------------
+        # STAFF
+        # --------------------------------------------------
         if role == "staff":
             return True
 
-        # STOP
+        # --------------------------------------------------
+        # CUSTOMER
+        # --------------------------------------------------
+
         if msg_lower in ("stop", "unsubscribe"):
             db.execute(
                 text(
@@ -114,7 +145,7 @@ def handle_fatginger_inbound(
             )
             return True
 
-        # AUTO REGISTER
+        # Auto register
         result = db.execute(
             text(
                 """
@@ -135,7 +166,6 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # MENU
         if msg_lower == "menu":
             return handle_main_menu(
                 db=db,
@@ -144,7 +174,6 @@ def handle_fatginger_inbound(
                 message_text=msg,
             )
 
-        # FOOD
         if handle_menu_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -153,7 +182,6 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # DRINKS
         if handle_drinks_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -162,7 +190,6 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # ABOUT
         if msg_lower == "about":
             send_message(
                 db=db,
@@ -172,7 +199,6 @@ def handle_fatginger_inbound(
             )
             return True
 
-        # BOOKING
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -181,7 +207,6 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # SPECIALS
         if msg_lower in ("announcement", "special", "specials"):
             result = db.execute(
                 text(
@@ -204,16 +229,11 @@ def handle_fatginger_inbound(
                 return True
 
             if result.type == "text":
-                formatted = (
-                    "📢 Fat Ginger Announcement\n\n"
-                    f"{result.message}"
-                )
-
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=formatted,
+                    text=f"📢 Fat Ginger Announcement\n\n{result.message}",
                 )
             else:
                 send_message(
