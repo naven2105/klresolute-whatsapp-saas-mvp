@@ -54,7 +54,7 @@ def dispatch(
                 message_text=body_text,
                 media_id=None,
                 media_type=None,
-                business_msisdn=business_msisdn,   # ✅ FIXED
+                business_msisdn=business_msisdn,
             )
 
             if handled:
@@ -70,7 +70,7 @@ def dispatch(
             media_url=None,
         )
 
-        return True if handled else True
+        return handled
 
     # --------------------------------------------------
     # IMAGE MESSAGES
@@ -90,7 +90,7 @@ def dispatch(
             media_url=media_id,
         )
 
-        return True if handled else True
+        return handled
 
     # --------------------------------------------------
     # ANNOUNCEMENTS MODULE
