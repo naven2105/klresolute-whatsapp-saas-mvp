@@ -19,23 +19,42 @@ from app.messaging.client_messenger import send_message
 
 
 ADMIN_MENU_TEXT = (
-    "🛠️ Admin Menu\n\n"
+    "🛠️ Fat Ginger Admin Menu\n\n"
 
-    "📊 Surveys\n\n"
-    "* survey: <question> – Send customer survey\n\n"
-    "Example:\n"
+    "📊 Customer Surveys\n\n"
+
+    "Start survey\n"
+    "survey: <question>\n\n"
+
+    "Example\n"
     "survey: How was your meal today?\n\n"
+
+    "End active survey\n"
+    "end survey\n\n"
+
+    "Notes\n"
+    "• Only one survey can be active\n"
+    "• Results are sent when the survey ends\n\n"
 
     "────────────────\n\n"
 
-    "🎯 Announcement\n\n"
-    "* announcement: <text> – Send text announcement\n"
-    "* Send image with optional caption – Send image announcement\n\n"
+    "📣 Announcements\n\n"
 
-    "Notes:\n"
-    "• Only one active announcement\n"
-    "• New announcement replaces the previous one\n"
-    "• Customers type: announcements"
+    "Option 1 — Text announcement\n"
+    "announcement: <text>\n\n"
+
+    "Example\n"
+    "announcement: Lunch special today – 20% off!\n\n"
+
+    "Option 2 — Image announcement\n"
+    "Send an image with an optional caption\n\n"
+
+    "Notes\n"
+    "• Only one announcement is active\n"
+    "• New announcement replaces the previous one\n\n"
+
+    "Customers can view announcements by typing\n"
+    "announcements"
 )
 
 
