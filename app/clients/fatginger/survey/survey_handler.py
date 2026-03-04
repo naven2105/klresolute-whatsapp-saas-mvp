@@ -12,6 +12,7 @@
 # - Start survey (SURVEY: question)
 # - Prevent multiple active surveys
 # - Allow manual close (END SURVEY)
+# - Broadcast survey template to opted-in customers
 #
 # Rules:
 # - Case insensitive command matching
@@ -28,6 +29,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
+from app.messaging.template_registry import SURVEY_TEMPLATE_V1
 
 logger = logging.getLogger("fatginger.survey_handler")
 
@@ -169,6 +171,34 @@ def handle_survey_command(
     )
 
     db.commit()
+
+    # --------------------------------------------------
+    # Broadcast survey to opted-in customers
+    # --------------------------------------------------
+    rows = db.execute(
+        text(
+            """
+            SELECT phone
+            FROM r_fg__customers
+            WHERE marketing_opt_in = TRUE
+            """
+        )
+    ).fetchall()
+
+    for row in rows:
+        try:
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=row.phone,
+                template_name=SURVEY_TEMPLATE_V1,
+                template_params=[question],
+            )
+        except Exception:
+            logger.exception(
+                "FG_SURVEY_SEND_FAIL | phone=%s",
+                row.phone,
+            )
 
     send_message(
         db=db,
