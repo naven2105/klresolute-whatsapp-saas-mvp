@@ -62,16 +62,14 @@ def dispatch(
             handle_survey_response,
         )
 
-        handled = handle_survey_response(
+        handle_survey_response(
             db=db,
-            sender_msisdn=sender,
-            business_msisdn=business_msisdn,
+            client_number=sender,
             button_id=button_payload,
-            button_text=button_text,
+            tag=button_text,
         )
 
-        if handled:
-            return True
+        return True
 
     # --------------------------------------------------
     # TEXT MESSAGES
