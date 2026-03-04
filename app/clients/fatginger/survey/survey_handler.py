@@ -64,7 +64,7 @@ def handle_survey_command(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    body=ACTIVE_SURVEY_WARNING,
+                    text=ACTIVE_SURVEY_WARNING,
                 )
 
                 return True
@@ -102,7 +102,6 @@ def handle_survey_command(
 
             db.commit()
 
-            # Get opted-in customers
             customers = db.execute(
                 text(
                     """
@@ -132,7 +131,7 @@ def handle_survey_command(
                 db=db,
                 business_msisdn=business_msisdn,
                 to_number=sender_msisdn,
-                body="✅ Survey started.",
+                text="✅ Survey started.",
             )
 
             return True
@@ -159,7 +158,7 @@ def handle_survey_command(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    body="No active survey.",
+                    text="No active survey.",
                 )
 
                 return True
@@ -201,7 +200,7 @@ def handle_survey_command(
                 db=db,
                 business_msisdn=business_msisdn,
                 to_number=sender_msisdn,
-                body=summary,
+                text=summary,
             )
 
             return True
