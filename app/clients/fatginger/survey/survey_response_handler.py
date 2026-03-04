@@ -3,21 +3,23 @@
 # Path: app/clients/fatginger/survey/survey_response_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 24 – Survey Response Capture
+# Sprint 25 – Tenant Survey Isolation
 #
 # Purpose:
-# Records FatGinger survey button responses.
+# Handles incoming survey button responses from customers.
 #
 # Rules:
-# - Only ACTIVE survey accepted
-# - One response per message
-# - No schema changes
-# - Tenant isolated
+# - Tenant isolated tables
+# - Never raise exceptions
+# - Never break dispatcher
 # ==================================================
 
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -27,68 +29,67 @@ logger = logging.getLogger("fatginger.survey_response_handler")
 def handle_survey_response(
     *,
     db: Session,
-    sender_msisdn: str,
-    business_msisdn: str,
-    button_id: str | None,
-    button_text: str | None,
-) -> bool:
+    client_number: str,
+    button_id: str,
+    tag: str | None = None,
+) -> None:
 
-    if not button_id:
-        return False
+    try:
 
-    # --------------------------------------------------
-    # Find ACTIVE survey
-    # --------------------------------------------------
-    survey = db.execute(
-        text(
-            """
-            SELECT id
-            FROM surveys
-            WHERE status = 'ACTIVE'
-            AND business_number = :bn
-            LIMIT 1
-            """
-        ),
-        {"bn": business_msisdn},
-    ).fetchone()
+        survey = db.execute(
+            text(
+                """
+                SELECT id
+                FROM r_fg__surveys
+                WHERE status = 'ACTIVE'
+                LIMIT 1
+                """
+            )
+        ).fetchone()
 
-    if not survey:
-        logger.info("FG_SURVEY_RESPONSE_NO_ACTIVE")
-        return True
+        if not survey:
+            return
 
-    survey_id = survey.id
+        survey_id = survey.id
 
-    # --------------------------------------------------
-    # Map button -> tag
-    # --------------------------------------------------
-    tag = button_id.upper()
+        db.execute(
+            text(
+                """
+                INSERT INTO r_fg__survey_responses (
+                    id,
+                    survey_id,
+                    client_number,
+                    button_id,
+                    tag,
+                    created_at
+                )
+                VALUES (
+                    :id,
+                    :survey_id,
+                    :client_number,
+                    :button_id,
+                    :tag,
+                    :created_at
+                )
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "survey_id": survey_id,
+                "client_number": client_number,
+                "button_id": button_id,
+                "tag": tag,
+                "created_at": datetime.utcnow(),
+            },
+        )
 
-    # --------------------------------------------------
-    # Insert response
-    # --------------------------------------------------
-    db.execute(
-        text(
-            """
-            INSERT INTO survey_responses
-            (survey_id, client_number, button_id, tag)
-            VALUES (:sid, :phone, :btn, :tag)
-            """
-        ),
-        {
-            "sid": survey_id,
-            "phone": sender_msisdn,
-            "btn": button_id,
-            "tag": tag,
-        },
-    )
+        db.commit()
 
-    db.commit()
+    except Exception:
 
-    logger.info(
-        "FG_SURVEY_RESPONSE_RECORDED | survey_id=%s | phone=%s | tag=%s",
-        survey_id,
-        sender_msisdn,
-        tag,
-    )
+        logger.exception("SURVEY_RESPONSE_SAVE_FAIL")
 
-    return True
+        try:
+            db.rollback()
+        except Exception:
+            pass
