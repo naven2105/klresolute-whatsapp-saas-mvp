@@ -27,6 +27,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.messaging.client_messenger import send_message
 from app.clients.fatginger.customer.booking_service import handle_booking_command
 from app.clients.fatginger.customer.main_menu_service import handle_main_menu
+from app.clients.fatginger.customer.menu_service import (
+    handle_menu_command,
+    handle_drinks_command,
+)
 from app.clients.fatginger.handlers.campaign_handler import (
     handle_admin_message,
 )
@@ -153,7 +157,7 @@ def handle_fatginger_inbound(
             )
 
         # --------------------------------------------------
-        # MENU COMMAND
+        # MENU COMMAND (CUSTOMER MAIN MENU)
         # --------------------------------------------------
         if msg_lower == "menu":
             return handle_main_menu(
@@ -164,8 +168,25 @@ def handle_fatginger_inbound(
             )
 
         # --------------------------------------------------
-        # BOOKING
+        # FOOD / DRINKS (DB-DRIVEN)
         # --------------------------------------------------
+        if handle_menu_command(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
+
+        if handle_drinks_command(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
+
+        # BOOKING (delegated)
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -174,9 +195,7 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        # --------------------------------------------------
-        # ANNOUNCEMENT / SPECIALS RETRIEVAL
-        # --------------------------------------------------
+        # ANNOUNCEMENT / SPECIALS RETRIEVAL (campaign-based)
         if msg_lower in ("announcement", "special", "specials"):
             result = db.execute(
                 text(
@@ -231,9 +250,7 @@ def handle_fatginger_inbound(
         logger.exception("FG_UNEXPECTED_ERROR")
         return True
 
-    # --------------------------------------------------
     # FALLBACK → CUSTOMER MENU
-    # --------------------------------------------------
     return handle_main_menu(
         db=db,
         sender_msisdn=sender_msisdn,
