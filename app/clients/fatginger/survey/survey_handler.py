@@ -3,7 +3,7 @@
 # Path: app/clients/fatginger/survey/survey_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 24 – Survey Safety Enhancements
+# Sprint 25 – Tenant Survey Isolation
 #
 # Purpose:
 # Handles FatGinger admin survey commands.
@@ -18,14 +18,15 @@
 # Rules:
 # - Case insensitive command matching
 # - Only one ACTIVE survey allowed
-# - No schema changes
-# - No cross-tenant logic
+# - Tenant-isolated tables
 # ==================================================
 
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -37,222 +38,204 @@ logger = logging.getLogger("fatginger.survey_handler")
 
 ACTIVE_SURVEY_WARNING = (
     "⚠️ An active survey already exists.\n\n"
-    "To close the active survey early, type:\n"
+    "To close it first send:\n"
     "END SURVEY"
 )
 
 
-def handle_survey_command(
+def start_survey(
     *,
     db: Session,
-    sender_msisdn: str,
+    admin_msisdn: str,
     business_msisdn: str,
-    message_text: str | None,
-) -> bool:
+    question: str,
+) -> None:
 
-    msg = (message_text or "").strip()
-    msg_lower = msg.lower()
+    try:
 
-    # --------------------------------------------------
-    # END SURVEY (manual close)
-    # --------------------------------------------------
-    if msg_lower == "end survey":
-
-        result = db.execute(
+        # ----------------------------------------
+        # Check for existing active survey
+        # ----------------------------------------
+        active = db.execute(
             text(
                 """
-                SELECT id, question
-                FROM surveys
+                SELECT id
+                FROM r_fg__surveys
                 WHERE status = 'ACTIVE'
                 LIMIT 1
                 """
             )
         ).fetchone()
 
-        if not result:
+        if active:
+
             send_message(
-                db=db,
+                to=admin_msisdn,
+                body=ACTIVE_SURVEY_WARNING,
                 business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text="There is no active survey.",
             )
-            return True
 
-        survey_id = result.id
-        question = result.question
+            return
 
+        survey_id = str(uuid.uuid4())
+
+        # ----------------------------------------
+        # Create survey
+        # ----------------------------------------
         db.execute(
             text(
                 """
-                UPDATE surveys
-                SET status = 'CLOSED',
-                    closed_at = NOW()
-                WHERE id = :sid
+                INSERT INTO r_fg__surveys (
+                    id,
+                    question,
+                    started_at,
+                    ends_at,
+                    status,
+                    button_set
+                )
+                VALUES (
+                    :id,
+                    :question,
+                    :started_at,
+                    :ends_at,
+                    'ACTIVE',
+                    'SURVEY_TEMPLATE_V1'
+                )
                 """
             ),
-            {"sid": survey_id},
+            {
+                "id": survey_id,
+                "question": question,
+                "started_at": datetime.utcnow(),
+                "ends_at": datetime.utcnow() + timedelta(hours=24),
+            },
         )
 
         db.commit()
 
-        # --------------------------------------------------
-        # Generate survey results
-        # --------------------------------------------------
-        rows = db.execute(
+        # ----------------------------------------
+        # Broadcast template
+        # ----------------------------------------
+        customers = db.execute(
             text(
                 """
-                SELECT tag, COUNT(*) AS count
-                FROM survey_responses
-                WHERE survey_id = :sid
-                GROUP BY tag
+                SELECT client_number
+                FROM r_fg__customers
+                WHERE survey_opt_in = TRUE
                 """
-            ),
-            {"sid": survey_id},
+            )
         ).fetchall()
 
-        positive = 0
-        neutral = 0
-        negative = 0
+        for row in customers:
 
-        for row in rows:
-            if row.tag == "POSITIVE":
-                positive = row.count
-            elif row.tag == "NEUTRAL":
-                neutral = row.count
-            elif row.tag == "NEGATIVE":
-                negative = row.count
+            try:
 
-        total = positive + neutral + negative
+                send_message(
+                    to=row.client_number,
+                    template=SURVEY_TEMPLATE_V1,
+                    business_msisdn=business_msisdn,
+                    variables={
+                        "question": question,
+                        "survey_id": survey_id,
+                    },
+                )
 
-        if total == 0:
-            report = (
-                "📊 Survey Results\n\n"
-                f"Question:\n{question}\n\n"
-                "No responses received."
-            )
-        else:
-            report = (
-                "📊 Survey Results\n\n"
-                f"Question:\n{question}\n\n"
-                "Responses:\n"
-                f"👍 Positive: {positive}\n"
-                f"😐 Neutral: {neutral}\n"
-                f"👎 Negative: {negative}\n\n"
-                f"Total responses: {total}"
-            )
+            except Exception:
+                logger.exception("SURVEY_BROADCAST_FAIL")
 
         send_message(
-            db=db,
+            to=admin_msisdn,
+            body="✅ Survey started.",
             business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text=report,
         )
 
-        return True
+    except Exception:
 
-    # --------------------------------------------------
-    # START SURVEY
-    # --------------------------------------------------
-    if not msg_lower.startswith("survey:"):
-        return False
+        logger.exception("SURVEY_START_FAIL")
 
-    parts = msg.split(":", 1)
-    if len(parts) < 2:
-        return True
-
-    question = parts[1].strip()
-
-    if not question:
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Survey question cannot be empty.",
-        )
-        return True
-
-    # --------------------------------------------------
-    # Check existing ACTIVE survey
-    # --------------------------------------------------
-    active = db.execute(
-        text(
-            """
-            SELECT id
-            FROM surveys
-            WHERE status = 'ACTIVE'
-            LIMIT 1
-            """
-        )
-    ).fetchone()
-
-    if active:
-
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text=ACTIVE_SURVEY_WARNING,
-        )
-
-        return True
-
-    # --------------------------------------------------
-    # Create survey
-    # --------------------------------------------------
-    start_time = datetime.utcnow()
-    end_time = start_time + timedelta(hours=24)
-
-    db.execute(
-        text(
-            """
-            INSERT INTO surveys
-            (question, started_at, ends_at, status, business_number, button_set)
-            VALUES (:q, :start, :end, 'ACTIVE', :bn, 'SENTIMENT')
-            """
-        ),
-        {
-            "q": question,
-            "start": start_time,
-            "end": end_time,
-            "bn": business_msisdn,
-        },
-    )
-
-    db.commit()
-
-    # --------------------------------------------------
-    # Broadcast survey to opted-in customers
-    # --------------------------------------------------
-    rows = db.execute(
-        text(
-            """
-            SELECT phone
-            FROM r_fg__customers
-            WHERE marketing_opt_in = TRUE
-            """
-        )
-    ).fetchall()
-
-    for row in rows:
         try:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=row.phone,
-                template_name=SURVEY_TEMPLATE_V1,
-                template_params=[question],
-            )
+            db.rollback()
         except Exception:
-            logger.exception(
-                "FG_SURVEY_SEND_FAIL | phone=%s",
-                row.phone,
+            pass
+
+
+def end_survey(
+    *,
+    db: Session,
+    admin_msisdn: str,
+    business_msisdn: str,
+) -> None:
+
+    try:
+
+        survey = db.execute(
+            text(
+                """
+                SELECT id
+                FROM r_fg__surveys
+                WHERE status = 'ACTIVE'
+                LIMIT 1
+                """
+            )
+        ).fetchone()
+
+        if not survey:
+
+            send_message(
+                to=admin_msisdn,
+                body="No active survey.",
+                business_msisdn=business_msisdn,
             )
 
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text="Survey started successfully.",
-    )
+            return
 
-    return True
+        survey_id = survey.id
+
+        db.execute(
+            text(
+                """
+                UPDATE r_fg__surveys
+                SET status = 'CLOSED',
+                    closed_at = now()
+                WHERE id = :survey_id
+                """
+            ),
+            {"survey_id": survey_id},
+        )
+
+        db.commit()
+
+        # ----------------------------------------
+        # Gather results
+        # ----------------------------------------
+        results = db.execute(
+            text(
+                """
+                SELECT button_id, COUNT(*) as votes
+                FROM r_fg__survey_responses
+                WHERE survey_id = :survey_id
+                GROUP BY button_id
+                """
+            ),
+            {"survey_id": survey_id},
+        ).fetchall()
+
+        summary = "📊 Survey Results\n\n"
+
+        for r in results:
+            summary += f"{r.button_id}: {r.votes}\n"
+
+        send_message(
+            to=admin_msisdn,
+            body=summary,
+            business_msisdn=business_msisdn,
+        )
+
+    except Exception:
+
+        logger.exception("SURVEY_END_FAIL")
+
+        try:
+            db.rollback()
+        except Exception:
+            pass
