@@ -19,22 +19,27 @@ from sqlalchemy import text
 
 
 def build_survey_summary_text(
+    *,
     db: Session,
     survey_id: str,
     question: str,
 ) -> str:
 
-    rows = db.execute(
-        text(
-            """
-            SELECT button_id, COUNT(*) AS votes
-            FROM r_fg__survey_responses
-            WHERE survey_id = :survey_id
-            GROUP BY button_id
-            """
-        ),
-        {"survey_id": survey_id},
-    ).mappings().all()
+    rows = (
+        db.execute(
+            text(
+                """
+                SELECT button_id, COUNT(*) AS votes
+                FROM r_fg__survey_responses
+                WHERE survey_id = :survey_id
+                GROUP BY button_id
+                """
+            ),
+            {"survey_id": survey_id},
+        )
+        .mappings()
+        .all()
+    )
 
     vote_map = {
         "positive": 0,
@@ -43,18 +48,21 @@ def build_survey_summary_text(
     }
 
     for r in rows:
-        key = (r["button_id"] or "").lower()
+        key = (r.get("button_id") or "").lower()
         if key in vote_map:
-            vote_map[key] = r["votes"]
+            vote_map[key] = r.get("votes", 0)
 
     total = sum(vote_map.values())
 
-    return (
+    summary = (
         "📊 Survey Results\n\n"
-        f"Question:\n{question}\n\n"
+        "Question:\n"
+        f"{question}\n\n"
         "Responses:\n"
         f"👍 Positive: {vote_map['positive']}\n"
         f"😐 Neutral: {vote_map['neutral']}\n"
         f"👎 Negative: {vote_map['negative']}\n\n"
         f"Total responses: {total}"
     )
+
+    return summary
