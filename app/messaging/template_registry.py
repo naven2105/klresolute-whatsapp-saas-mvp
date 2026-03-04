@@ -8,10 +8,6 @@
 # Purpose:
 # Centralised registry for all WhatsApp template names.
 #
-# Update:
-# - Added Galitos utility template klr_notification_v1
-# - Added shared Marketing survey template survey_v1
-#
 # Rules:
 # - Constants only (no logic)
 # - No hardcoded template strings elsewhere
@@ -22,7 +18,7 @@
 # FATGINGER
 # ===============================
 
-FG_BOOKING_NOTIFICATION = "order_notification"
+FG_ORDER_NOTIFICATION = "order_notification"
 
 
 # ===============================
