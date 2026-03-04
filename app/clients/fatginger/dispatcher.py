@@ -2,6 +2,12 @@
 # File: dispatcher.py
 # Path: app/clients/fatginger/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
+#
+# Sprint 24 – Survey Response Routing
+#
+# Update:
+# - Added interactive button reply routing for surveys
+# - No behavioural change to existing text/image flows
 # ==================================================
 
 from __future__ import annotations
@@ -37,6 +43,32 @@ def dispatch(
     )
 
     msg_type = msg.get("type")
+
+    # --------------------------------------------------
+    # INTERACTIVE BUTTON REPLIES (Survey responses)
+    # --------------------------------------------------
+    if msg_type == "interactive":
+
+        interactive = msg.get("interactive", {}) or {}
+        button_reply = interactive.get("button_reply", {}) or {}
+
+        button_id = button_reply.get("id")
+        button_title = button_reply.get("title")
+
+        from app.clients.fatginger.survey.survey_response_handler import (
+            handle_survey_response,
+        )
+
+        handled = handle_survey_response(
+            db=db,
+            sender_msisdn=sender,
+            business_msisdn=business_msisdn,
+            button_id=button_id,
+            button_text=button_title,
+        )
+
+        if handled:
+            return True
 
     # --------------------------------------------------
     # TEXT MESSAGES
