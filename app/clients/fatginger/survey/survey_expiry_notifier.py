@@ -1,20 +1,18 @@
-# ==================================================
-# File: survey_expiry_notifier.py
-# Path: app/clients/fatginger/survey/survey_expiry_notifier.py
-# Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 25 – Tenant Survey Isolation
-#
-# Purpose:
-# Background notifier that auto-closes expired FatGinger surveys.
-#
-# Rules:
-# - Tenant isolated
-# - Uses r_fg__surveys
-# - No cross-tenant logic
-# ==================================================
-
 from __future__ import annotations
+
+"""
+File: survey_expiry_notifier.py
+Path: app/clients/fatginger/survey/survey_expiry_notifier.py
+Project: KLResolute WhatsApp SaaS MVP
+
+Purpose:
+Background notifier that auto-closes expired FatGinger surveys.
+
+Rules:
+- Tenant isolated
+- Uses r_fg__surveys
+- No cross-tenant logic
+"""
 
 import asyncio
 import logging
@@ -22,7 +20,6 @@ import os
 
 from sqlalchemy import text
 
-from app.clients.fatginger.survey.survey_handler import end_survey
 from app.db import SessionLocal
 
 logger = logging.getLogger("fatginger.survey_expiry_notifier")
