@@ -11,6 +11,7 @@ FatGinger survey sending service.
 Rules:
 - Tenant-isolated
 - Sends survey template to opted-in customers
+- Excludes staff/admin numbers defensively
 - No dispatcher logic
 """
 
@@ -32,6 +33,7 @@ def send_survey(
 ) -> None:
     """
     Sends survey template to all marketing_opt_in customers.
+    Staff/admin numbers are excluded defensively.
     """
 
     rows = db.execute(
@@ -40,6 +42,10 @@ def send_survey(
             SELECT phone
             FROM r_fg__customers
             WHERE marketing_opt_in = TRUE
+            AND phone NOT IN (
+                SELECT phone
+                FROM r_fg__admins
+            )
             """
         )
     ).fetchall()
