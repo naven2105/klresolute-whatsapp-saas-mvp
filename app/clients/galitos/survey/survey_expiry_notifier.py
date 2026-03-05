@@ -1,16 +1,16 @@
 # ==================================================
 # File: survey_expiry_notifier.py
-# Path: app/clients/fatginger/survey/survey_expiry_notifier.py
+# Path: app/clients/galitos/survey/survey_expiry_notifier.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 25 – Tenant Survey Isolation
 #
 # Purpose:
-# Background notifier that auto-closes expired FatGinger surveys.
+# Background notifier that auto-closes expired Galitos surveys.
 #
 # Rules:
 # - Tenant isolated
-# - Uses r_fg__surveys
+# - Uses r_galitos__surveys
 # - No cross-tenant logic
 # ==================================================
 
@@ -22,10 +22,10 @@ import os
 
 from sqlalchemy import text
 
-from app.clients.fatginger.survey.survey_handler import end_survey
+from app.clients.galitos.survey.survey_handler import end_survey
 from app.db import SessionLocal
 
-logger = logging.getLogger("fatginger.survey_expiry_notifier")
+logger = logging.getLogger("galitos.survey_expiry_notifier")
 
 
 def _get_interval_seconds() -> int:
@@ -41,7 +41,7 @@ async def _run_forever() -> None:
     interval = _get_interval_seconds()
 
     logger.info(
-        "FG_EXPIRY_NOTIFIER_START | interval_seconds=%s",
+        "GALITOS_EXPIRY_NOTIFIER_START | interval_seconds=%s",
         interval,
     )
 
@@ -56,7 +56,7 @@ async def _run_forever() -> None:
                     text(
                         """
                         SELECT id
-                        FROM r_fg__surveys
+                        FROM r_galitos__surveys
                         WHERE status = 'ACTIVE'
                           AND ends_at <= now()
                         ORDER BY ends_at ASC
@@ -68,7 +68,7 @@ async def _run_forever() -> None:
                 .all()
             )
 
-            logger.info("FG_EXPIRY_SCAN | expired_found=%s", len(rows))
+            logger.info("GALITOS_EXPIRY_SCAN | expired_found=%s", len(rows))
 
             for r in rows:
 
@@ -79,7 +79,7 @@ async def _run_forever() -> None:
                     db.execute(
                         text(
                             """
-                            UPDATE r_fg__surveys
+                            UPDATE r_galitos__surveys
                             SET status = 'CLOSED',
                                 closed_at = now()
                             WHERE id = :survey_id
@@ -91,7 +91,7 @@ async def _run_forever() -> None:
                     db.commit()
 
                     logger.info(
-                        "FG_EXPIRY_SURVEY_CLOSED | survey_id=%s",
+                        "GALITOS_EXPIRY_SURVEY_CLOSED | survey_id=%s",
                         survey_id,
                     )
 
@@ -100,12 +100,12 @@ async def _run_forever() -> None:
                     db.rollback()
 
                     logger.exception(
-                        "FG_EXPIRY_CLOSE_FAIL | survey_id=%s",
+                        "GALITOS_EXPIRY_CLOSE_FAIL | survey_id=%s",
                         survey_id,
                     )
 
         except Exception:
-            logger.exception("FG_EXPIRY_LOOP_FAIL")
+            logger.exception("GALITOS_EXPIRY_LOOP_FAIL")
 
         finally:
             try:
@@ -121,9 +121,9 @@ def start_survey_expiry_notifier() -> None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        logger.warning("FG_EXPIRY_NO_LOOP")
+        logger.warning("GALITOS_EXPIRY_NO_LOOP")
         return
 
-    logger.info("FG_EXPIRY_NOTIFIER_SPAWN")
+    logger.info("GALITOS_EXPIRY_NOTIFIER_SPAWN")
 
     asyncio.create_task(_run_forever())

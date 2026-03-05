@@ -1,6 +1,6 @@
 # ==================================================
 # File: survey_handler.py
-# Path: app/clients/fatginger/survey/survey_handler.py
+# Path: app/clients/galitos/survey/survey_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 25 – Tenant Survey Isolation
@@ -17,9 +17,9 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import SURVEY_TEMPLATE_V1
-from app.clients.fatginger.survey.summary import build_survey_summary_text
+from app.clients.galitos.survey.summary import build_survey_summary_text
 
-logger = logging.getLogger("fatginger.survey_handler")
+logger = logging.getLogger("galitos.survey_handler")
 
 
 ACTIVE_SURVEY_WARNING = (
@@ -52,7 +52,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT id
-                    FROM r_fg__surveys
+                    FROM r_galitos__surveys
                     WHERE status = 'ACTIVE'
                     LIMIT 1
                     """
@@ -75,7 +75,7 @@ def handle_survey_command(
             db.execute(
                 text(
                     """
-                    INSERT INTO r_fg__surveys (
+                    INSERT INTO r_galitos__surveys (
                         id,
                         question,
                         started_at,
@@ -107,7 +107,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT phone
-                    FROM r_fg__customers
+                    FROM r_galitos__customers
                     WHERE marketing_opt_in = TRUE
                     """
                 )
@@ -146,7 +146,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT id
-                    FROM r_fg__surveys
+                    FROM r_galitos__surveys
                     WHERE status = 'ACTIVE'
                     LIMIT 1
                     """
@@ -169,7 +169,7 @@ def handle_survey_command(
             db.execute(
                 text(
                     """
-                    UPDATE r_fg__surveys
+                    UPDATE r_galitos__surveys
                     SET status = 'CLOSED',
                         closed_at = now()
                     WHERE id = :survey_id
@@ -184,7 +184,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT question
-                    FROM r_fg__surveys
+                    FROM r_galitos__surveys
                     WHERE id = :survey_id
                     """
                 ),
