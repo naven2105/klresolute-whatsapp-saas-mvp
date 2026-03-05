@@ -43,8 +43,9 @@ def send_survey(
             FROM r_fg__customers
             WHERE marketing_opt_in = TRUE
             AND phone NOT IN (
-                SELECT phone
-                FROM r_fg__admins
+                SELECT msisdn
+                FROM r_fg__staff
+                WHERE role = 'admin'
             )
             """
         )

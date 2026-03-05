@@ -86,7 +86,7 @@ def handle_galitos_inbound(
         role = "customer"
 
         if db.execute(
-            text("SELECT 1 FROM r_galitos__admins WHERE msisdn = :phone LIMIT 1"),
+            text("SELECT 1 FROM r_galitos__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "admin"

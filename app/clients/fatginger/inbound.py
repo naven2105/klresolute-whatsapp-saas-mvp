@@ -81,7 +81,7 @@ def handle_fatginger_inbound(
         role = "customer"
 
         if db.execute(
-            text("SELECT 1 FROM r_fg__admins WHERE msisdn = :phone LIMIT 1"),
+            text("SELECT 1 FROM r_fg__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "admin"
