@@ -65,7 +65,7 @@ def _is_active_magen_staff(db: Session, *, sender_msisdn: str) -> bool:
                 text(
                     """
                     SELECT 1
-                    FROM magen_staff
+                    FROM r_magen__staff
                     WHERE msisdn = :msisdn
                       AND is_active = true
                     LIMIT 1
@@ -133,7 +133,7 @@ def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
                 text(
                     """
                     SELECT 1
-                    FROM galitos_staff
+                    FROM r_galitos__staff
                     WHERE msisdn = :msisdn
                       AND is_active = true
                     LIMIT 1
