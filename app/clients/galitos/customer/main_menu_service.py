@@ -22,8 +22,7 @@ from app.messaging.client_messenger import send_message
 MAIN_MENU_TEXT = (
     "🍗 Welcome to Galitos\n\n"
     "Please choose an option:\n\n"
-    "* food — View our food menu\n"
-    "* drinks — View our drinks menu\n"
+    "* menu — Browse our food menu\n"
     "* specials — View current specials\n"
     "* book — Reserve a table\n"
     "* feedback: — Send a message to management\n"
