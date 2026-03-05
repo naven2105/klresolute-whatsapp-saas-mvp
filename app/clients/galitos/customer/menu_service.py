@@ -31,7 +31,7 @@ def handle_menu_command(
     # --------------------------------------------------
     # SHOW CATEGORY MENU
     # --------------------------------------------------
-    if msg == "menu":
+    if msg == "food":
 
         rows = (
             db.execute(
