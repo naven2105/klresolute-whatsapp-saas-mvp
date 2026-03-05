@@ -6,11 +6,8 @@
 # Sprint 28 – Galitos Tenant Alignment
 #
 # Update:
-# - Removed unused drinks command
-#
-# Rules:
-# - Minimal patch
-# - No behaviour change
+# - Ensures "food" and numeric category selections
+#   are processed by menu_service before fallback.
 # ==================================================
 
 from __future__ import annotations
@@ -24,9 +21,7 @@ from app.messaging.client_messenger import send_message
 from app.clients.galitos.customer.booking_service import handle_booking_command
 from app.clients.galitos.customer.main_menu_service import handle_main_menu
 from app.clients.galitos.customer.menu_service import handle_menu_command
-from app.clients.galitos.handlers.campaign_handler import (
-    handle_admin_message,
-)
+from app.clients.galitos.handlers.campaign_handler import handle_admin_message
 from app.clients.galitos.survey.survey_handler import handle_survey_command
 from app.clients.galitos.admin.admin_menu_service import handle_admin_menu
 from app.clients.galitos.admin.admin_router import route_admin_message
@@ -50,7 +45,7 @@ STOP_CONFIRMATION = (
 
 ABOUT_MESSAGE = (
     "🍗 About Galitos\n\n"
-    "Galitos is your local spot for flame-grilled chicken, drinks and specials.\n"
+    "Galitos is your local spot for flame-grilled chicken.\n"
     "We look forward to hosting you!"
 )
 
@@ -78,7 +73,9 @@ def handle_galitos_inbound(
         role = "customer"
 
         if db.execute(
-            text("SELECT 1 FROM r_galitos__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"),
+            text(
+                "SELECT 1 FROM r_galitos__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"
+            ),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "admin"
@@ -155,14 +152,9 @@ def handle_galitos_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        if msg_lower == "menu":
-            return handle_menu_command(
-                db=db,
-                sender_msisdn=sender_msisdn,
-                business_msisdn=business_msisdn,
-                message_text=msg,
-            )
-
+        # --------------------------------------------------
+        # FOOD MENU (category menu + numeric selections)
+        # --------------------------------------------------
         if handle_menu_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -170,6 +162,17 @@ def handle_galitos_inbound(
             message_text=msg,
         ):
             return True
+
+        # --------------------------------------------------
+        # MAIN MENU
+        # --------------------------------------------------
+        if msg_lower == "menu":
+            return handle_main_menu(
+                db=db,
+                sender_msisdn=sender_msisdn,
+                business_msisdn=business_msisdn,
+                message_text=msg,
+            )
 
         if msg_lower == "about":
             send_message(
