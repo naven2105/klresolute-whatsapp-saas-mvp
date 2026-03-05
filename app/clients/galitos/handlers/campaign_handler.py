@@ -1,12 +1,12 @@
 # ==================================================
 # File: campaign_handler.py
-# Path: app/clients/fatginger/handlers/campaign_handler.py
+# Path: app/clients/galitos/handlers/campaign_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 24 – Admin Menu Isolation
 #
 # Purpose:
-# Handles FatGinger admin campaign flow:
+# Handles Galitos admin campaign flow:
 # - Pending confirmation state (in-memory)
 # - Lazy expiry (60 seconds)
 # - Text campaign trigger
@@ -20,7 +20,7 @@
 # - Unknown admin commands must fall back to admin_menu_service
 #
 # Isolation:
-# - FatGinger only
+# - Galitos only
 # - No dispatcher changes
 # - No lifecycle states
 # ==================================================
@@ -34,7 +34,7 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
-logger = logging.getLogger("fatginger.campaign_handler")
+logger = logging.getLogger("galitos.campaign_handler")
 
 pending_campaigns: dict[str, dict] = {}
 EXPIRY_SECONDS = 60
@@ -275,7 +275,7 @@ def _execute_broadcast(
             if campaign_type == "text":
 
                 formatted_message = (
-                    "📢 Fat Ginger Announcement\n\n"
+                    "📢 Galitos Announcement\n\n"
                     f"{message}"
                 )
 
@@ -290,7 +290,7 @@ def _execute_broadcast(
 
                 if message:
                     formatted_caption = (
-                        "📢 Fat Ginger Announcement\n\n"
+                        "📢 Galitos Announcement\n\n"
                         f"{message}"
                     )
                 else:

@@ -6,7 +6,6 @@
 # Sprint 28 – Galitos Tenant Alignment
 #
 # Update:
-# - Replaced FatGinger imports with Galitos modules
 # - Updated DB table prefix r_fg__ → r_galitos__
 # - Updated logger namespace
 # - Updated function name

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: menu_service.py
-Path: app/clients/fatginger/customer/menu_service.py
+Path: app/clients/galitos/customer/menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger customer food & drinks command handling (tenant-local).
+Galitos customer food & drinks command handling (tenant-local).
 
 Rules:
 - Customer-only logic

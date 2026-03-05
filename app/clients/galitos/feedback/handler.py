@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 """
-File: app/clients/fatginger/feedback/handler.py
+File: app/clients/galitos/feedback/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger-specific feedback handler (tenant-isolated).
+Galitos-specific feedback handler (tenant-isolated).
 
 Rules:
 - Trigger: "feedback:"
@@ -23,7 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import PLATFORM_ADMIN_FEEDBACK
 
-logger = logging.getLogger("fatginger.feedback")
+logger = logging.getLogger("Galitos.feedback")
 
 
 def handle_feedback_message(

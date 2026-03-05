@@ -6,7 +6,6 @@
 # Sprint 28 – Galitos Template Alignment
 #
 # Update:
-# - Switched imports from fatginger → galitos
 # - Updated logger namespace
 # - Updated log prefixes
 #

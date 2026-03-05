@@ -1,12 +1,12 @@
 # ==================================================
 # File: booking_handler.py
-# Path: app/clients/fatginger/handlers/booking_handler.py
+# Path: app/clients/galitos/handlers/booking_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – FatGinger Booking Handler Extraction
+# Sprint 16 – Galitos Booking Handler Extraction
 #
 # Purpose:
-# Dedicated FatGinger booking handler
+# Dedicated Galitos booking handler
 #
 # Update:
 # - Staff template failure does not abort booking flow
@@ -28,7 +28,7 @@ from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import PLATFORM_CLIENT_GENERIC
 
-logger = logging.getLogger("fatginger.booking_handler")
+logger = logging.getLogger("galitos.booking_handler")
 
 
 def _normalise_sa_msisdn(raw: str) -> str:
