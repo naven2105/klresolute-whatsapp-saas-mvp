@@ -1,29 +1,23 @@
+# ==================================================
+# File: menu_service.py
+# Path: app/clients/galitos/customer/menu_service.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Purpose:
+# Galitos category-based customer menu using number selection.
+# ==================================================
+
 from __future__ import annotations
 
-"""
-File: menu_service.py
-Path: app/clients/galitos/customer/menu_service.py
-Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-Galitos customer food & drinks command handling (tenant-local).
-
-Rules:
-- Customer-only logic
-- No dispatcher logic
-- DB-driven rendering
-- Returns True if handled
-"""
-
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
+logger = logging.getLogger("galitos.menu_service")
 
-# --------------------------------------------------
-# FOOD MENU (previously handled "menu")
-# --------------------------------------------------
+
 def handle_menu_command(
     *,
     db: Session,
@@ -34,103 +28,104 @@ def handle_menu_command(
 
     msg = (message_text or "").strip().lower()
 
-    # 🔒 NOW ONLY "food"
-    if msg != "food":
-        return False
+    # --------------------------------------------------
+    # SHOW CATEGORY MENU
+    # --------------------------------------------------
+    if msg == "menu":
 
-    rows = db.execute(
-        text(
-            """
-            SELECT name, price, category
-            FROM r_galitos__menu_items
-            WHERE active = TRUE
-            ORDER BY category, name
-            """
+        rows = (
+            db.execute(
+                text(
+                    """
+                    SELECT id,name,display_order
+                    FROM r_galitos__menu_categories
+                    ORDER BY display_order
+                    """
+                )
+            )
+            .mappings()
+            .all()
         )
-    ).fetchall()
 
-    if not rows:
+        if not rows:
+            return False
+
+        lines = [
+            "🍗 Galitos Menu\n",
+            "Reply with a number:\n",
+        ]
+
+        for idx, r in enumerate(rows, start=1):
+            lines.append(f"{idx}️⃣ {r['name']}")
+
         send_message(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="Food menu is currently unavailable.",
+            text="\n".join(lines),
         )
+
         return True
 
-    lines = ["🍔 Food Menu\n"]
+    # --------------------------------------------------
+    # NUMBER SELECTION
+    # --------------------------------------------------
+    if msg.isdigit():
 
-    current_category = None
+        index = int(msg)
 
-    for row in rows:
-        if row.category != current_category:
-            current_category = row.category
-            lines.append(f"\n{current_category}")
-
-        lines.append(f"- {row.name} — R{row.price}")
-
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text="\n".join(lines),
-    )
-
-    return True
-
-
-# --------------------------------------------------
-# DRINKS MENU
-# --------------------------------------------------
-def handle_drinks_command(
-    *,
-    db: Session,
-    sender_msisdn: str,
-    business_msisdn: str,
-    message_text: str,
-) -> bool:
-
-    msg = (message_text or "").strip().lower()
-
-    if msg != "drinks":
-        return False
-
-    rows = db.execute(
-        text(
-            """
-            SELECT name, price, category
-            FROM r_galitos__beverages
-            WHERE active = TRUE
-            ORDER BY category, name
-            """
+        rows = (
+            db.execute(
+                text(
+                    """
+                    SELECT id,name
+                    FROM r_galitos__menu_categories
+                    ORDER BY display_order
+                    """
+                )
+            )
+            .mappings()
+            .all()
         )
-    ).fetchall()
 
-    if not rows:
+        if index < 1 or index > len(rows):
+            return False
+
+        category = rows[index - 1]
+
+        items = (
+            db.execute(
+                text(
+                    """
+                    SELECT name,price
+                    FROM r_galitos__menu_items
+                    WHERE category_id = :cid
+                    ORDER BY display_order
+                    """
+                ),
+                {"cid": category["id"]},
+            )
+            .mappings()
+            .all()
+        )
+
+        if not items:
+            return False
+
+        lines = [f"🍗 {category['name']}\n"]
+
+        for i in items:
+            lines.append(f"{i['name']} — R{i['price']}")
+
+        lines.append("\nReply MENU to go back.")
+
         send_message(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="Drinks menu is currently unavailable.",
+            text="\n".join(lines),
         )
+
         return True
 
-    lines = ["🥤 Drinks Menu\n"]
-
-    current_category = None
-
-    for row in rows:
-        if row.category != current_category:
-            current_category = row.category
-            lines.append(f"\n{current_category}")
-
-        lines.append(f"- {row.name} — R{row.price}")
-
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text="\n".join(lines),
-    )
-
-    return True
+    return False
