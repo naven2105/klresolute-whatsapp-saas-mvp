@@ -1,6 +1,6 @@
 # ==================================================
 # File: summary.py
-# Path: app/clients/fatginger/survey/summary.py
+# Path: app/clients/galitos/survey/summary.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Purpose:
@@ -30,7 +30,7 @@ def build_survey_summary_text(
             text(
                 """
                 SELECT button_id, COUNT(*) AS votes
-                FROM r_fg__survey_responses
+                FROM r_galitos__survey_responses
                 WHERE survey_id = :survey_id
                 GROUP BY button_id
                 """
