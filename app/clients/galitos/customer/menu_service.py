@@ -88,8 +88,23 @@ def handle_menu_command(
             .all()
         )
 
+        if not rows:
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text="No menu categories available. Reply FOOD to try again.",
+            )
+            return True
+
         if index < 1 or index > len(rows):
-            return False
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text="Invalid selection. Reply FOOD to view categories.",
+            )
+            return True
 
         category = rows[index - 1]
 
@@ -110,14 +125,20 @@ def handle_menu_command(
         )
 
         if not items:
-            return False
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text=f"No items found for {category['name']}. Reply FOOD to choose another category.",
+            )
+            return True
 
         lines = [f"🍗 {category['name']}\n"]
 
         for i in items:
             lines.append(f"{i['name']} — R{i['price']}")
 
-        lines.append("\nReply MENU to go back.")
+        lines.append("\nReply FOOD to go back.")
 
         send_message(
             db=db,
