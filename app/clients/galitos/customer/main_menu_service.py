@@ -22,7 +22,7 @@ from app.messaging.client_messenger import send_message
 MAIN_MENU_TEXT = (
     "🍗 Welcome to Galitos\n\n"
     "Please choose an option:\n\n"
-    "* menu — Browse our food menu\n"
+    "* food — Browse our food menu\n"
     "* specials — View current specials\n"
     "* book — Reserve a table\n"
     "* feedback: — Send a message to management\n"
@@ -31,6 +31,8 @@ MAIN_MENU_TEXT = (
     "book 4 22/02 19:00\n\n"
     "To send feedback:\n"
     "feedback: Your message to admin"
+
+     "Reply STOP anytime to unsubscribe."
 )
 
 
