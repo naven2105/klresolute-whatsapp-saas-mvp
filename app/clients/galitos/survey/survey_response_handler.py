@@ -1,6 +1,6 @@
 # ==================================================
 # File: survey_response_handler.py
-# Path: app/clients/fatginger/survey/survey_response_handler.py
+# Path: app/clients/galitos/survey/survey_response_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 25 – Tenant Survey Isolation
@@ -23,7 +23,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-logger = logging.getLogger("fatginger.survey_response_handler")
+logger = logging.getLogger("galitos.survey_response_handler")
 
 
 def handle_survey_response(
@@ -40,7 +40,7 @@ def handle_survey_response(
             text(
                 """
                 SELECT id
-                FROM r_fg__surveys
+                FROM r_galitos__surveys
                 WHERE status = 'ACTIVE'
                 LIMIT 1
                 """
@@ -55,7 +55,7 @@ def handle_survey_response(
         db.execute(
             text(
                 """
-                INSERT INTO r_fg__survey_responses (
+                INSERT INTO r_galitos__survey_responses (
                     id,
                     survey_id,
                     client_number,
