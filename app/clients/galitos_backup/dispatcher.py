@@ -3,31 +3,30 @@
 # Path: app/clients/galitos/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 28 – Galitos Template Alignment
+# Sprint 20 – UUID Identity Alignment
 #
-# Update:
-# - Switched imports from fatginger → galitos
-# - Updated logger namespace
-# - Updated log prefixes
+# Purpose:
+# Galitos Tenant-Specific Dispatcher
 #
-# Rules:
-# - No logic removed
-# - No refactors
-# - Minimal patch
+# Isolation:
+# - UUID-only identity
+# - No client_code usage
 # ==================================================
 
 from __future__ import annotations
 
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app.clients.galitos.inbound import handle_galitos_inbound
+from app.clients.galitos.inbound import handle_inbound as galitos_inbound
 from app.clients.galitos.feedback.handler import (
     handle_feedback_message as galitos_feedback_handler,
 )
 from app.clients.galitos.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
+from app.clients.galitos.survey import handler as survey_handler
 
 logger = logging.getLogger("galitos.dispatcher")
 
@@ -51,28 +50,6 @@ def dispatch(
     msg_type = msg.get("type")
 
     # --------------------------------------------------
-    # BUTTON MESSAGES (Survey responses)
-    # --------------------------------------------------
-    if msg_type == "button":
-
-        button_data = msg.get("button", {}) or {}
-        button_text = button_data.get("text")
-        button_payload = button_data.get("payload")
-
-        from app.clients.galitos.survey.survey_response_handler import (
-            handle_survey_response,
-        )
-
-        handle_survey_response(
-            db=db,
-            client_number=sender,
-            button_id=button_payload,
-            tag=button_text,
-        )
-
-        return True
-
-    # --------------------------------------------------
     # TEXT MESSAGES
     # --------------------------------------------------
     if msg_type == "text":
@@ -82,49 +59,47 @@ def dispatch(
         # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
+            admin_rows = (
+                db.execute(
+                    text(
+                        """
+                        SELECT msisdn
+                        FROM client_admins
+                        WHERE client_id = :client_id
+                          AND is_active = TRUE
+                        """
+                    ),
+                    {"client_id": client_id},
+                )
+                .mappings()
+                .all()
+            )
+
+            admin_numbers = {row["msisdn"] for row in admin_rows}
+
             handled = galitos_feedback_handler(
                 db=db,
                 sender_number=sender,
                 message_text=body_text,
                 media_id=None,
                 media_type=None,
+                client_id=client_id,
+                admin_numbers=admin_numbers,
                 business_msisdn=business_msisdn,
             )
 
             if handled:
                 return True
 
-        # ---- Core Inbound ----
-        handled = handle_galitos_inbound(
+        # ---- Core Galitos Inbound (Orders + Commands) ----
+        handled = galitos_inbound(
             db=db,
-            sender_msisdn=sender,
             business_msisdn=business_msisdn,
-            message_text=body_text,
-            message_type="text",
-            media_url=None,
+            sender=sender,
+            msg=msg,
         )
 
-        return handled
-
-    # --------------------------------------------------
-    # IMAGE MESSAGES
-    # --------------------------------------------------
-    if msg_type == "image":
-
-        image_data = msg.get("image", {}) or {}
-        media_id = image_data.get("id")
-        caption = image_data.get("caption")
-
-        handled = handle_galitos_inbound(
-            db=db,
-            sender_msisdn=sender,
-            business_msisdn=business_msisdn,
-            message_text=caption,
-            message_type="image",
-            media_url=media_id,
-        )
-
-        return handled
+        return True  # Hard isolation
 
     # --------------------------------------------------
     # ANNOUNCEMENTS MODULE
@@ -136,6 +111,21 @@ def dispatch(
             sender=sender,
             msg=msg,
             client_id=client_id,
+            business_msisdn=business_msisdn,
+        )
+
+        if handled:
+            return True
+
+    # --------------------------------------------------
+    # SURVEY MODULE
+    # --------------------------------------------------
+    if "survey" in profile.enabled_modules:
+
+        handled = survey_handler.handle(
+            db=db,
+            msg=msg,
+            sender=sender,
             business_msisdn=business_msisdn,
         )
 

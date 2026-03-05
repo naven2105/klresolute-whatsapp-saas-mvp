@@ -1,54 +1,68 @@
+# ==================================================
+# File: summary.py
+# Path: app/clients/fatginger/survey/summary.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Purpose:
+# Build formatted survey results summary.
+#
+# Rules:
+# - Tenant isolated
+# - Read-only DB access
+# - No messaging logic
+# ==================================================
+
 from __future__ import annotations
 
-"""
-File: app/clients/galitos/survey/summary.py
-Path: app/clients/galitos/survey/summary.py
-Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-Build admin-facing survey summaries with counts + percentages.
-"""
-
 from sqlalchemy.orm import Session
-
-# ---- Survey module imports (FIXED) ----
-from app.clients.galitos.survey.survey_models import Survey, SurveyResponse
+from sqlalchemy import text
 
 
-def build_survey_summary_text(db: Session, survey: Survey) -> str:
-    """
-    Build a human-readable admin summary for a closed survey.
-    """
+def build_survey_summary_text(
+    *,
+    db: Session,
+    survey_id: str,
+    question: str,
+) -> str:
 
     rows = (
-        db.query(SurveyResponse.button_id)
-        .filter(SurveyResponse.survey_id == survey.id)
+        db.execute(
+            text(
+                """
+                SELECT button_id, COUNT(*) AS votes
+                FROM r_fg__survey_responses
+                WHERE survey_id = :survey_id
+                GROUP BY button_id
+                """
+            ),
+            {"survey_id": survey_id},
+        )
+        .mappings()
         .all()
     )
 
-    total = len(rows)
+    vote_map = {
+        "positive": 0,
+        "neutral": 0,
+        "negative": 0,
+    }
 
-    if total == 0:
-        return (
-            "📊 Survey closed\n\n"
-            f"Question:\n{survey.question}\n\n"
-            "No responses were received."
-        )
+    for r in rows:
+        key = (r.get("button_id") or "").lower()
+        if key in vote_map:
+            vote_map[key] = r.get("votes", 0)
 
-    counts = {}
-    for (button_id,) in rows:
-        counts[button_id] = counts.get(button_id, 0) + 1
+    total = sum(vote_map.values())
 
-    lines = []
-    for button_id, count in counts.items():
-        pct = round((count / total) * 100)
-        lines.append(f"{button_id}: {count} ({pct}%)")
-
-    breakdown = "\n".join(lines)
-
-    return (
-        "📊 Survey closed\n\n"
-        f"Question:\n{survey.question}\n\n"
-        f"{breakdown}\n\n"
+    summary = (
+        "📊 Survey Results\n\n"
+        "Question:\n"
+        f"{question}\n\n"
+        "Responses:\n"
+        f"👍 Positive: {vote_map['positive']}\n"
+        f"😐 Neutral: {vote_map['neutral']}\n"
+        f"👎 Negative: {vote_map['negative']}\n\n"
         f"Total responses: {total}"
     )
+
+    return summary
