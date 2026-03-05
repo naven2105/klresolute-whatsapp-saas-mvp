@@ -156,7 +156,7 @@ def handle_galitos_inbound(
             )
 
         if msg_lower == "menu":
-            return handle_main_menu(
+            return handle_menu_command(
                 db=db,
                 sender_msisdn=sender_msisdn,
                 business_msisdn=business_msisdn,
