@@ -9,7 +9,7 @@ Galitos-specific feedback handler (tenant-isolated).
 
 Rules:
 - Trigger: "feedback:"
-- Store in r_fg__feedback
+- Store in r_galitos__feedback
 - Forward to admins (role='admin')
 - Acknowledge customer
 - No shared tables
@@ -62,7 +62,7 @@ def handle_feedback_message(
         db.execute(
             text(
                 """
-                INSERT INTO r_fg__feedback
+                INSERT INTO r_galitos__feedback
                 (customer_msisdn, message_text, media_id, media_type)
                 VALUES (:customer_msisdn, :message_text, :media_id, :media_type)
                 """
@@ -88,7 +88,7 @@ def handle_feedback_message(
         text(
             """
             SELECT msisdn
-            FROM r_fg__staff
+            FROM r_galitos__staff
             WHERE role = 'admin'
             """
         )

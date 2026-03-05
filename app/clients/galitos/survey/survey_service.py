@@ -40,7 +40,7 @@ def send_survey(
         text(
             """
             SELECT phone
-            FROM r_fg__customers
+            FROM r_galitos__customers
             WHERE marketing_opt_in = TRUE
             AND phone NOT IN (
                 SELECT msisdn

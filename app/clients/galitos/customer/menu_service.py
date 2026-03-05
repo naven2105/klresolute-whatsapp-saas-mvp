@@ -42,7 +42,7 @@ def handle_menu_command(
         text(
             """
             SELECT name, price, category
-            FROM r_fg__menu_items
+            FROM r_galitos__menu_items
             WHERE active = TRUE
             ORDER BY category, name
             """
@@ -99,7 +99,7 @@ def handle_drinks_command(
         text(
             """
             SELECT name, price, category
-            FROM r_fg__beverages
+            FROM r_galitos__beverages
             WHERE active = TRUE
             ORDER BY category, name
             """

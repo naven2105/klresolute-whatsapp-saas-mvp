@@ -58,7 +58,7 @@ def handle_booking(
     db.execute(
         text(
             """
-            INSERT INTO r_fg__booking_requests
+            INSERT INTO r_galitos__booking_requests
             (customer_phone, guest_count, requested_date, requested_time)
             VALUES (:phone, :guests, :date, :time)
             """
@@ -82,7 +82,7 @@ def handle_booking(
             text(
                 """
                 SELECT msisdn
-                FROM r_fg__staff
+                FROM r_galitos__staff
                 """
             )
         )
