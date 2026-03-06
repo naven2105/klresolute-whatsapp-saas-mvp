@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/client/galitos/announcements/media_handler.py
+File: app/client/fatginger/announcements/media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration
