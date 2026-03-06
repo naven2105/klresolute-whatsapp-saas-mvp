@@ -27,13 +27,9 @@ from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("webhooks")
 
-# -------------------------------------------------
-# 🔒 Magen Internal Enforcement Constants
-# -------------------------------------------------
 MAGEN_BUSINESS_NUMBER = "27631016099"
 MAGEN_INTERNAL_ONLY_MESSAGE = "This bot is for Magen internal use only."
 
-# Galitos business number (for scoped staff guard)
 GALITOS_BUSINESS_NUMBER = "27735534607"
 
 
@@ -136,6 +132,7 @@ def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
                     FROM r_galitos__staff
                     WHERE msisdn = :msisdn
                       AND is_active = true
+                      AND role != 'admin'
                     LIMIT 1
                     """
                 ),
@@ -145,11 +142,13 @@ def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
         )
 
         is_staff = bool(row)
+
         logger.info(
             "STAFF_INBOUND_CHECK | sender=%s | is_active_staff=%s",
             sender_msisdn,
             is_staff,
         )
+
         return is_staff
 
     except Exception:
