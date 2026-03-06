@@ -1,12 +1,12 @@
-# ==================================================
-# File: survey_handler.py
-# Path: app/clients/galitos/survey/survey_handler.py
-# Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 25 – Tenant Survey Isolation
-# ==================================================
-
 from __future__ import annotations
+
+"""
+File: survey_handler.py
+Path: app/clients/galitos/survey/survey_handler.py
+Project: KLResolute WhatsApp SaaS MVP
+
+Sprint 25 – Tenant Survey Isolation
+"""
 
 import logging
 import uuid
@@ -41,9 +41,6 @@ def handle_survey_command(
 
         text_clean = (message_text or "").strip()
 
-        # ----------------------------------------
-        # START SURVEY
-        # ----------------------------------------
         if text_clean.upper().startswith("SURVEY:"):
 
             question = text_clean.split(":", 1)[1].strip()
@@ -109,6 +106,10 @@ def handle_survey_command(
                     SELECT phone
                     FROM r_galitos__customers
                     WHERE marketing_opt_in = TRUE
+                    AND phone NOT IN (
+                        SELECT msisdn
+                        FROM r_galitos__staff
+                    )
                     """
                 )
             ).fetchall()
@@ -137,9 +138,6 @@ def handle_survey_command(
 
             return True
 
-        # ----------------------------------------
-        # END SURVEY
-        # ----------------------------------------
         if text_clean.upper() == "END SURVEY":
 
             survey = db.execute(
