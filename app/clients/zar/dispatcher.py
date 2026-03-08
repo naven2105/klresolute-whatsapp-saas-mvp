@@ -1,6 +1,6 @@
 # ==================================================
 # File: dispatcher.py
-# Path: app/clients/fatginger/dispatcher.py
+# Path: app/clients/zar/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 24 – Survey Response Routing Fix
@@ -20,15 +20,15 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 
-from app.clients.fatginger.inbound import handle_fatginger_inbound
-from app.clients.fatginger.feedback.handler import (
-    handle_feedback_message as fatginger_feedback_handler,
+from app.clients.zar.inbound import handle_zar_inbound
+from app.clients.zar.feedback.handler import (
+    handle_feedback_message as zar_feedback_handler,
 )
-from app.clients.fatginger.announcements.media_handler import (
+from app.clients.zar.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
 
-logger = logging.getLogger("fatginger.dispatcher")
+logger = logging.getLogger("zar.dispatcher")
 
 
 def dispatch(
@@ -42,7 +42,7 @@ def dispatch(
 ) -> bool:
 
     logger.info(
-        "FG_DISPATCH_ENTER | sender=%s | msg_type=%s",
+        "ZARDISPATCH_ENTER | sender=%s | msg_type=%s",
         sender,
         msg.get("type"),
     )
@@ -58,7 +58,7 @@ def dispatch(
         button_text = button_data.get("text")
         button_payload = button_data.get("payload")
 
-        from app.clients.fatginger.survey.survey_response_handler import (
+        from app.clients.zar.survey.survey_response_handler import (
             handle_survey_response,
         )
 
@@ -81,7 +81,7 @@ def dispatch(
         # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
-            handled = fatginger_feedback_handler(
+            handled = zar_feedback_handler(
                 db=db,
                 sender_number=sender,
                 message_text=body_text,
@@ -94,7 +94,7 @@ def dispatch(
                 return True
 
         # ---- Core Inbound ----
-        handled = handle_fatginger_inbound(
+        handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
             business_msisdn=business_msisdn,
@@ -114,7 +114,7 @@ def dispatch(
         media_id = image_data.get("id")
         caption = image_data.get("caption")
 
-        handled = handle_fatginger_inbound(
+        handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
             business_msisdn=business_msisdn,
@@ -141,6 +141,6 @@ def dispatch(
         if handled:
             return True
 
-    logger.info("FG_DISPATCH_TERMINATE_SAFE")
+    logger.info("ZAR_DISPATCH_TERMINATE_SAFE")
 
     return True
