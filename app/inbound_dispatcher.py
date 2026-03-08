@@ -2,7 +2,7 @@
 # File: inbound_dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 20 – UUID Identity Alignment
+# Sprint 32 - ZAR Tenant Deployment
 #
 # Purpose:
 # Central inbound routing entry point.
@@ -34,6 +34,7 @@ from app.clients.fatginger.dispatcher import dispatch as fatginger_dispatch
 from app.clients.galitos.dispatcher import dispatch as galitos_dispatch
 from app.clients.magen.dispatcher import dispatch as magen_dispatch
 from app.clients.pilateshq.dispatcher import dispatch as pilates_dispatch
+from app.clients.zar.dispatcher import dispatch as zar_dispatch
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -164,6 +165,16 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     if client_id == "405c3e31-3894-4f69-b219-fe19ed3fb362":
         return pilates_dispatch(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            profile=profile,
+            client_id=client_id,
+        )
+
+    if client_id == "f306ff09-e231-43db-928b-b2f369338612":
+        return zar_dispatch(
             db=db,
             msg=msg,
             sender=sender,
