@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: main_menu_service.py
-Path: app/clients/fatginger/customer/main_menu_service.py
+Path: app/clients/zar/customer/main_menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger chatbot main menu handler (tenant-local).
+ZAR chatbot main menu handler (tenant-local).
 
 Rules:
 - Handles "menu"
@@ -20,18 +20,18 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🍔 Welcome to FatGinger\n\n"
+    "🍽️ Welcome to ZAR\n\n"
     "Please choose an option:\n\n"
-    "* food — View our food menu\n"
-    "* drinks — View our drinks menu\n"
+    "* food — View our menu\n"
     "* specials — View current specials\n"
     "* book — Reserve a table\n"
     "* feedback: — Send a message to management\n"
     "* about — Learn more about us\n\n"
     "To book, please use this format:\n"
-    "book 4 22/02 19:00\n\n"
+    "book 4 08/03 17:00\n\n"
     "To send feedback:\n"
-    "feedback: Your message to admin"
+    "feedback: Your message to admin\n\n"
+    "Reply STOP anytime to unsubscribe."
 )
 
 
