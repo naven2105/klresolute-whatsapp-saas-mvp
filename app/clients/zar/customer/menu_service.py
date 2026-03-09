@@ -2,6 +2,9 @@
 # File: menu_service.py
 # Path: app/clients/zar/customer/menu_service.py
 # Project: KLResolute WhatsApp SaaS MVP
+#
+# Purpose:
+# Food menu image update + customer food command
 # ==================================================
 
 from __future__ import annotations
@@ -10,12 +13,9 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from app.messaging.client_messenger import send_message
+
 logger = logging.getLogger("zar.menu_service")
-
-
-# --------------------------------------------------
-# TEMP STORAGE FOR CONFIRMATION
-# --------------------------------------------------
 
 pending_menu_updates: dict[str, str] = {}
 
@@ -40,11 +40,22 @@ def store_menu_image(
         media_id,
     )
 
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        text=(
+            "You are about to update the current food menu image.\n\n"
+            "Reply YES to save this image as the food menu.\n"
+            "Reply NO to cancel."
+        ),
+    )
+
     return True
 
 
 # --------------------------------------------------
-# ADMIN CONFIRMATION HANDLER
+# ADMIN CONFIRMATION
 # --------------------------------------------------
 
 def handle_menu_confirmation(
@@ -58,28 +69,29 @@ def handle_menu_confirmation(
     if sender_msisdn not in pending_menu_updates:
         return False
 
-    response = message_text.strip().lower()
+    msg = message_text.strip().lower()
 
-    if response == "no":
+    if msg == "no":
 
         pending_menu_updates.pop(sender_msisdn, None)
 
-        logger.info(
-            "ZAR_MENU_UPDATE_CANCELLED | sender=%s",
-            sender_msisdn,
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu update cancelled.",
         )
 
         return True
 
-    if response == "yes":
+    if msg == "yes":
 
         media_id = pending_menu_updates.pop(sender_msisdn)
 
         db.execute(
             text(
                 """
-                INSERT INTO r_zar__menu_images
-                (media_id, created_at)
+                INSERT INTO r_zar__menu_images (media_id, created_at)
                 VALUES (:media_id, NOW())
                 """
             ),
@@ -88,10 +100,11 @@ def handle_menu_confirmation(
 
         db.commit()
 
-        logger.info(
-            "ZAR_MENU_UPDATED | sender=%s | media_id=%s",
-            sender_msisdn,
-            media_id,
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu updated.",
         )
 
         return True
@@ -100,7 +113,7 @@ def handle_menu_confirmation(
 
 
 # --------------------------------------------------
-# CUSTOMER COMMAND
+# CUSTOMER FOOD COMMAND
 # --------------------------------------------------
 
 def handle_menu_command(
@@ -108,7 +121,11 @@ def handle_menu_command(
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,
+    message_text: str,
 ) -> bool:
+
+    if message_text.lower() != "food":
+        return False
 
     result = db.execute(
         text(
@@ -123,19 +140,20 @@ def handle_menu_command(
 
     if not result:
 
-        logger.info(
-            "ZAR_MENU_NOT_FOUND | sender=%s",
-            sender_msisdn,
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu not available yet.",
         )
 
         return True
 
-    media_id = result[0]
-
-    logger.info(
-        "ZAR_MENU_SENT | sender=%s | media_id=%s",
-        sender_msisdn,
-        media_id,
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        image_id=result.media_id,
     )
 
     return True
