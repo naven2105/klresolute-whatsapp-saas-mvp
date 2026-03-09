@@ -1,9 +1,11 @@
 # ==================================================
 # File: survey_handler.py
-# Path: app/clients/fatginger/survey/survey_handler.py
+# Path: app/clients/zar/survey/survey_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 25 – Tenant Survey Isolation
+# Purpose:
+# ZAR tenant survey handler
+#
 # ==================================================
 
 from __future__ import annotations
@@ -17,9 +19,9 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import SURVEY_TEMPLATE_V1
-from app.clients.fatginger.survey.summary import build_survey_summary_text
+from app.clients.zar.survey.summary import build_survey_summary_text
 
-logger = logging.getLogger("fatginger.survey_handler")
+logger = logging.getLogger("zar.survey_handler")
 
 
 ACTIVE_SURVEY_WARNING = (
@@ -126,7 +128,7 @@ def handle_survey_command(
                     )
 
                 except Exception:
-                    logger.exception("SURVEY_BROADCAST_FAIL")
+                    logger.exception("ZAR_SURVEY_BROADCAST_FAIL")
 
             send_message(
                 db=db,
@@ -212,7 +214,7 @@ def handle_survey_command(
 
     except Exception:
 
-        logger.exception("SURVEY_COMMAND_FAIL")
+        logger.exception("ZAR_SURVEY_COMMAND_FAIL")
 
         try:
             db.rollback()
