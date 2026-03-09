@@ -2,28 +2,27 @@ from __future__ import annotations
 
 """
 File: menu_service.py
-Path: app/clients/fatginger/customer/menu_service.py
+Path: app/clients/zar/customer/menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger customer food & drinks command handling (tenant-local).
+ZAR customer menu command handler.
 
 Rules:
 - Customer-only logic
 - No dispatcher logic
-- DB-driven rendering
+- Returns menu image (menu.png)
 - Returns True if handled
 """
 
+import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
-from app.messaging.client_messenger import send_message
+from app.outbound.factory import get_meta_client
+
+logger = logging.getLogger("zar.menu_service")
 
 
-# --------------------------------------------------
-# FOOD MENU (previously handled "menu")
-# --------------------------------------------------
 def handle_menu_command(
     *,
     db: Session,
@@ -34,103 +33,30 @@ def handle_menu_command(
 
     msg = (message_text or "").strip().lower()
 
-    # 🔒 NOW ONLY "food"
     if msg != "food":
         return False
 
-    rows = db.execute(
-        text(
-            """
-            SELECT name, price, category
-            FROM r_zar__menu_items
-            WHERE active = TRUE
-            ORDER BY category, name
-            """
-        )
-    ).fetchall()
-
-    if not rows:
-        send_message(
+    try:
+        meta = get_meta_client(
             db=db,
             business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Food menu is currently unavailable.",
         )
-        return True
 
-    lines = ["🍔 Food Menu\n"]
-
-    current_category = None
-
-    for row in rows:
-        if row.category != current_category:
-            current_category = row.category
-            lines.append(f"\n{current_category}")
-
-        lines.append(f"- {row.name} — R{row.price}")
-
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text="\n".join(lines),
-    )
-
-    return True
-
-
-# --------------------------------------------------
-# DRINKS MENU
-# --------------------------------------------------
-def handle_drinks_command(
-    *,
-    db: Session,
-    sender_msisdn: str,
-    business_msisdn: str,
-    message_text: str,
-) -> bool:
-
-    msg = (message_text or "").strip().lower()
-
-    if msg != "drinks":
-        return False
-
-    rows = db.execute(
-        text(
-            """
-            SELECT name, price, category
-            FROM r_zar__beverages
-            WHERE active = TRUE
-            ORDER BY category, name
-            """
+        meta.send_image_message(
+            to_msisdn=sender_msisdn,
+            media_id=None,
+            caption=None,
         )
-    ).fetchall()
 
-    if not rows:
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Drinks menu is currently unavailable.",
+        logger.info(
+            "ZAR_MENU_SENT | to=%s",
+            sender_msisdn,
         )
-        return True
 
-    lines = ["🥤 Drinks Menu\n"]
-
-    current_category = None
-
-    for row in rows:
-        if row.category != current_category:
-            current_category = row.category
-            lines.append(f"\n{current_category}")
-
-        lines.append(f"- {row.name} — R{row.price}")
-
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text="\n".join(lines),
-    )
+    except Exception:
+        logger.exception(
+            "ZAR_MENU_SEND_FAIL | to=%s",
+            sender_msisdn,
+        )
 
     return True

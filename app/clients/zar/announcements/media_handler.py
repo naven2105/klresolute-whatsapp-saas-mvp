@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/client/fatginger/announcements/media_handler.py
+File: app/client/zar/announcements/media_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration
@@ -19,7 +19,7 @@ from sqlalchemy import text
 from app.models import Contact
 from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
-from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
+from app.messaging.template_registry import ZAR_CAMPAIGN_TEMPLATE
 
 logger = logging.getLogger("announcements.admin_media")
 
