@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-File: app/clients/fatginger/announcements/service.py
-Path: app/modules/announcements/service.py
+File: service.py
+Path: app/clients/zar/announcements/service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint: Full UUID Identity Migration
