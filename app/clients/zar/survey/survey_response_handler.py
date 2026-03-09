@@ -1,9 +1,7 @@
 # ==================================================
 # File: survey_response_handler.py
-# Path: app/clients/fatginger/survey/survey_response_handler.py
+# Path: app/clients/zar/survey/survey_response_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 25 – Tenant Survey Isolation
 #
 # Purpose:
 # Handles incoming survey button responses from customers.
@@ -23,7 +21,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-logger = logging.getLogger("fatginger.survey_response_handler")
+logger = logging.getLogger("zar.survey_response_handler")
 
 
 def handle_survey_response(
@@ -87,7 +85,7 @@ def handle_survey_response(
 
     except Exception:
 
-        logger.exception("SURVEY_RESPONSE_SAVE_FAIL")
+        logger.exception("ZAR_SURVEY_RESPONSE_SAVE_FAIL")
 
         try:
             db.rollback()
