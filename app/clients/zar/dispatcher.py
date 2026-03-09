@@ -9,6 +9,9 @@
 # - Added handling for WhatsApp "button" message type
 # - Enables survey responses to be recorded
 #
+# Patch:
+# - Log incoming image media_id for menu image capture
+#
 # Rules:
 # - No logic removed
 # - No refactors
@@ -113,6 +116,9 @@ def dispatch(
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
         caption = image_data.get("caption")
+
+        # PATCH: Log image media_id for menu capture
+        logger.info("IMAGE_MEDIA_ID | %s", media_id)
 
         handled = handle_zar_inbound(
             db=db,

@@ -6,12 +6,12 @@ Path: app/clients/zar/customer/menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-ZAR customer menu command handler.
+ZAR customer menu command handling.
 
 Rules:
 - Customer-only logic
 - No dispatcher logic
-- Returns menu image (menu.png)
+- Sends menu image when customer types "food"
 - Returns True if handled
 """
 
@@ -21,6 +21,12 @@ from sqlalchemy.orm import Session
 from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("zar.menu_service")
+
+
+# --------------------------------------------------
+# ZAR MENU IMAGE (Meta media_id required)
+# --------------------------------------------------
+ZAR_MENU_MEDIA_ID = "REPLACE_WITH_META_MEDIA_ID"
 
 
 def handle_menu_command(
@@ -37,6 +43,7 @@ def handle_menu_command(
         return False
 
     try:
+
         meta = get_meta_client(
             db=db,
             business_msisdn=business_msisdn,
@@ -44,19 +51,16 @@ def handle_menu_command(
 
         meta.send_image_message(
             to_msisdn=sender_msisdn,
-            media_id=None,
-            caption=None,
+            media_id=ZAR_MENU_MEDIA_ID,
         )
 
-        logger.info(
-            "ZAR_MENU_SENT | to=%s",
-            sender_msisdn,
-        )
+        return True
 
     except Exception:
+
         logger.exception(
             "ZAR_MENU_SEND_FAIL | to=%s",
             sender_msisdn,
         )
 
-    return True
+        return True
