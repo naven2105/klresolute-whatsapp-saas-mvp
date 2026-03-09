@@ -6,26 +6,27 @@ Path: app/clients/zar/customer/menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-ZAR customer food command handling.
+ZAR customer food menu handler.
 
 Rules:
 - Customer-only logic
-- No dispatcher logic
-- Static image menu
+- Static WhatsApp media_id
 - Returns True if handled
 """
 
 import logging
 from sqlalchemy.orm import Session
-
 from app.outbound.factory import get_meta_client
 
 logger = logging.getLogger("zar.menu_service")
 
 
 # --------------------------------------------------
-# FOOD MENU (STATIC IMAGE)
+# STATIC MENU IMAGE (WhatsApp media_id)
 # --------------------------------------------------
+MENU_MEDIA_ID = "3EB00201B2FE5025537A1E"
+
+
 def handle_menu_command(
     *,
     db: Session,
@@ -46,10 +47,9 @@ def handle_menu_command(
             business_msisdn=business_msisdn,
         )
 
-        # Static menu image in assets folder
-        meta.send_image_file(
+        meta.send_image_message(
             to_msisdn=sender_msisdn,
-            image_path="app/assets/menu.png",
+            media_id=MENU_MEDIA_ID,
             caption="🍽️ Our Food Menu",
         )
 
@@ -63,9 +63,6 @@ def handle_menu_command(
         return True
 
 
-# --------------------------------------------------
-# DRINKS MENU (DISABLED FOR ZAR)
-# --------------------------------------------------
 def handle_drinks_command(
     *,
     db: Session,
