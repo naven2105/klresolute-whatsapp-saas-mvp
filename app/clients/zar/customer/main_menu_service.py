@@ -20,15 +20,17 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🍽️ Welcome to ZAR\n\n"
+    "☕ Welcome to The ZAR Café\n\n"
+    "Success starts with a good foundation.\n"
+    "Fuel your day at Tree Tops Houghton.\n\n"
     "Please choose an option:\n\n"
-    "* food — View our menu\n"
+    "* food — View today's menu\n"
     "* specials — View current specials\n"
     "* book — Reserve a table\n"
     "* feedback: — Send a message to management\n"
     "* about — Learn more about us\n\n"
     "To book, please use this format:\n"
-    "book 4 08/03 17:00\n\n"
+    "book 4 DD/MM HH:MM\n\n"
     "To send feedback:\n"
     "feedback: Your message to admin\n\n"
     "Reply STOP anytime to unsubscribe."
