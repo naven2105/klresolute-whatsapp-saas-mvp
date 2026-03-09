@@ -10,21 +10,17 @@ ZAR customer food menu handler.
 
 Rules:
 - Customer-only logic
-- Static WhatsApp media_id
+- Uses static WhatsApp media_id from config
 - Returns True if handled
 """
 
 import logging
 from sqlalchemy.orm import Session
+
 from app.outbound.factory import get_meta_client
+from app.config.media_ids import ZAR_FOOD_MENU
 
 logger = logging.getLogger("zar.menu_service")
-
-
-# --------------------------------------------------
-# STATIC MENU IMAGE (WhatsApp media_id)
-# --------------------------------------------------
-MENU_MEDIA_ID = "3EB00201B2FE5025537A1E"
 
 
 def handle_menu_command(
@@ -49,7 +45,7 @@ def handle_menu_command(
 
         meta.send_image_message(
             to_msisdn=sender_msisdn,
-            media_id=MENU_MEDIA_ID,
+            media_id=ZAR_FOOD_MENU,
             caption="🍽️ Our Food Menu",
         )
 
