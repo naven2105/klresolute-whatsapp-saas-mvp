@@ -4,9 +4,10 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Update:
-# - Admin image with caption "food" or "food menu" updates menu image
-# - Survey button routing retained
-# - No logic removed
+# - Admin food menu image intercept
+# - Image with caption "food" or "food menu" stores menu image
+# - Prevents campaign handler from capturing the image
+# - No existing logic removed
 # ==================================================
 
 from __future__ import annotations
@@ -74,6 +75,7 @@ def dispatch(
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
+        # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
             handled = zar_feedback_handler(
@@ -88,6 +90,7 @@ def dispatch(
             if handled:
                 return True
 
+        # ---- Core inbound routing ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -108,11 +111,13 @@ def dispatch(
         media_id = image_data.get("id")
         caption = (image_data.get("caption") or "").strip()
 
+        # ---- FOOD MENU UPDATE (ADMIN ONLY) ----
         if is_admin_message(
             db=db,
             sender=sender,
             business_msisdn=business_msisdn,
         ) and caption.lower() in {"food", "food menu"}:
+
             return store_menu_image(
                 db=db,
                 sender_msisdn=sender,
@@ -120,6 +125,7 @@ def dispatch(
                 media_id=media_id,
             )
 
+        # ---- Existing inbound flow ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
