@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: admin_router.py
-Path: app/clients/fatginger/admin/admin_router.py
+Path: app/clients/zar/admin/admin_router.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger admin command router.
+ZAR admin command router.
 
 Rules:
 - Entry point for all admin messages
@@ -16,9 +16,9 @@ Rules:
 
 from sqlalchemy.orm import Session
 
-from app.clients.fatginger.admin.admin_menu_service import handle_admin_menu
-from app.clients.fatginger.survey.survey_handler import handle_survey_command
-from app.clients.fatginger.handlers.campaign_handler import handle_admin_message
+from app.clients.zar.admin.admin_menu_service import handle_admin_menu
+from app.clients.zar.survey.survey_handler import handle_survey_command
+from app.clients.zar.handlers.campaign_handler import handle_admin_message
 
 
 def route_admin_message(
