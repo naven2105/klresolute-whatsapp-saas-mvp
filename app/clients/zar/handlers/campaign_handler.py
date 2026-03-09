@@ -1,12 +1,10 @@
 # ==================================================
 # File: campaign_handler.py
-# Path: app/clients/fatginger/handlers/campaign_handler.py
+# Path: app/clients/zar/handlers/campaign_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 24 – Admin Menu Isolation
-#
 # Purpose:
-# Handles FatGinger admin campaign flow:
+# Handles ZAR admin campaign flow:
 # - Pending confirmation state (in-memory)
 # - Lazy expiry (60 seconds)
 # - Text campaign trigger
@@ -15,12 +13,8 @@
 # - Broadcast execution
 # - DB insert (campaign + logs)
 #
-# Update (Sprint 24):
-# - Admin menu removed from campaign handler
-# - Unknown admin commands must fall back to admin_menu_service
-#
 # Isolation:
-# - FatGinger only
+# - ZAR only
 # - No dispatcher changes
 # - No lifecycle states
 # ==================================================
@@ -34,7 +28,7 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
-logger = logging.getLogger("fatginger.campaign_handler")
+logger = logging.getLogger("zar.campaign_handler")
 
 pending_campaigns: dict[str, dict] = {}
 EXPIRY_SECONDS = 60
@@ -94,7 +88,6 @@ def handle_admin_message(
             del pending_campaigns[sender_msisdn]
             return True
 
-        # Invalid confirmation response
         send_message(
             db=db,
             business_msisdn=business_msisdn,
@@ -142,9 +135,6 @@ def handle_admin_message(
             image_url=media_url,
         )
 
-    # --------------------------------------------------
-    # Not a campaign command
-    # --------------------------------------------------
     return False
 
 
@@ -196,17 +186,12 @@ def _create_pending(
         "created_at": datetime.utcnow(),
     }
 
-    confirmation = (
-        f"You are about to send this campaign to {count} customers.\n\n"
-    )
+    confirmation = f"You are about to send this campaign to {count} customers.\n\n"
 
     if campaign_type == "text":
         confirmation += f"\"{message}\"\n\n"
     else:
-        if message:
-            confirmation += f"Image caption:\n\"{message}\"\n\n"
-        else:
-            confirmation += "Image with no caption.\n\n"
+        confirmation += f"Image caption:\n\"{message}\"\n\n" if message else "Image with no caption.\n\n"
 
     confirmation += (
         "Reply YES to send.\n"
@@ -235,7 +220,7 @@ def _execute_broadcast(
     message = pending["message"]
     image_url = pending["image_url"]
 
-    result = db.execute(
+    recipients = db.execute(
         text(
             """
             SELECT phone
@@ -243,9 +228,7 @@ def _execute_broadcast(
             WHERE marketing_opt_in = TRUE
             """
         )
-    )
-
-    recipients = result.fetchall()
+    ).fetchall()
 
     sent_count = 0
     failed_count = 0
@@ -275,7 +258,7 @@ def _execute_broadcast(
             if campaign_type == "text":
 
                 formatted_message = (
-                    "📢 Fat Ginger Announcement\n\n"
+                    "📢 ZAR Café Announcement\n\n"
                     f"{message}"
                 )
 
@@ -288,20 +271,17 @@ def _execute_broadcast(
 
             else:
 
-                if message:
-                    formatted_caption = (
-                        "📢 Fat Ginger Announcement\n\n"
-                        f"{message}"
-                    )
-                else:
-                    formatted_caption = None
+                caption = (
+                    "📢 ZAR Café Announcement\n\n"
+                    f"{message}"
+                ) if message else None
 
                 send_message(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=row.phone,
                     image_id=image_url,
-                    caption=formatted_caption,
+                    caption=caption,
                 )
 
             sent_count += 1
