@@ -32,18 +32,12 @@ def store_menu_image(
     media_id: str,
 ) -> bool:
 
-    from app.meta.send import send_text_message
-
     pending_menu_updates[sender_msisdn] = media_id
 
-    send_text_message(
-        to=sender_msisdn,
-        business_msisdn=business_msisdn,
-        text=(
-            "You are about to update the current food menu image.\n\n"
-            "Reply YES to save this image as the food menu.\n"
-            "Reply NO to cancel."
-        ),
+    logger.info(
+        "ZAR_MENU_UPDATE_PENDING | sender=%s | media_id=%s",
+        sender_msisdn,
+        media_id,
     )
 
     return True
@@ -61,8 +55,6 @@ def handle_menu_confirmation(
     message_text: str,
 ) -> bool:
 
-    from app.meta.send import send_text_message
-
     if sender_msisdn not in pending_menu_updates:
         return False
 
@@ -72,10 +64,9 @@ def handle_menu_confirmation(
 
         pending_menu_updates.pop(sender_msisdn, None)
 
-        send_text_message(
-            to=sender_msisdn,
-            business_msisdn=business_msisdn,
-            text="Food menu update cancelled.",
+        logger.info(
+            "ZAR_MENU_UPDATE_CANCELLED | sender=%s",
+            sender_msisdn,
         )
 
         return True
@@ -97,10 +88,10 @@ def handle_menu_confirmation(
 
         db.commit()
 
-        send_text_message(
-            to=sender_msisdn,
-            business_msisdn=business_msisdn,
-            text="Food menu updated.",
+        logger.info(
+            "ZAR_MENU_UPDATED | sender=%s | media_id=%s",
+            sender_msisdn,
+            media_id,
         )
 
         return True
@@ -119,8 +110,6 @@ def handle_menu_command(
     business_msisdn: str,
 ) -> bool:
 
-    from app.meta.send import send_image_message, send_text_message
-
     result = db.execute(
         text(
             """
@@ -134,20 +123,19 @@ def handle_menu_command(
 
     if not result:
 
-        send_text_message(
-            to=sender_msisdn,
-            business_msisdn=business_msisdn,
-            text="Food menu is not available yet.",
+        logger.info(
+            "ZAR_MENU_NOT_FOUND | sender=%s",
+            sender_msisdn,
         )
 
         return True
 
     media_id = result[0]
 
-    send_image_message(
-        to=sender_msisdn,
-        business_msisdn=business_msisdn,
-        media_id=media_id,
+    logger.info(
+        "ZAR_MENU_SENT | sender=%s | media_id=%s",
+        sender_msisdn,
+        media_id,
     )
 
     return True
