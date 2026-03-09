@@ -42,7 +42,7 @@ def dispatch(
 ) -> bool:
 
     logger.info(
-        "ZARDISPATCH_ENTER | sender=%s | msg_type=%s",
+        "ZAR_DISPATCH_ENTER | sender=%s | msg_type=%s",
         sender,
         msg.get("type"),
     )
