@@ -5,7 +5,8 @@
 #
 # Update:
 # - Admin food menu image intercept
-# - Deep debug logging at image decision point
+# - Caption debug logging
+# - Message structure debug logging
 # - No existing logic removed
 # ==================================================
 
@@ -48,6 +49,13 @@ def dispatch(
     )
 
     msg_type = msg.get("type")
+
+    # ---- MESSAGE STRUCTURE DEBUG ----
+    logger.info(
+        "ZAR_MSG_TYPE_DEBUG | sender=%s | raw_msg=%s",
+        sender,
+        msg,
+    )
 
     # --------------------------------------------------
     # BUTTON MESSAGES (Survey responses)
