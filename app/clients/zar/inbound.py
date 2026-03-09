@@ -1,12 +1,10 @@
 # ==================================================
 # File: inbound.py
-# Path: app/clients/fatginger/inbound.py
+# Path: app/clients/zar/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – Campaign Integration
-#
 # Purpose:
-# FatGinger Client-Specific Inbound Handler
+# ZAR Client-Specific Inbound Handler
 #
 # Isolation:
 # - No dispatcher changes
@@ -20,29 +18,23 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
-from app.clients.fatginger.customer.booking_service import handle_booking_command
-from app.clients.fatginger.customer.main_menu_service import handle_main_menu
-from app.clients.fatginger.customer.menu_service import (
-    handle_menu_command,
-    handle_drinks_command,
-)
-from app.clients.fatginger.handlers.campaign_handler import (
-    handle_admin_message,
-)
-from app.clients.fatginger.survey.survey_handler import handle_survey_command
-from app.clients.fatginger.admin.admin_menu_service import handle_admin_menu
-from app.clients.fatginger.admin.admin_router import route_admin_message
+from app.clients.zar.customer.booking_service import handle_booking_command
+from app.clients.zar.customer.main_menu_service import handle_main_menu
+from app.clients.zar.customer.menu_service import handle_menu_command
+from app.clients.zar.survey.survey_handler import handle_survey_command
+from app.clients.zar.admin.admin_menu_service import handle_admin_menu
+from app.clients.zar.admin.admin_router import route_admin_message
 
-logger = logging.getLogger("fatginger.inbound")
+logger = logging.getLogger("zar.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to FatGinger 🍔🔥\n"
+    "☕ Welcome to The ZAR Café\n"
+    "Fuel your day at Tree Tops Houghton.\n\n"
     "You can:\n"
     "• Type menu to see options\n"
-    "• Type food to see food menu\n"
-    "• Type drinks to see beverages\n"
-    "• Type book to reserve a table\n"
+    "• Type food to view today's menu\n"
+    "• Type book to reserve a table\n\n"
     "Reply STOP anytime to unsubscribe."
 )
 
@@ -52,13 +44,16 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍔 About FatGinger\n\n"
-    "FatGinger is your local spot for great burgers, drinks and specials.\n"
-    "We look forward to hosting you!"
+    "☕ About The ZAR Café\n\n"
+    "Success starts with a good foundation.\n\n"
+    "Fuel your day at The ZAR Café, exclusively located within "
+    "Tree Tops Houghton.\n\n"
+    "Enjoy great coffee, breakfast and café dining "
+    "throughout the day."
 )
 
 
-def handle_fatginger_inbound(
+def handle_zar_inbound(
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,
@@ -137,7 +132,9 @@ def handle_fatginger_inbound(
             )
             return True
 
-        # Auto register
+        # --------------------------------------------------
+        # AUTO REGISTER CUSTOMER
+        # --------------------------------------------------
         result = db.execute(
             text(
                 """
@@ -158,6 +155,9 @@ def handle_fatginger_inbound(
                 text=WELCOME_MESSAGE,
             )
 
+        # --------------------------------------------------
+        # MENU
+        # --------------------------------------------------
         if msg_lower == "menu":
             return handle_main_menu(
                 db=db,
@@ -174,14 +174,9 @@ def handle_fatginger_inbound(
         ):
             return True
 
-        if handle_drinks_command(
-            db=db,
-            sender_msisdn=sender_msisdn,
-            business_msisdn=business_msisdn,
-            message_text=msg,
-        ):
-            return True
-
+        # --------------------------------------------------
+        # ABOUT
+        # --------------------------------------------------
         if msg_lower == "about":
             send_message(
                 db=db,
@@ -191,6 +186,9 @@ def handle_fatginger_inbound(
             )
             return True
 
+        # --------------------------------------------------
+        # BOOKING
+        # --------------------------------------------------
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -199,7 +197,11 @@ def handle_fatginger_inbound(
         ):
             return True
 
+        # --------------------------------------------------
+        # SPECIALS / CAMPAIGNS
+        # --------------------------------------------------
         if msg_lower in ("announcement", "special", "specials"):
+
             result = db.execute(
                 text(
                     """
@@ -225,7 +227,7 @@ def handle_fatginger_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=f"📢 Fat Ginger Announcement\n\n{result.message}",
+                    text=f"📢 ZAR Café Special\n\n{result.message}",
                 )
             else:
                 send_message(
@@ -240,12 +242,12 @@ def handle_fatginger_inbound(
 
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("FG_DB_ERROR")
+        logger.exception("ZAR_DB_ERROR")
         return True
 
     except Exception:
         db.rollback()
-        logger.exception("FG_UNEXPECTED_ERROR")
+        logger.exception("ZAR_UNEXPECTED_ERROR")
         return True
 
     return handle_main_menu(
