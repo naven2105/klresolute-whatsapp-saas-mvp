@@ -3,10 +3,10 @@
 # Path: app/clients/zar/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Fix:
-# - Only ADMIN can trigger food menu image update
-# - Customer images must NOT reach campaign flow
-# - Intercept admin menu update before announcements module
+# Update:
+# - Admin food menu image intercept
+# - Added caption debug logging
+# - No existing logic removed
 # ==================================================
 
 from __future__ import annotations
@@ -125,7 +125,15 @@ def dispatch(
         media_id = image_data.get("id")
         caption = (image_data.get("caption") or "").strip()
 
-        # ---- ADMIN FOOD MENU UPDATE ----
+        # ---- DEBUG CAPTION LOG ----
+        logger.info(
+            "ZAR_IMAGE_CAPTION_CHECK | sender=%s | caption_raw='%s' | caption_lower='%s'",
+            sender,
+            caption,
+            caption.lower(),
+        )
+
+        # ---- FOOD MENU UPDATE (ADMIN ONLY) ----
         if is_admin_message(
             db=db,
             sender=sender,
@@ -139,7 +147,7 @@ def dispatch(
                 media_id=media_id,
             )
 
-        # ---- Normal inbound image ----
+        # ---- Existing inbound flow ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -149,24 +157,23 @@ def dispatch(
             media_url=media_id,
         )
 
+        return handled
+
+    # --------------------------------------------------
+    # ANNOUNCEMENTS MODULE
+    # --------------------------------------------------
+    if "announcements" in profile.enabled_modules:
+
+        handled = announcements_media_handler(
+            db=db,
+            sender=sender,
+            msg=msg,
+            client_id=client_id,
+            business_msisdn=business_msisdn,
+        )
+
         if handled:
             return True
-
-        # ---- Announcements module ----
-        if "announcements" in profile.enabled_modules:
-
-            handled = announcements_media_handler(
-                db=db,
-                sender=sender,
-                msg=msg,
-                client_id=client_id,
-                business_msisdn=business_msisdn,
-            )
-
-            if handled:
-                return True
-
-        return True
 
     logger.info("ZAR_DISPATCH_TERMINATE_SAFE")
 
