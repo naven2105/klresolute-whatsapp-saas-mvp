@@ -5,7 +5,7 @@
 #
 # Update:
 # - Admin food menu image intercept
-# - Added caption debug logging
+# - Deep debug logging at image decision point
 # - No existing logic removed
 # ==================================================
 
@@ -78,7 +78,6 @@ def dispatch(
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
-        # ---- MENU UPDATE CONFIRMATION ----
         handled = handle_menu_confirmation(
             db=db,
             sender_msisdn=sender,
@@ -89,7 +88,6 @@ def dispatch(
         if handled:
             return True
 
-        # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
             handled = zar_feedback_handler(
@@ -104,7 +102,6 @@ def dispatch(
             if handled:
                 return True
 
-        # ---- Core inbound routing ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -123,22 +120,39 @@ def dispatch(
 
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
-        caption = (image_data.get("caption") or "").strip()
 
-        # ---- DEBUG CAPTION LOG ----
-        logger.info(
-            "ZAR_IMAGE_CAPTION_CHECK | sender=%s | caption_raw='%s' | caption_lower='%s'",
-            sender,
-            caption,
-            caption.lower(),
-        )
+        caption_raw = image_data.get("caption") or ""
+        caption = caption_raw.strip()
+        caption_lower = caption.lower()
+        caption_normalized = " ".join(caption_lower.split())
 
-        # ---- FOOD MENU UPDATE (ADMIN ONLY) ----
-        if is_admin_message(
+        admin_match = is_admin_message(
             db=db,
             sender=sender,
             business_msisdn=business_msisdn,
-        ) and caption.lower() in {"food", "food menu"}:
+        )
+        food_match = caption_normalized in {"food", "food menu"}
+
+        logger.info(
+            "ZAR_IMAGE_DECISION | sender=%s | business=%s | admin_match=%s | media_id=%s | caption_raw=%r | caption_stripped=%r | caption_normalized=%r | food_match=%s",
+            sender,
+            business_msisdn,
+            admin_match,
+            media_id,
+            caption_raw,
+            caption,
+            caption_normalized,
+            food_match,
+        )
+
+        if admin_match and food_match:
+
+            logger.info(
+                "ZAR_MENU_IMAGE_INTERCEPT | sender=%s | business=%s | media_id=%s",
+                sender,
+                business_msisdn,
+                media_id,
+            )
 
             return store_menu_image(
                 db=db,
@@ -147,7 +161,6 @@ def dispatch(
                 media_id=media_id,
             )
 
-        # ---- Existing inbound flow ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
