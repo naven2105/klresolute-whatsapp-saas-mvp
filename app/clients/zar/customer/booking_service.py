@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: booking_service.py
-Path: app/clients/fatginger/customer/booking_service.py
+Path: app/clients/zar/customer/booking_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger customer booking command handling (tenant-local).
+ZAR customer booking command handling (tenant-local).
 
 Rules:
 - Customer-only logic
@@ -20,7 +20,7 @@ from datetime import datetime, date
 from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
-from app.clients.fatginger.handlers.booking_handler import handle_booking
+from app.clients.zar.handlers.booking_handler import handle_booking
 
 
 BOOKING_REGEX = re.compile(
@@ -64,7 +64,9 @@ def handle_booking_command(
     """
     Returns True if this was a booking command (handled), otherwise False.
     """
+
     msg = (message_text or "").strip()
+
     if not msg.lower().startswith("book"):
         return False
 
@@ -75,7 +77,7 @@ def handle_booking_command(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="Please use this format:\nbook 4 22/02 19:00",
+            text="Please use this format:\nbook 4 DD/MM HH:MM",
         )
         return True
 
