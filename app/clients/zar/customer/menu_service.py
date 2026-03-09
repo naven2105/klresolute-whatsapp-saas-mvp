@@ -2,18 +2,6 @@
 # File: menu_service.py
 # Path: app/clients/zar/customer/menu_service.py
 # Project: KLResolute WhatsApp SaaS MVP
-#
-# Purpose
-# ZAR Food Menu Management
-#
-# Features
-# - Admin menu image update with confirmation
-# - Customer "food" command returns latest menu image
-# - Uses r_zar__menu_images table
-#
-# Safety
-# - Tenant isolated
-# - No changes to campaign / announcement modules
 # ==================================================
 
 from __future__ import annotations
@@ -21,9 +9,6 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-
-from app.whatsapp.send import send_text_message
-from app.whatsapp.send import send_image_message
 
 logger = logging.getLogger("zar.menu_service")
 
@@ -47,6 +32,8 @@ def store_menu_image(
     media_id: str,
 ) -> bool:
 
+    from app.meta.send import send_text_message
+
     pending_menu_updates[sender_msisdn] = media_id
 
     send_text_message(
@@ -57,12 +44,6 @@ def store_menu_image(
             "Reply YES to save this image as the food menu.\n"
             "Reply NO to cancel."
         ),
-    )
-
-    logger.info(
-        "ZAR_MENU_UPDATE_PENDING | admin=%s | media_id=%s",
-        sender_msisdn,
-        media_id,
     )
 
     return True
@@ -79,6 +60,8 @@ def handle_menu_confirmation(
     business_msisdn: str,
     message_text: str,
 ) -> bool:
+
+    from app.meta.send import send_text_message
 
     if sender_msisdn not in pending_menu_updates:
         return False
@@ -120,11 +103,6 @@ def handle_menu_confirmation(
             text="Food menu updated.",
         )
 
-        logger.info(
-            "ZAR_MENU_UPDATED | media_id=%s",
-            media_id,
-        )
-
         return True
 
     return False
@@ -140,6 +118,8 @@ def handle_menu_command(
     sender_msisdn: str,
     business_msisdn: str,
 ) -> bool:
+
+    from app.meta.send import send_image_message, send_text_message
 
     result = db.execute(
         text(
