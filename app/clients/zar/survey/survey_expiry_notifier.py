@@ -2,125 +2,81 @@ from __future__ import annotations
 
 """
 File: survey_expiry_notifier.py
-Path: app/clients/fatginger/survey/survey_expiry_notifier.py
+Path: app/clients/zar/survey/survey_expiry_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Background notifier that auto-closes expired FatGinger surveys.
-
-Rules:
-- Tenant isolated
-- Uses r_zar__surveys
-- No cross-tenant logic
+Background notifier that auto-closes expired ZAR surveys.
 """
 
-import asyncio
 import logging
-import os
-
+import asyncio
+from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.db import SessionLocal
-
-logger = logging.getLogger("fatginger.survey_expiry_notifier")
+logger = logging.getLogger("zar.survey_expiry_notifier")
 
 
-def _get_interval_seconds() -> int:
-    raw = (os.getenv("SURVEY_EXPIRY_NOTIFIER_INTERVAL_SECONDS", "300") or "").strip()
-    try:
-        return max(30, int(raw))
-    except Exception:
-        return 300
-
-
-async def _run_forever() -> None:
-
-    interval = _get_interval_seconds()
+async def survey_expiry_notifier(db_factory, interval_seconds: int = 60):
 
     logger.info(
-        "FG_EXPIRY_NOTIFIER_START | interval_seconds=%s",
-        interval,
+        "ZAR_EXPIRY_NOTIFIER_START | interval_seconds=%s",
+        interval_seconds,
     )
 
     while True:
 
         try:
 
-            db = SessionLocal()
+            async with db_factory() as db:
 
-            rows = (
-                db.execute(
+                rows = db.execute(
                     text(
                         """
                         SELECT id
                         FROM r_zar__surveys
-                        WHERE status = 'ACTIVE'
-                          AND ends_at <= now()
-                        ORDER BY ends_at ASC
-                        LIMIT 20
+                        WHERE status='ACTIVE'
+                        AND ends_at < now()
                         """
                     )
+                ).fetchall()
+
+                logger.info(
+                    "ZAR_EXPIRY_SCAN | expired_found=%s",
+                    len(rows),
                 )
-                .mappings()
-                .all()
-            )
 
-            logger.info("FG_EXPIRY_SCAN | expired_found=%s", len(rows))
+                for r in rows:
 
-            for r in rows:
+                    try:
 
-                survey_id = r.get("id")
+                        db.execute(
+                            text(
+                                """
+                                UPDATE r_zar__surveys
+                                SET status='CLOSED', closed_at=now()
+                                WHERE id=:id
+                                """
+                            ),
+                            {"id": r.id},
+                        )
 
-                try:
+                        db.commit()
 
-                    db.execute(
-                        text(
-                            """
-                            UPDATE r_zar__surveys
-                            SET status = 'CLOSED',
-                                closed_at = now()
-                            WHERE id = :survey_id
-                            """
-                        ),
-                        {"survey_id": survey_id},
-                    )
+                        logger.info(
+                            "ZAR_EXPIRY_SURVEY_CLOSED | survey_id=%s",
+                            r.id,
+                        )
 
-                    db.commit()
+                    except Exception:
 
-                    logger.info(
-                        "FG_EXPIRY_SURVEY_CLOSED | survey_id=%s",
-                        survey_id,
-                    )
-
-                except Exception:
-
-                    db.rollback()
-
-                    logger.exception(
-                        "FG_EXPIRY_CLOSE_FAIL | survey_id=%s",
-                        survey_id,
-                    )
+                        logger.exception(
+                            "ZAR_EXPIRY_CLOSE_FAIL | survey_id=%s",
+                            r.id,
+                        )
 
         except Exception:
-            logger.exception("FG_EXPIRY_LOOP_FAIL")
 
-        finally:
-            try:
-                db.close()
-            except Exception:
-                pass
+            logger.exception("ZAR_EXPIRY_LOOP_FAIL")
 
-        await asyncio.sleep(interval)
-
-
-def start_survey_expiry_notifier() -> None:
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        logger.warning("FG_EXPIRY_NO_LOOP")
-        return
-
-    logger.info("FG_EXPIRY_NOTIFIER_SPAWN")
-
-    asyncio.create_task(_run_forever())
+        await asyncio.sleep(interval_seconds)
