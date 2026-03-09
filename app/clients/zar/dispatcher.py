@@ -4,7 +4,9 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Update:
-# - Logs inbound image media_id so it can be reused
+# - Admin image with caption "food" or "food menu" updates menu image
+# - Survey button routing retained
+# - No logic removed
 # ==================================================
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 
+from app.utils.admin import is_admin_message
 from app.clients.zar.inbound import handle_zar_inbound
 from app.clients.zar.feedback.handler import (
     handle_feedback_message as zar_feedback_handler,
@@ -19,6 +22,7 @@ from app.clients.zar.feedback.handler import (
 from app.clients.zar.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
+from app.clients.zar.customer.menu_service import store_menu_image
 
 logger = logging.getLogger("zar.dispatcher")
 
@@ -70,7 +74,6 @@ def dispatch(
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
-        # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
             handled = zar_feedback_handler(
@@ -85,7 +88,6 @@ def dispatch(
             if handled:
                 return True
 
-        # ---- Core Inbound ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -104,10 +106,19 @@ def dispatch(
 
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
-        caption = image_data.get("caption")
+        caption = (image_data.get("caption") or "").strip()
 
-        # --- LOG MEDIA ID FOR MENU USE ---
-        logger.info("IMAGE_ID_CAPTURE | media_id=%s", media_id)
+        if is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        ) and caption.lower() in {"food", "food menu"}:
+            return store_menu_image(
+                db=db,
+                sender_msisdn=sender,
+                business_msisdn=business_msisdn,
+                media_id=media_id,
+            )
 
         handled = handle_zar_inbound(
             db=db,
