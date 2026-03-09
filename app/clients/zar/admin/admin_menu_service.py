@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 # ==================================================
 # File: admin_menu_service.py
-# Path: app/clients/fatginger/admin/admin_menu_service.py
+# Path: app/clients/zar/admin/admin_menu_service.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Purpose:
-# FatGinger Admin Menu
+# ZAR Admin Menu
 #
 # Rules:
 # - Admin only
@@ -12,14 +14,12 @@
 # - No dispatcher logic
 # ==================================================
 
-from __future__ import annotations
-
 from sqlalchemy.orm import Session
 from app.messaging.client_messenger import send_message
 
 
 ADMIN_MENU_TEXT = (
-    "🛠️ Fat Ginger Admin Menu\n\n"
+    "🛠️ ZAR Admin Menu\n\n"
 
     "📊 Customer Surveys\n\n"
 
@@ -27,7 +27,7 @@ ADMIN_MENU_TEXT = (
     "survey: <question>\n\n"
 
     "Example\n"
-    "survey: How was your meal today?\n\n"
+    "survey: How was your experience today?\n\n"
 
     "End active survey\n"
     "end survey\n\n"
@@ -44,7 +44,7 @@ ADMIN_MENU_TEXT = (
     "announcement: <text>\n\n"
 
     "Example\n"
-    "announcement: Lunch special today – 20% off!\n\n"
+    "announcement: Breakfast special today – free coffee with any meal!\n\n"
 
     "Option 2 — Image announcement\n"
     "Send an image with an optional caption\n\n"
