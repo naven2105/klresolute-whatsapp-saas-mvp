@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 """
-File: app/clients/fatginger/feedback/handler.py
+File: handler.py
+Path: app/clients/zar/feedback/handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-FatGinger-specific feedback handler (tenant-isolated).
+ZAR-specific feedback handler (tenant-isolated).
 
 Rules:
 - Trigger: "feedback:"
@@ -23,7 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import PLATFORM_ADMIN_FEEDBACK
 
-logger = logging.getLogger("fatginger.feedback")
+logger = logging.getLogger("zar.feedback")
 
 
 def handle_feedback_message(
@@ -78,7 +79,7 @@ def handle_feedback_message(
 
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("FG_FEEDBACK_STORE_FAIL")
+        logger.exception("ZAR_FEEDBACK_STORE_FAIL")
         return True
 
     # --------------------------------------------------
@@ -112,10 +113,10 @@ def handle_feedback_message(
                 template_params=[alert_text],
             )
         except Exception:
-            logger.exception("FG_FEEDBACK_ADMIN_SEND_FAIL")
+            logger.exception("ZAR_FEEDBACK_ADMIN_SEND_FAIL")
 
     # --------------------------------------------------
-    # Customer acknowledgement (session message)
+    # Customer acknowledgement
     # --------------------------------------------------
     send_message(
         db=db,
