@@ -22,8 +22,8 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.transport.whatsapp_outbound import send_whatsapp_message
-from app.transport.whatsapp_outbound import send_whatsapp_image
+from app.whatsapp.send import send_text_message
+from app.whatsapp.send import send_image_message
 
 logger = logging.getLogger("zar.menu_service")
 
@@ -49,10 +49,10 @@ def store_menu_image(
 
     pending_menu_updates[sender_msisdn] = media_id
 
-    send_whatsapp_message(
+    send_text_message(
         to=sender_msisdn,
         business_msisdn=business_msisdn,
-        message=(
+        text=(
             "You are about to update the current food menu image.\n\n"
             "Reply YES to save this image as the food menu.\n"
             "Reply NO to cancel."
@@ -89,10 +89,10 @@ def handle_menu_confirmation(
 
         pending_menu_updates.pop(sender_msisdn, None)
 
-        send_whatsapp_message(
+        send_text_message(
             to=sender_msisdn,
             business_msisdn=business_msisdn,
-            message="Food menu update cancelled.",
+            text="Food menu update cancelled.",
         )
 
         return True
@@ -114,10 +114,10 @@ def handle_menu_confirmation(
 
         db.commit()
 
-        send_whatsapp_message(
+        send_text_message(
             to=sender_msisdn,
             business_msisdn=business_msisdn,
-            message="Food menu updated.",
+            text="Food menu updated.",
         )
 
         logger.info(
@@ -134,7 +134,7 @@ def handle_menu_confirmation(
 # CUSTOMER COMMAND
 # --------------------------------------------------
 
-def handle_food_command(
+def handle_menu_command(
     *,
     db: Session,
     sender_msisdn: str,
@@ -154,17 +154,17 @@ def handle_food_command(
 
     if not result:
 
-        send_whatsapp_message(
+        send_text_message(
             to=sender_msisdn,
             business_msisdn=business_msisdn,
-            message="Food menu is not available yet.",
+            text="Food menu is not available yet.",
         )
 
         return True
 
     media_id = result[0]
 
-    send_whatsapp_image(
+    send_image_message(
         to=sender_msisdn,
         business_msisdn=business_msisdn,
         media_id=media_id,
