@@ -7,6 +7,7 @@
 # - Admin food menu image intercept
 # - Image with caption "food" or "food menu" stores menu image
 # - Prevents campaign handler from capturing the image
+# - Admin YES/NO confirmation support for menu update
 # - No existing logic removed
 # ==================================================
 
@@ -23,7 +24,11 @@ from app.clients.zar.feedback.handler import (
 from app.clients.zar.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
-from app.clients.zar.customer.menu_service import store_menu_image
+
+from app.clients.zar.customer.menu_service import (
+    store_menu_image,
+    handle_menu_confirmation,
+)
 
 logger = logging.getLogger("zar.dispatcher")
 
@@ -74,6 +79,17 @@ def dispatch(
     if msg_type == "text":
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
+
+        # ---- MENU UPDATE CONFIRMATION ----
+        handled = handle_menu_confirmation(
+            db=db,
+            sender_msisdn=sender,
+            business_msisdn=business_msisdn,
+            message_text=body_text,
+        )
+
+        if handled:
+            return True
 
         # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):

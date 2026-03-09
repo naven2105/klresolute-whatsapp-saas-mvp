@@ -1,147 +1,173 @@
+# ==================================================
+# File: menu_service.py
+# Path: app/clients/zar/customer/menu_service.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Purpose
+# ZAR Food Menu Management
+#
+# Features
+# - Admin menu image update with confirmation
+# - Customer "food" command returns latest menu image
+# - Uses r_zar__menu_images table
+#
+# Safety
+# - Tenant isolated
+# - No changes to campaign / announcement modules
+# ==================================================
+
 from __future__ import annotations
-
-"""
-File: menu_service.py
-Path: app/clients/zar/customer/menu_service.py
-Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-ZAR customer food menu handler.
-
-Rules:
-- Customer-only logic for "food"
-- Stores and reuses latest admin-sent food menu image
-- Returns True if handled
-"""
 
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.messaging.client_messenger import send_message
-from app.outbound.factory import get_meta_client
+from app.transport.whatsapp_outbound import send_whatsapp_message
+from app.transport.whatsapp_outbound import send_whatsapp_image
 
 logger = logging.getLogger("zar.menu_service")
 
 
-def handle_menu_command(
-    *,
-    db: Session,
-    sender_msisdn: str,
-    business_msisdn: str,
-    message_text: str,
-) -> bool:
+# --------------------------------------------------
+# TEMP STORAGE FOR CONFIRMATION
+# --------------------------------------------------
 
-    msg = (message_text or "").strip().lower()
+pending_menu_updates: dict[str, str] = {}
 
-    if msg != "food":
-        return False
 
-    try:
-        row = db.execute(
-            text(
-                """
-                SELECT media_id
-                FROM r_zar__menu_images
-                ORDER BY created_at DESC
-                LIMIT 1
-                """
-            )
-        ).fetchone()
-
-        if not row:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text="Food menu is currently unavailable.",
-            )
-            return True
-
-        meta = get_meta_client(
-            db=db,
-            business_msisdn=business_msisdn,
-        )
-
-        meta.send_image_message(
-            to_msisdn=sender_msisdn,
-            media_id=row.media_id,
-            caption=None,
-        )
-
-        return True
-
-    except Exception:
-        logger.exception(
-            "ZAR_MENU_SEND_FAIL | to=%s",
-            sender_msisdn,
-        )
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Food menu is currently unavailable.",
-        )
-        return True
-
+# --------------------------------------------------
+# ADMIN IMAGE UPDATE
+# --------------------------------------------------
 
 def store_menu_image(
     *,
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,
-    media_id: str | None,
+    media_id: str,
 ) -> bool:
 
-    if not media_id:
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Food menu image was not received.",
-        )
-        return True
+    pending_menu_updates[sender_msisdn] = media_id
 
-    try:
-        db.execute(
-            text(
-                """
-                INSERT INTO r_zar__menu_images (media_id)
-                VALUES (:media_id)
-                """
-            ),
-            {"media_id": media_id},
-        )
-        db.commit()
+    send_whatsapp_message(
+        to=sender_msisdn,
+        business_msisdn=business_msisdn,
+        message=(
+            "You are about to update the current food menu image.\n\n"
+            "Reply YES to save this image as the food menu.\n"
+            "Reply NO to cancel."
+        ),
+    )
 
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Food menu updated.",
-        )
-        return True
+    logger.info(
+        "ZAR_MENU_UPDATE_PENDING | admin=%s | media_id=%s",
+        sender_msisdn,
+        media_id,
+    )
 
-    except Exception:
-        db.rollback()
-        logger.exception(
-            "ZAR_MENU_STORE_FAIL | sender=%s",
-            sender_msisdn,
-        )
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="Food menu update failed.",
-        )
-        return True
+    return True
 
 
-def handle_drinks_command(
+# --------------------------------------------------
+# ADMIN CONFIRMATION HANDLER
+# --------------------------------------------------
+
+def handle_menu_confirmation(
     *,
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,
     message_text: str,
 ) -> bool:
+
+    if sender_msisdn not in pending_menu_updates:
+        return False
+
+    response = message_text.strip().lower()
+
+    if response == "no":
+
+        pending_menu_updates.pop(sender_msisdn, None)
+
+        send_whatsapp_message(
+            to=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message="Food menu update cancelled.",
+        )
+
+        return True
+
+    if response == "yes":
+
+        media_id = pending_menu_updates.pop(sender_msisdn)
+
+        db.execute(
+            text(
+                """
+                INSERT INTO r_zar__menu_images
+                (media_id, created_at)
+                VALUES (:media_id, NOW())
+                """
+            ),
+            {"media_id": media_id},
+        )
+
+        db.commit()
+
+        send_whatsapp_message(
+            to=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message="Food menu updated.",
+        )
+
+        logger.info(
+            "ZAR_MENU_UPDATED | media_id=%s",
+            media_id,
+        )
+
+        return True
+
     return False
+
+
+# --------------------------------------------------
+# CUSTOMER COMMAND
+# --------------------------------------------------
+
+def handle_food_command(
+    *,
+    db: Session,
+    sender_msisdn: str,
+    business_msisdn: str,
+) -> bool:
+
+    result = db.execute(
+        text(
+            """
+            SELECT media_id
+            FROM r_zar__menu_images
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+    ).fetchone()
+
+    if not result:
+
+        send_whatsapp_message(
+            to=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message="Food menu is not available yet.",
+        )
+
+        return True
+
+    media_id = result[0]
+
+    send_whatsapp_image(
+        to=sender_msisdn,
+        business_msisdn=business_msisdn,
+        media_id=media_id,
+    )
+
+    return True
