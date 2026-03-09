@@ -4,8 +4,9 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Fix:
-# - Food menu admin intercept must STOP dispatcher
-# - Prevent announcement / campaign modules from executing
+# - Only ADMIN can trigger food menu image update
+# - Customer images must NOT reach campaign flow
+# - Intercept admin menu update before announcements module
 # ==================================================
 
 from __future__ import annotations
@@ -49,30 +50,6 @@ def dispatch(
     msg_type = msg.get("type")
 
     # --------------------------------------------------
-    # IMAGE MESSAGES (INTERCEPT FIRST)
-    # --------------------------------------------------
-    if msg_type == "image":
-
-        image_data = msg.get("image", {}) or {}
-        media_id = image_data.get("id")
-        caption = (image_data.get("caption") or "").strip()
-
-        if is_admin_message(
-            db=db,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        ) and caption.lower() in {"food", "food menu"}:
-
-            store_menu_image(
-                db=db,
-                sender_msisdn=sender,
-                business_msisdn=business_msisdn,
-                media_id=media_id,
-            )
-
-            return True  # STOP further routing
-
-    # --------------------------------------------------
     # BUTTON MESSAGES (Survey responses)
     # --------------------------------------------------
     if msg_type == "button":
@@ -101,6 +78,7 @@ def dispatch(
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
+        # ---- MENU UPDATE CONFIRMATION ----
         handled = handle_menu_confirmation(
             db=db,
             sender_msisdn=sender,
@@ -111,6 +89,7 @@ def dispatch(
         if handled:
             return True
 
+        # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
             handled = zar_feedback_handler(
@@ -125,6 +104,7 @@ def dispatch(
             if handled:
                 return True
 
+        # ---- Core inbound routing ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -137,7 +117,7 @@ def dispatch(
         return handled
 
     # --------------------------------------------------
-    # IMAGE MESSAGES (NORMAL FLOW)
+    # IMAGE MESSAGES
     # --------------------------------------------------
     if msg_type == "image":
 
@@ -145,6 +125,21 @@ def dispatch(
         media_id = image_data.get("id")
         caption = (image_data.get("caption") or "").strip()
 
+        # ---- ADMIN FOOD MENU UPDATE ----
+        if is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        ) and caption.lower() in {"food", "food menu"}:
+
+            return store_menu_image(
+                db=db,
+                sender_msisdn=sender,
+                business_msisdn=business_msisdn,
+                media_id=media_id,
+            )
+
+        # ---- Normal inbound image ----
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -154,23 +149,24 @@ def dispatch(
             media_url=media_id,
         )
 
-        return handled
-
-    # --------------------------------------------------
-    # ANNOUNCEMENTS MODULE
-    # --------------------------------------------------
-    if "announcements" in profile.enabled_modules:
-
-        handled = announcements_media_handler(
-            db=db,
-            sender=sender,
-            msg=msg,
-            client_id=client_id,
-            business_msisdn=business_msisdn,
-        )
-
         if handled:
             return True
+
+        # ---- Announcements module ----
+        if "announcements" in profile.enabled_modules:
+
+            handled = announcements_media_handler(
+                db=db,
+                sender=sender,
+                msg=msg,
+                client_id=client_id,
+                business_msisdn=business_msisdn,
+            )
+
+            if handled:
+                return True
+
+        return True
 
     logger.info("ZAR_DISPATCH_TERMINATE_SAFE")
 
