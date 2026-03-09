@@ -6,12 +6,12 @@ Path: app/clients/zar/customer/menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-ZAR customer menu command handling.
+ZAR customer food command handling.
 
 Rules:
 - Customer-only logic
 - No dispatcher logic
-- Sends menu image when customer types "food"
+- Static image menu
 - Returns True if handled
 """
 
@@ -24,11 +24,8 @@ logger = logging.getLogger("zar.menu_service")
 
 
 # --------------------------------------------------
-# ZAR MENU IMAGE (Meta media_id required)
+# FOOD MENU (STATIC IMAGE)
 # --------------------------------------------------
-ZAR_MENU_MEDIA_ID = "REPLACE_WITH_META_MEDIA_ID"
-
-
 def handle_menu_command(
     *,
     db: Session,
@@ -49,18 +46,31 @@ def handle_menu_command(
             business_msisdn=business_msisdn,
         )
 
-        meta.send_image_message(
+        # Static menu image in assets folder
+        meta.send_image_file(
             to_msisdn=sender_msisdn,
-            media_id=ZAR_MENU_MEDIA_ID,
+            image_path="app/assets/menu.png",
+            caption="🍽️ Our Food Menu",
         )
 
         return True
 
     except Exception:
-
         logger.exception(
             "ZAR_MENU_SEND_FAIL | to=%s",
             sender_msisdn,
         )
-
         return True
+
+
+# --------------------------------------------------
+# DRINKS MENU (DISABLED FOR ZAR)
+# --------------------------------------------------
+def handle_drinks_command(
+    *,
+    db: Session,
+    sender_msisdn: str,
+    business_msisdn: str,
+    message_text: str,
+) -> bool:
+    return False
