@@ -1,14 +1,12 @@
 # ==================================================
 # File: booking_handler.py
-# Path: app/clients/fatginger/handlers/booking_handler.py
+# Path: app/clients/zar/handlers/booking_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – FatGinger Booking Handler Extraction
-#
 # Purpose:
-# Dedicated FatGinger booking handler
+# Dedicated ZAR booking handler
 #
-# Update:
+# Behaviour:
 # - Staff template failure does not abort booking flow
 # - Per-recipient isolation: one bad staff number must not block others
 # - Skip self-send (business number) after normalisation
@@ -28,7 +26,7 @@ from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import PLATFORM_CLIENT_GENERIC
 
-logger = logging.getLogger("fatginger.booking_handler")
+logger = logging.getLogger("zar.booking_handler")
 
 
 def _normalise_sa_msisdn(raw: str) -> str:
@@ -74,8 +72,7 @@ def handle_booking(
     db.commit()
 
     # --------------------------------------------------
-    # 2. Staff alert (template) — do NOT abort on failure
-    #    and do NOT allow one bad recipient to block others
+    # 2. Staff alert (template)
     # --------------------------------------------------
     try:
         result = db.execute(
@@ -99,10 +96,9 @@ def handle_booking(
             try:
                 to_msisdn = _normalise_sa_msisdn(getattr(row, "msisdn", "") or "")
 
-                # Skip sending template to the business number itself
                 if to_msisdn == business_msisdn:
                     logger.warning(
-                        "FG_STAFF_TEMPLATE_SKIP_SELF | business=%s | staff_raw=%s | staff_norm=%s",
+                        "ZAR_STAFF_TEMPLATE_SKIP_SELF | business=%s | staff_raw=%s | staff_norm=%s",
                         business_msisdn,
                         getattr(row, "msisdn", None),
                         to_msisdn,
@@ -119,20 +115,20 @@ def handle_booking(
 
             except Exception:
                 logger.exception(
-                    "FG_STAFF_TEMPLATE_SEND_FAIL | business=%s | staff_raw=%s",
+                    "ZAR_STAFF_TEMPLATE_SEND_FAIL | business=%s | staff_raw=%s",
                     business_msisdn,
                     getattr(row, "msisdn", None),
                 )
 
     except Exception:
-        logger.exception("FG_STAFF_TEMPLATE_QUERY_FAIL_CONTINUE")
+        logger.exception("ZAR_STAFF_TEMPLATE_QUERY_FAIL_CONTINUE")
 
     # --------------------------------------------------
-    # 3. Customer confirmation (ALWAYS execute)
+    # 3. Customer confirmation
     # --------------------------------------------------
     send_message(
         db=db,
         business_msisdn=business_msisdn,
         to_number=sender_msisdn,
-        text="Your booking request has been received. The restaurant will confirm shortly.",
+        text="Your booking request has been received. The café will confirm shortly.",
     )
