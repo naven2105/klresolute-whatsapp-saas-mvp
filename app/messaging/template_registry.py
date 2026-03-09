@@ -29,6 +29,13 @@ GALITOS_NOTIFICATION = "klr_notification_v1"
 
 
 # ===============================
+# ZAR
+# ===============================
+
+ZAR_CAMPAIGN_TEMPLATE = "generic_business_update"
+
+
+# ===============================
 # SURVEY (Marketing)
 # ===============================
 
