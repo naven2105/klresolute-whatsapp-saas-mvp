@@ -4,10 +4,8 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Update:
-# - Admin food menu image intercept
-# - Caption debug logging
-# - Message structure debug logging
-# - No existing logic removed
+# - Deep execution logging for full flow visibility
+# - No logic changes
 # ==================================================
 
 from __future__ import annotations
@@ -42,25 +40,27 @@ def dispatch(
     client_id: str,
 ) -> bool:
 
-    logger.info(
-        "ZAR_DISPATCH_ENTER | sender=%s | msg_type=%s",
-        sender,
-        msg.get("type"),
-    )
-
     msg_type = msg.get("type")
 
-    # ---- MESSAGE STRUCTURE DEBUG ----
     logger.info(
-        "ZAR_MSG_TYPE_DEBUG | sender=%s | raw_msg=%s",
+        "ZAR_FLOW_START | sender=%s | business=%s | msg_type=%s",
+        sender,
+        business_msisdn,
+        msg_type,
+    )
+
+    logger.info(
+        "ZAR_MSG_PAYLOAD | sender=%s | payload=%s",
         sender,
         msg,
     )
 
     # --------------------------------------------------
-    # BUTTON MESSAGES (Survey responses)
+    # BUTTON MESSAGES
     # --------------------------------------------------
     if msg_type == "button":
+
+        logger.info("ZAR_FLOW_BRANCH | BUTTON_HANDLER")
 
         button_data = msg.get("button", {}) or {}
         button_text = button_data.get("text")
@@ -77,6 +77,8 @@ def dispatch(
             tag=button_text,
         )
 
+        logger.info("ZAR_FLOW_END | BUTTON_HANDLED")
+
         return True
 
     # --------------------------------------------------
@@ -84,7 +86,15 @@ def dispatch(
     # --------------------------------------------------
     if msg_type == "text":
 
+        logger.info("ZAR_FLOW_BRANCH | TEXT_HANDLER")
+
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
+
+        logger.info(
+            "ZAR_TEXT_BODY | sender=%s | text=%r",
+            sender,
+            body_text,
+        )
 
         handled = handle_menu_confirmation(
             db=db,
@@ -93,10 +103,18 @@ def dispatch(
             message_text=body_text,
         )
 
+        logger.info(
+            "ZAR_MENU_CONFIRM_CHECK | result=%s",
+            handled,
+        )
+
         if handled:
+            logger.info("ZAR_FLOW_END | MENU_CONFIRMATION_HANDLED")
             return True
 
         if body_text.lower().startswith("feedback:"):
+
+            logger.info("ZAR_FLOW_BRANCH | FEEDBACK_HANDLER")
 
             handled = zar_feedback_handler(
                 db=db,
@@ -107,8 +125,13 @@ def dispatch(
                 business_msisdn=business_msisdn,
             )
 
+            logger.info("ZAR_FEEDBACK_RESULT | handled=%s", handled)
+
             if handled:
+                logger.info("ZAR_FLOW_END | FEEDBACK_HANDLED")
                 return True
+
+        logger.info("ZAR_FLOW_BRANCH | INBOUND_TEXT_ROUTING")
 
         handled = handle_zar_inbound(
             db=db,
@@ -119,6 +142,8 @@ def dispatch(
             media_url=None,
         )
 
+        logger.info("ZAR_INBOUND_TEXT_RESULT | handled=%s", handled)
+
         return handled
 
     # --------------------------------------------------
@@ -126,39 +151,39 @@ def dispatch(
     # --------------------------------------------------
     if msg_type == "image":
 
+        logger.info("ZAR_FLOW_BRANCH | IMAGE_HANDLER")
+
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
 
         caption_raw = image_data.get("caption") or ""
         caption = caption_raw.strip()
         caption_lower = caption.lower()
-        caption_normalized = " ".join(caption_lower.split())
+
+        logger.info(
+            "ZAR_IMAGE_DETAILS | sender=%s | media_id=%s | caption_raw=%r | caption_stripped=%r",
+            sender,
+            media_id,
+            caption_raw,
+            caption,
+        )
 
         admin_match = is_admin_message(
             db=db,
             sender=sender,
             business_msisdn=business_msisdn,
         )
-        food_match = caption_normalized in {"food", "food menu"}
 
         logger.info(
-            "ZAR_IMAGE_DECISION | sender=%s | business=%s | admin_match=%s | media_id=%s | caption_raw=%r | caption_stripped=%r | caption_normalized=%r | food_match=%s",
+            "ZAR_ADMIN_CHECK | sender=%s | is_admin=%s",
             sender,
-            business_msisdn,
             admin_match,
-            media_id,
-            caption_raw,
-            caption,
-            caption_normalized,
-            food_match,
         )
 
-        if admin_match and food_match:
+        if admin_match and caption_lower in {"food", "food menu"}:
 
             logger.info(
-                "ZAR_MENU_IMAGE_INTERCEPT | sender=%s | business=%s | media_id=%s",
-                sender,
-                business_msisdn,
+                "ZAR_FLOW_BRANCH | FOOD_MENU_INTERCEPT | media_id=%s",
                 media_id,
             )
 
@@ -169,6 +194,8 @@ def dispatch(
                 media_id=media_id,
             )
 
+        logger.info("ZAR_FLOW_BRANCH | IMAGE_INBOUND_ROUTING")
+
         handled = handle_zar_inbound(
             db=db,
             sender_msisdn=sender,
@@ -178,11 +205,15 @@ def dispatch(
             media_url=media_id,
         )
 
+        logger.info("ZAR_IMAGE_INBOUND_RESULT | handled=%s", handled)
+
         return handled
 
     # --------------------------------------------------
     # ANNOUNCEMENTS MODULE
     # --------------------------------------------------
+    logger.info("ZAR_FLOW_BRANCH | ANNOUNCEMENTS_CHECK")
+
     if "announcements" in profile.enabled_modules:
 
         handled = announcements_media_handler(
@@ -193,9 +224,12 @@ def dispatch(
             business_msisdn=business_msisdn,
         )
 
+        logger.info("ZAR_ANNOUNCEMENT_RESULT | handled=%s", handled)
+
         if handled:
+            logger.info("ZAR_FLOW_END | ANNOUNCEMENT_HANDLED")
             return True
 
-    logger.info("ZAR_DISPATCH_TERMINATE_SAFE")
+    logger.info("ZAR_FLOW_END | SAFE_EXIT")
 
     return True
