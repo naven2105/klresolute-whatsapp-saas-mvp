@@ -1,6 +1,6 @@
 # ==================================================
 # File: summary.py
-# Path: app/clients/fatginger/survey/summary.py
+# Path: app/clients/zar/survey/summary.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Purpose:
