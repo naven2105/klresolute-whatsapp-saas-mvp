@@ -4,9 +4,10 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Update:
-# - Added admin image + "food" caption intercept BEFORE admin router
-# - Prevents campaign module from triggering
-# - No existing logic removed
+# - Removed legacy WELCOME_MESSAGE send
+# - New customers now receive ONLY the ZAR main menu
+# - Customer auto-registration preserved
+# - No other logic changed
 # ==================================================
 
 from __future__ import annotations
@@ -152,7 +153,7 @@ def handle_zar_inbound(
         # --------------------------------------------------
         # AUTO REGISTER CUSTOMER
         # --------------------------------------------------
-        result = db.execute(
+        db.execute(
             text(
                 """
                 INSERT INTO r_zar__customers (phone)
@@ -163,14 +164,6 @@ def handle_zar_inbound(
             {"phone": sender_msisdn},
         )
         db.commit()
-
-        if result.rowcount == 1:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text=WELCOME_MESSAGE,
-            )
 
         # --------------------------------------------------
         # MENU
