@@ -3,13 +3,15 @@
 # Path: app/clients/zar/customer/menu_service.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Purpose:
-# Food menu image update + customer food command
+# Update:
+# - Added 1 minute expiry for pending menu updates
+# - No existing behaviour removed
 # ==================================================
 
 from __future__ import annotations
 
 import logging
+import time
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -17,7 +19,14 @@ from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("zar.menu_service")
 
-pending_menu_updates: dict[str, str] = {}
+
+# --------------------------------------------------
+# TEMP STORAGE WITH EXPIRY
+# --------------------------------------------------
+
+pending_menu_updates: dict[str, dict] = {}
+
+MENU_UPDATE_EXPIRY_SECONDS = 60
 
 
 # --------------------------------------------------
@@ -32,7 +41,10 @@ def store_menu_image(
     media_id: str,
 ) -> bool:
 
-    pending_menu_updates[sender_msisdn] = media_id
+    pending_menu_updates[sender_msisdn] = {
+        "media_id": media_id,
+        "timestamp": time.time(),
+    }
 
     logger.info(
         "ZAR_MENU_UPDATE_PENDING | sender=%s | media_id=%s",
@@ -47,7 +59,8 @@ def store_menu_image(
         text=(
             "You are about to update the current food menu image.\n\n"
             "Reply YES to save this image as the food menu.\n"
-            "Reply NO to cancel."
+            "Reply NO to cancel.\n\n"
+            "This request expires in 1 minute."
         ),
     )
 
@@ -69,6 +82,26 @@ def handle_menu_confirmation(
     if sender_msisdn not in pending_menu_updates:
         return False
 
+    entry = pending_menu_updates[sender_msisdn]
+
+    if time.time() - entry["timestamp"] > MENU_UPDATE_EXPIRY_SECONDS:
+
+        pending_menu_updates.pop(sender_msisdn, None)
+
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu update expired. Please send the image again.",
+        )
+
+        logger.info(
+            "ZAR_MENU_UPDATE_EXPIRED | sender=%s",
+            sender_msisdn,
+        )
+
+        return True
+
     msg = message_text.strip().lower()
 
     if msg == "no":
@@ -86,7 +119,9 @@ def handle_menu_confirmation(
 
     if msg == "yes":
 
-        media_id = pending_menu_updates.pop(sender_msisdn)
+        media_id = entry["media_id"]
+
+        pending_menu_updates.pop(sender_msisdn, None)
 
         db.execute(
             text(
@@ -105,6 +140,12 @@ def handle_menu_confirmation(
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
             text="Food menu updated.",
+        )
+
+        logger.info(
+            "ZAR_MENU_UPDATED | sender=%s | media_id=%s",
+            sender_msisdn,
+            media_id,
         )
 
         return True
