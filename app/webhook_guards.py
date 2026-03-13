@@ -162,7 +162,7 @@ def guard_scoped_rusticbarrel_staff_block(
     sender: str,
     business_msisdn: str,
 ) -> bool:
-    if business_msisdn != RUSTICBARREL_BUSINESS_NUMBER_BUSINESS_NUMBER:
+    if business_msisdn != RUSTICBARREL_BUSINESS_NUMBER:
         return True
 
     if not _is_active_rusticbarrel_staff(db, sender_msisdn=sender):
