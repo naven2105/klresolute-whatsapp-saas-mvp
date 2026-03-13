@@ -6,8 +6,8 @@
 # Sprint 34 – RusticBarrel Tenant Alignment
 #
 # Update:
-# - Ensures "food" and numeric category selections
-#   are processed by menu_service before fallback.
+# - Structured menu system removed (Sprint 34).
+#   Food menu handled via image menu system.
 # ==================================================
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.messaging.client_messenger import send_message
 from app.clients.rusticbarrel.customer.booking_service import handle_booking_command
 from app.clients.rusticbarrel.customer.main_menu_service import handle_main_menu
-from app.clients.rusticbarrel.customer.menu_service import handle_menu_command
+
 from app.clients.rusticbarrel.handlers.campaign_handler import handle_admin_message
 from app.clients.rusticbarrel.survey.survey_handler import handle_survey_command
 from app.clients.rusticbarrel.admin.admin_menu_service import handle_admin_menu
@@ -151,17 +151,6 @@ def handle_rusticbarrel_inbound(
                 to_number=sender_msisdn,
                 text=WELCOME_MESSAGE,
             )
-
-        # --------------------------------------------------
-        # FOOD MENU
-        # --------------------------------------------------
-        if handle_menu_command(
-            db=db,
-            sender_msisdn=sender_msisdn,
-            business_msisdn=business_msisdn,
-            message_text=msg,
-        ):
-            return True
 
         # --------------------------------------------------
         # MAIN MENU

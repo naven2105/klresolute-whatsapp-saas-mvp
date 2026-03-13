@@ -1,21 +1,139 @@
 # ==================================================
 # File: menu_service.py
 # Path: app/clients/rusticbarrel/customer/menu_service.py
-# Project: KLResolute WhatsApp SaaS MVP
-#
-# Purpose:
-# Rusticbarrel category-based customer menu using number selection.
 # ==================================================
 
 from __future__ import annotations
 
 import logging
+import time
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("rusticbarrel.menu_service")
+
+
+pending_menu_updates: dict[str, dict] = {}
+
+MENU_UPDATE_EXPIRY_SECONDS = 60
+
+
+def store_menu_image(
+    *,
+    db: Session,
+    sender_msisdn: str,
+    business_msisdn: str,
+    media_id: str,
+) -> bool:
+
+    pending_menu_updates[sender_msisdn] = {
+        "media_id": media_id,
+        "timestamp": time.time(),
+    }
+
+    logger.info(
+        "RUSTICBARREL_MENU_UPDATE_PENDING | sender=%s | media_id=%s",
+        sender_msisdn,
+        media_id,
+    )
+
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        text=(
+            "You are about to update the current food menu image.\n\n"
+            "Reply YES to save this image as the food menu.\n"
+            "Reply NO to cancel.\n\n"
+            "This request expires in 1 minute."
+        ),
+    )
+
+    return True
+
+
+def handle_menu_confirmation(
+    *,
+    db: Session,
+    sender_msisdn: str,
+    business_msisdn: str,
+    message_text: str,
+) -> bool:
+
+    if sender_msisdn not in pending_menu_updates:
+        return False
+
+    entry = pending_menu_updates[sender_msisdn]
+
+    if time.time() - entry["timestamp"] > MENU_UPDATE_EXPIRY_SECONDS:
+
+        pending_menu_updates.pop(sender_msisdn, None)
+
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu update expired. Please send the image again.",
+        )
+
+        logger.info(
+            "RUSTICBARREL_MENU_UPDATE_EXPIRED | sender=%s",
+            sender_msisdn,
+        )
+
+        return True
+
+    msg = message_text.strip().lower()
+
+    if msg == "no":
+
+        pending_menu_updates.pop(sender_msisdn, None)
+
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu update cancelled.",
+        )
+
+        return True
+
+    if msg == "yes":
+
+        media_id = entry["media_id"]
+
+        pending_menu_updates.pop(sender_msisdn, None)
+
+        db.execute(
+            text(
+                """
+                INSERT INTO r_rusticbarrel__menu_images (media_id, created_at)
+                VALUES (:media_id, NOW())
+                """
+            ),
+            {"media_id": media_id},
+        )
+
+        db.commit()
+
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text="Food menu updated.",
+        )
+
+        logger.info(
+            "RUSTICBARREL_MENU_UPDATED | sender=%s | media_id=%s",
+            sender_msisdn,
+            media_id,
+        )
+
+        return True
+
+    return False
 
 
 def handle_menu_command(
@@ -26,109 +144,37 @@ def handle_menu_command(
     message_text: str,
 ) -> bool:
 
-    msg = (message_text or "").strip().lower()
+    if message_text.lower() != "food":
+        return False
 
-    # --------------------------------------------------
-    # SHOW CATEGORY MENU
-    # --------------------------------------------------
-    if msg == "food":
-
-        rows = (
-            db.execute(
-                text(
-                    """
-                    SELECT id,name,display_order
-                    FROM r_rusticbarrel__menu_categories
-                    ORDER BY display_order
-                    """
-                )
-            )
-            .mappings()
-            .all()
+    result = db.execute(
+        text(
+            """
+            SELECT media_id
+            FROM r_rusticbarrel__menu_images
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
         )
+    ).fetchone()
 
-        if not rows:
-            return False
-
-        lines = [
-            "🍗 Rustic Barrel Menu\n",
-            "Reply with a number:\n",
-        ]
-
-        for idx, r in enumerate(rows, start=1):
-            lines.append(f"{idx}. {r['name']}")
-
-        lines.append("\nReply MENU for main menu.")
+    if not result:
 
         send_message(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="\n".join(lines),
+            text="Food menu not available yet.",
         )
 
         return True
 
-    # --------------------------------------------------
-    # NUMBER SELECTION
-    # --------------------------------------------------
-    if msg.isdigit():
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        image_id=result.media_id,
+        caption="🍗 Rustic Barrel Menu",
+    )
 
-        index = int(msg)
-
-        rows = (
-            db.execute(
-                text(
-                    """
-                    SELECT id,name
-                    FROM r_rusticbarrel__menu_categories
-                    ORDER BY display_order
-                    """
-                )
-            )
-            .mappings()
-            .all()
-        )
-
-        if index < 1 or index > len(rows):
-            return True
-
-        category = rows[index - 1]
-
-        items = (
-            db.execute(
-                text(
-                    """
-                    SELECT name,price
-                    FROM r_rusticbarrel__menu_items
-                    WHERE category_id = :cid
-                    ORDER BY display_order
-                    """
-                ),
-                {"cid": category["id"]},
-            )
-            .mappings()
-            .all()
-        )
-
-        if not items:
-            return True
-
-        lines = [f"🍗 {category['name']}\n"]
-
-        for i in items:
-            lines.append(f"{i['name']} — R{i['price']}")
-
-        lines.append("\nReply FOOD to choose another category.")
-        lines.append("Reply MENU for main menu.")
-
-        send_message(
-            db=db,
-            business_msisdn=business_msisdn,
-            to_number=sender_msisdn,
-            text="\n".join(lines),
-        )
-
-        return True
-
-    return False
+    return True
