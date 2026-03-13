@@ -1,13 +1,14 @@
 # ==================================================
 # File: inbound.py
-# Path: app/clients/zar/inbound.py
+# Path: app/clients/rusticbarrel/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Update:
-# - Removed legacy WELCOME_MESSAGE send
-# - New customers now receive ONLY the ZAR main menu
+# RusticBarrel inbound handler
+#
+# Behaviour aligned with ZAR tenant:
+# - Admin image upload updates food menu
+# - Customers type "food" to receive menu image
 # - Customer auto-registration preserved
-# - No other logic changed
 # ==================================================
 
 from __future__ import annotations
@@ -18,22 +19,22 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
-from app.clients.zar.customer.booking_service import handle_booking_command
-from app.clients.zar.customer.main_menu_service import handle_main_menu
-from app.clients.zar.customer.menu_service import handle_menu_command, store_menu_image
-from app.clients.zar.survey.survey_handler import handle_survey_command
-from app.clients.zar.admin.admin_menu_service import handle_admin_menu
-from app.clients.zar.admin.admin_router import route_admin_message
+from app.clients.rusticbarrel.customer.booking_service import handle_booking_command
+from app.clients.rusticbarrel.customer.main_menu_service import handle_main_menu
+from app.clients.rusticbarrel.customer.menu_service import handle_menu_command, store_menu_image
+from app.clients.rusticbarrel.survey.survey_handler import handle_survey_command
+from app.clients.rusticbarrel.admin.admin_menu_service import handle_admin_menu
+from app.clients.rusticbarrel.admin.admin_router import route_admin_message
 
-logger = logging.getLogger("zar.inbound")
+logger = logging.getLogger("rusticbarrel.inbound")
 
 
 WELCOME_MESSAGE = (
-    "☕ Welcome to The ZAR Café\n"
-    "Fuel your day at Tree Tops Houghton.\n\n"
+    "🍗 Welcome to Rustic Barrel\n"
+    "Your neighbourhood pub and grill.\n\n"
     "You can:\n"
     "• Type menu to see options\n"
-    "• Type food to view today's menu\n"
+    "• Type food to view the menu\n"
     "• Type book to reserve a table\n\n"
     "Reply STOP anytime to unsubscribe."
 )
@@ -44,16 +45,13 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "☕ About The ZAR Café\n\n"
-    "Success starts with a good foundation.\n\n"
-    "Fuel your day at The ZAR Café, exclusively located within "
-    "Tree Tops Houghton.\n\n"
-    "Enjoy great coffee, breakfast and café dining "
-    "throughout the day."
+    "🍗 About Rustic Barrel\n\n"
+    "Rustic Barrel Pub and Grill is your local spot for great food,\n"
+    "good company and relaxed dining."
 )
 
 
-def handle_zar_inbound(
+def handle_rusticbarrel_inbound(
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,
@@ -76,13 +74,13 @@ def handle_zar_inbound(
         role = "customer"
 
         if db.execute(
-            text("SELECT 1 FROM r_zar__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"),
+            text("SELECT 1 FROM r_rusticbarrel__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "admin"
 
         elif db.execute(
-            text("SELECT 1 FROM r_zar__staff WHERE msisdn = :phone LIMIT 1"),
+            text("SELECT 1 FROM r_rusticbarrel__staff WHERE msisdn = :phone LIMIT 1"),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "staff"
@@ -93,7 +91,7 @@ def handle_zar_inbound(
         if role == "admin" and message_type == "image" and msg_lower in ("food", "food menu"):
 
             logger.info(
-                "ZAR_ADMIN_MENU_IMAGE_INTERCEPT | sender=%s | media_id=%s",
+                "RUSTICBARREL_ADMIN_MENU_IMAGE_INTERCEPT | sender=%s | media_id=%s",
                 sender_msisdn,
                 media_url,
             )
@@ -132,7 +130,7 @@ def handle_zar_inbound(
             db.execute(
                 text(
                     """
-                    UPDATE r_zar__customers
+                    UPDATE r_rusticbarrel__customers
                     SET marketing_opt_in = FALSE,
                         opt_out_timestamp = NOW()
                     WHERE phone = :phone
@@ -156,7 +154,7 @@ def handle_zar_inbound(
         db.execute(
             text(
                 """
-                INSERT INTO r_zar__customers (phone)
+                INSERT INTO r_rusticbarrel__customers (phone)
                 VALUES (:phone)
                 ON CONFLICT (phone) DO NOTHING
                 """
@@ -216,7 +214,7 @@ def handle_zar_inbound(
                 text(
                     """
                     SELECT type, message, image_url
-                    FROM r_zar__campaigns
+                    FROM r_rusticbarrel__campaigns
                     ORDER BY sent_at DESC
                     LIMIT 1
                     """
@@ -237,7 +235,7 @@ def handle_zar_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=f"📢 ZAR Café Special\n\n{result.message}",
+                    text=f"📢 Rustic Barrel Announcement\n\n{result.message}",
                 )
             else:
                 send_message(
@@ -252,12 +250,12 @@ def handle_zar_inbound(
 
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("ZAR_DB_ERROR")
+        logger.exception("RUSTICBARREL_DB_ERROR")
         return True
 
     except Exception:
         db.rollback()
-        logger.exception("ZAR_UNEXPECTED_ERROR")
+        logger.exception("RUSTICBARREL_UNEXPECTED_ERROR")
         return True
 
     return handle_main_menu(
