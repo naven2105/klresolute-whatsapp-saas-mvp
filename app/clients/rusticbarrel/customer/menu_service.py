@@ -1,6 +1,15 @@
 # ==================================================
 # File: menu_service.py
 # Path: app/clients/rusticbarrel/customer/menu_service.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Copied from ZAR tenant implementation
+#
+# Changes:
+# - r_zar__ → r_rusticbarrel__
+# - logger namespace updated
+#
+# No logic changed
 # ==================================================
 
 from __future__ import annotations
@@ -15,10 +24,18 @@ from app.messaging.client_messenger import send_message
 logger = logging.getLogger("rusticbarrel.menu_service")
 
 
+# --------------------------------------------------
+# TEMP STORAGE WITH EXPIRY
+# --------------------------------------------------
+
 pending_menu_updates: dict[str, dict] = {}
 
 MENU_UPDATE_EXPIRY_SECONDS = 60
 
+
+# --------------------------------------------------
+# ADMIN IMAGE UPDATE
+# --------------------------------------------------
 
 def store_menu_image(
     *,
@@ -53,6 +70,10 @@ def store_menu_image(
 
     return True
 
+
+# --------------------------------------------------
+# ADMIN CONFIRMATION
+# --------------------------------------------------
 
 def handle_menu_confirmation(
     *,
@@ -136,6 +157,10 @@ def handle_menu_confirmation(
     return False
 
 
+# --------------------------------------------------
+# CUSTOMER FOOD COMMAND
+# --------------------------------------------------
+
 def handle_menu_command(
     *,
     db: Session,
@@ -174,7 +199,6 @@ def handle_menu_command(
         business_msisdn=business_msisdn,
         to_number=sender_msisdn,
         image_id=result.media_id,
-        caption="🍗 Rustic Barrel Menu",
     )
 
     return True
