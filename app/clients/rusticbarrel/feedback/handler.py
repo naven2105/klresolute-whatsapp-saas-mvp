@@ -9,7 +9,7 @@ Rustic Barrel-specific feedback handler (tenant-isolated).
 
 Rules:
 - Trigger: "feedback:"
-- Store in r_galitos__feedback
+- Store in r_rusticbarrel__feedback
 - Forward to admins (role='admin')
 - Acknowledge customer
 - No shared tables
@@ -62,7 +62,7 @@ def handle_feedback_message(
         db.execute(
             text(
                 """
-                INSERT INTO r_galitos__feedback
+                INSERT INTO r_rusticbarrel__feedback
                 (customer_msisdn, message_text, media_id, media_type)
                 VALUES (:customer_msisdn, :message_text, :media_id, :media_type)
                 """
@@ -88,7 +88,7 @@ def handle_feedback_message(
         text(
             """
             SELECT msisdn
-            FROM r_galitos__staff
+            FROM r_rusticbarrel__staff
             WHERE role = 'admin'
             """
         )

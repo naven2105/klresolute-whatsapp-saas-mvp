@@ -30,7 +30,7 @@ logger = logging.getLogger("webhooks")
 MAGEN_BUSINESS_NUMBER = "27631016099"
 MAGEN_INTERNAL_ONLY_MESSAGE = "This bot is for Magen internal use only."
 
-GALITOS_BUSINESS_NUMBER = "27735534607"
+RUSTICBARREL_BUSINESS_NUMBER = "27735534607"
 
 
 def guard_db_available_or_notify(
@@ -122,14 +122,14 @@ def guard_magen_internal_only(
     return False
 
 
-def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
+def _is_active_rusticbarrel_staff(db: Session, *, sender_msisdn: str) -> bool:
     try:
         row = (
             db.execute(
                 text(
                     """
                     SELECT 1
-                    FROM r_galitos__staff
+                    FROM r_rusticbarrel__staff
                     WHERE msisdn = :msisdn
                       AND is_active = true
                       AND role != 'admin'
@@ -156,16 +156,16 @@ def _is_active_galitos_staff(db: Session, *, sender_msisdn: str) -> bool:
         return False
 
 
-def guard_scoped_galitos_staff_block(
+def guard_scoped_rusticbarrel_staff_block(
     *,
     db: Session,
     sender: str,
     business_msisdn: str,
 ) -> bool:
-    if business_msisdn != GALITOS_BUSINESS_NUMBER:
+    if business_msisdn != RUSTICBARREL_BUSINESS_NUMBER_BUSINESS_NUMBER:
         return True
 
-    if not _is_active_galitos_staff(db, sender_msisdn=sender):
+    if not _is_active_rusticbarrel_staff(db, sender_msisdn=sender):
         return True
 
     logger.warning(

@@ -49,7 +49,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT id
-                    FROM r_galitos__surveys
+                    FROM r_rusticbarrel__surveys
                     WHERE status = 'ACTIVE'
                     LIMIT 1
                     """
@@ -72,7 +72,7 @@ def handle_survey_command(
             db.execute(
                 text(
                     """
-                    INSERT INTO r_galitos__surveys (
+                    INSERT INTO r_rusticbarrel__surveys (
                         id,
                         question,
                         started_at,
@@ -104,11 +104,11 @@ def handle_survey_command(
                 text(
                     """
                     SELECT phone
-                    FROM r_galitos__customers
+                    FROM r_rusticbarrel__customers
                     WHERE marketing_opt_in = TRUE
                     AND phone NOT IN (
                         SELECT msisdn
-                        FROM r_galitos__staff
+                        FROM rusticbarrel__staff
                     )
                     """
                 )
@@ -144,7 +144,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT id
-                    FROM r_galitos__surveys
+                    FROM r_rusticbarrel__surveys
                     WHERE status = 'ACTIVE'
                     LIMIT 1
                     """
@@ -167,7 +167,7 @@ def handle_survey_command(
             db.execute(
                 text(
                     """
-                    UPDATE r_galitos__surveys
+                    UPDATE r_rusticbarrel__surveys
                     SET status = 'CLOSED',
                         closed_at = now()
                     WHERE id = :survey_id
@@ -182,7 +182,7 @@ def handle_survey_command(
                 text(
                     """
                     SELECT question
-                    FROM r_galitos__surveys
+                    FROM r_rusticbarrel__surveys
                     WHERE id = :survey_id
                     """
                 ),

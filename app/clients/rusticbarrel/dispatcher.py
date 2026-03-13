@@ -20,9 +20,9 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 
-from app.clients.rusticbarrel.inbound import handle_galitos_inbound
+from app.clients.rusticbarrel.inbound import handle_rusticbarrel_inbound
 from app.clients.rusticbarrel.feedback.handler import (
-    handle_feedback_message as galitos_feedback_handler,
+    handle_feedback_message as rusticbarrel_feedback_handler,
 )
 from app.clients.rusticbarrel.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
@@ -42,7 +42,7 @@ def dispatch(
 ) -> bool:
 
     logger.info(
-        "GALITOS_DISPATCH_ENTER | sender=%s | msg_type=%s",
+        "RUSTICBARREL_DISPATCH_ENTER | sender=%s | msg_type=%s",
         sender,
         msg.get("type"),
     )
@@ -81,7 +81,7 @@ def dispatch(
         # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
-            handled = galitos_feedback_handler(
+            handled = rusticbarrel_feedback_handler(
                 db=db,
                 sender_number=sender,
                 message_text=body_text,
@@ -94,7 +94,7 @@ def dispatch(
                 return True
 
         # ---- Core Inbound ----
-        handled = handle_galitos_inbound(
+        handled = handle_rusticbarrel_inbound(
             db=db,
             sender_msisdn=sender,
             business_msisdn=business_msisdn,
@@ -114,7 +114,7 @@ def dispatch(
         media_id = image_data.get("id")
         caption = image_data.get("caption")
 
-        handled = handle_galitos_inbound(
+        handled = handle_rusticbarrel_inbound(
             db=db,
             sender_msisdn=sender,
             business_msisdn=business_msisdn,
@@ -141,6 +141,6 @@ def dispatch(
         if handled:
             return True
 
-    logger.info("GALITOS_DISPATCH_TERMINATE_SAFE")
+    logger.info("RUSTIC BARREL_DISPATCH_TERMINATE_SAFE")
 
     return True

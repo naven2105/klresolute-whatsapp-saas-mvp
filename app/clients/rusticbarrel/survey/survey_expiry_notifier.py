@@ -10,7 +10,7 @@ Background notifier that auto-closes expired rusticbarrel surveys.
 
 Rules:
 - Tenant isolated
-- Uses r_galitos__surveys
+- Uses r_rusticbarrel__surveys
 - No cross-tenant logic
 """
 
@@ -38,7 +38,7 @@ async def _run_forever() -> None:
     interval = _get_interval_seconds()
 
     logger.info(
-        "GALITOS_EXPIRY_NOTIFIER_START | interval_seconds=%s",
+        "RUSTICBARREL_EXPIRY_NOTIFIER_START | interval_seconds=%s",
         interval,
     )
 
@@ -53,7 +53,7 @@ async def _run_forever() -> None:
                     text(
                         """
                         SELECT id
-                        FROM r_galitos__surveys
+                        FROM r_rusticbarrel__surveys
                         WHERE status = 'ACTIVE'
                           AND ends_at <= now()
                         ORDER BY ends_at ASC
@@ -65,7 +65,7 @@ async def _run_forever() -> None:
                 .all()
             )
 
-            logger.info("GALITOS_EXPIRY_SCAN | expired_found=%s", len(rows))
+            logger.info("RUSTICBARREL_EXPIRY_SCAN | expired_found=%s", len(rows))
 
             for r in rows:
 
@@ -76,7 +76,7 @@ async def _run_forever() -> None:
                     db.execute(
                         text(
                             """
-                            UPDATE r_galitos__surveys
+                            UPDATE r_rusticbarrel__surveys
                             SET status = 'CLOSED',
                                 closed_at = now()
                             WHERE id = :survey_id
@@ -88,7 +88,7 @@ async def _run_forever() -> None:
                     db.commit()
 
                     logger.info(
-                        "GALITOS_EXPIRY_SURVEY_CLOSED | survey_id=%s",
+                        "RUSTICBARREL_EXPIRY_SURVEY_CLOSED | survey_id=%s",
                         survey_id,
                     )
 
@@ -97,12 +97,12 @@ async def _run_forever() -> None:
                     db.rollback()
 
                     logger.exception(
-                        "GALITOS_EXPIRY_CLOSE_FAIL | survey_id=%s",
+                        "RUSTICBARREL_EXPIRY_CLOSE_FAIL | survey_id=%s",
                         survey_id,
                     )
 
         except Exception:
-            logger.exception("GALITOS_EXPIRY_LOOP_FAIL")
+            logger.exception("RUSTICBARREL_EXPIRY_LOOP_FAIL")
 
         finally:
             try:
@@ -118,9 +118,9 @@ def start_survey_expiry_notifier() -> None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        logger.warning("GALITOS_EXPIRY_NO_LOOP")
+        logger.warning("RUSTICBARREL_EXPIRY_NO_LOOP")
         return
 
-    logger.info("GALITOS_EXPIRY_NOTIFIER_SPAWN")
+    logger.info("RUSTICBARREL_EXPIRY_NOTIFIER_SPAWN")
 
     asyncio.create_task(_run_forever())

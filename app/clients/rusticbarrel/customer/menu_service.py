@@ -100,7 +100,7 @@ def handle_menu_command(
                 text(
                     """
                     SELECT name,price
-                    FROM r_galitos__menu_items
+                    FROM r_rusticbarrel__menu_items
                     WHERE category_id = :cid
                     ORDER BY display_order
                     """

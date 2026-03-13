@@ -1,6 +1,6 @@
 """
-File: galitos_weekly_whatsapp_report.py
-Path: app/clients/rusticbarrel/jobs/galitos_weekly_whatsapp_report.py
+File: rusticbarrel_weekly_whatsapp_report.py
+Path: app/clients/rusticbarrel/jobs/rusticbarrel_weekly_whatsapp_report.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:

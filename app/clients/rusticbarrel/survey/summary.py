@@ -30,7 +30,7 @@ def build_survey_summary_text(
             text(
                 """
                 SELECT button_id, COUNT(*) AS votes
-                FROM r_galitos__survey_responses
+                FROM r_rusticbarrel__survey_responses
                 WHERE survey_id = :survey_id
                 GROUP BY button_id
                 """

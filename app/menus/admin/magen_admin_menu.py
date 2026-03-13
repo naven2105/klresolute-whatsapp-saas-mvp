@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-File: app/menus/admin/galitos_admin_menu.py
+File: app/menus/admin/rusticbarel_admin_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
@@ -21,10 +21,10 @@ GUARD RAILS:
 
 import logging
 
-logger = logging.getLogger("menus.admin.galitos")
+logger = logging.getLogger("menus.admin.rusticbarrel")
 
-GALITOS_ADMIN_MENU = {
-    "title": "🛠️ Admin Menu",
+RUSTICBARREL_ADMIN_MENU = {
+    "title": "🛠️ RUSTIC BARREL Admin Menu",
     "sections": [
         {
             "title": "📊 Surveys",
@@ -62,4 +62,4 @@ GALITOS_ADMIN_MENU = {
     ],
 }
 
-logger.info("GALITOS_ADMIN_MENU_LOADED")
+logger.info("RUSTICBARREL_ADMIN_MENU_LOADED")

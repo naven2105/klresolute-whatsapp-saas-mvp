@@ -40,7 +40,7 @@ def handle_survey_response(
             text(
                 """
                 SELECT id
-                FROM r_galitos__surveys
+                FROM r_rusticbarrel__surveys
                 WHERE status = 'ACTIVE'
                 LIMIT 1
                 """
@@ -55,7 +55,7 @@ def handle_survey_response(
         db.execute(
             text(
                 """
-                INSERT INTO r_galitos__survey_responses (
+                INSERT INTO r_rusticbarrel__survey_responses (
                     id,
                     survey_id,
                     client_number,

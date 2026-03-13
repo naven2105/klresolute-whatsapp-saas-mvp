@@ -161,7 +161,7 @@ def _create_pending(
         text(
             """
             SELECT phone
-            FROM r_galitos__customers
+            FROM r_rusticbarrel__customers
             WHERE marketing_opt_in = TRUE
             """
         )
@@ -239,7 +239,7 @@ def _execute_broadcast(
         text(
             """
             SELECT phone
-            FROM r_galitos__customers
+            FROM r_rusticbarrel__customers
             WHERE marketing_opt_in = TRUE
             """
         )
@@ -253,7 +253,7 @@ def _execute_broadcast(
     campaign_id = db.execute(
         text(
             """
-            INSERT INTO r_galitos__campaigns
+            INSERT INTO r_rusticbarrel__campaigns
             (type, message, image_url, total_recipients, sent_count, failed_count)
             VALUES (:type, :message, :image_url, :total, 0, 0)
             RETURNING id
@@ -315,7 +315,7 @@ def _execute_broadcast(
         db.execute(
             text(
                 """
-                INSERT INTO r_galitos__broadcast_logs
+                INSERT INTO r_rusticbarrel__broadcast_logs
                 (campaign_id, customer_phone, delivery_status)
                 VALUES (:cid, :phone, :status)
                 """
@@ -330,7 +330,7 @@ def _execute_broadcast(
     db.execute(
         text(
             """
-            UPDATE r_galitos__campaigns
+            UPDATE r_rusticbarrel__campaigns
             SET sent_count = :sent,
                 failed_count = :failed
             WHERE id = :cid

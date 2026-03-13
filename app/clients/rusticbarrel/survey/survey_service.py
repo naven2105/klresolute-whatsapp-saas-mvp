@@ -40,11 +40,11 @@ def send_survey(
         text(
             """
             SELECT phone
-            FROM r_galitos__customers
+            FROM r_rusticbarrel__customers
             WHERE marketing_opt_in = TRUE
             AND phone NOT IN (
                 SELECT msisdn
-                FROM r_galitos__staff
+                FROM r_rusticbarrel__staff
                 WHERE role = 'admin'
             )
             """

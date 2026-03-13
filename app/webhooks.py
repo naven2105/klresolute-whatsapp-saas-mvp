@@ -35,7 +35,7 @@ from app.webhook_extract import extract_message
 from app.webhook_guards import (
     guard_db_available_or_notify,
     guard_magen_internal_only,
-    guard_scoped_galitos_staff_block,
+    guard_scoped_rusticbarrel_staff_block,
 )
 from app.webhook_dedupe import try_lock_provider_message
 from app.webhook_dispatch import dispatch_and_fallback
