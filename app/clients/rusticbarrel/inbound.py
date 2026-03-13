@@ -74,14 +74,14 @@ def handle_galitos_inbound(
 
         if db.execute(
             text(
-                "SELECT 1 FROM r_galitos__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"
+                "SELECT 1 FROM r_rusticbarrel__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"
             ),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "admin"
 
         elif db.execute(
-            text("SELECT 1 FROM r_galitos__staff WHERE msisdn = :phone LIMIT 1"),
+            text("SELECT 1 FROM r_rusticbarrel__staff WHERE msisdn = :phone LIMIT 1"),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "staff"
@@ -113,7 +113,7 @@ def handle_galitos_inbound(
             db.execute(
                 text(
                     """
-                    UPDATE r_galitos__customers
+                    UPDATE r_rusticbarrel__customers
                     SET marketing_opt_in = FALSE,
                         opt_out_timestamp = NOW()
                     WHERE phone = :phone
@@ -135,7 +135,7 @@ def handle_galitos_inbound(
         result = db.execute(
             text(
                 """
-                INSERT INTO r_galitos__customers (phone)
+                INSERT INTO r_rusticbarrel__customers (phone)
                 VALUES (:phone)
                 ON CONFLICT (phone) DO NOTHING
                 """
@@ -153,7 +153,7 @@ def handle_galitos_inbound(
             )
 
         # --------------------------------------------------
-        # FOOD MENU (category menu + numeric selections)
+        # FOOD MENU
         # --------------------------------------------------
         if handle_menu_command(
             db=db,
@@ -196,7 +196,7 @@ def handle_galitos_inbound(
                 text(
                     """
                     SELECT type, message, image_url
-                    FROM r_galitos__campaigns
+                    FROM r_rusticbarrel__campaigns
                     ORDER BY sent_at DESC
                     LIMIT 1
                     """
@@ -232,12 +232,12 @@ def handle_galitos_inbound(
 
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("GALITOS_DB_ERROR")
+        logger.exception("RUSTICBARREL_DB_ERROR")
         return True
 
     except Exception:
         db.rollback()
-        logger.exception("GALITOS_UNEXPECTED_ERROR")
+        logger.exception("RUSTICBARREL_UNEXPECTED_ERROR")
         return True
 
     return handle_main_menu(
