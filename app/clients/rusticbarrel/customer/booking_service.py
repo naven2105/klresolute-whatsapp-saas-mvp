@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: booking_service.py
-Path: app/clients/galitos/customer/booking_service.py
+Path: app/clients/rusticbarrel/customer/booking_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Galitos customer booking command handling (tenant-local).
+Rusticbarrel customer booking command handling (tenant-local).
 
 Rules:
 - Customer-only logic
@@ -20,7 +20,7 @@ from datetime import datetime, date
 from sqlalchemy.orm import Session
 
 from app.messaging.client_messenger import send_message
-from app.clients.galitos.handlers.booking_handler import handle_booking
+from app.clients.rusticbarrel.handlers.booking_handler import handle_booking
 
 
 BOOKING_REGEX = re.compile(

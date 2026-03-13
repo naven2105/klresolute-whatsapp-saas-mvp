@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """
 File: survey_handler.py
-Path: app/clients/galitos/survey/survey_handler.py
+Path: app/clients/rusticbarrel/survey/survey_handler.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Sprint 25 – Tenant Survey Isolation
@@ -17,9 +17,9 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 from app.messaging.template_registry import SURVEY_TEMPLATE_V1
-from app.clients.galitos.survey.summary import build_survey_summary_text
+from app.clients.rusticbarrel.survey.summary import build_survey_summary_text
 
-logger = logging.getLogger("galitos.survey_handler")
+logger = logging.getLogger("rusticbarrel.survey_handler")
 
 
 ACTIVE_SURVEY_WARNING = (

@@ -1,12 +1,12 @@
 # ==================================================
 # File: campaign_handler.py
-# Path: app/clients/galitos/handlers/campaign_handler.py
+# Path: app/clients/rusticbarrel/handlers/campaign_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 24 – Admin Menu Isolation
 #
 # Purpose:
-# Handles Galitos admin campaign flow:
+# Handles Rustic Barrel admin campaign flow:
 # - Pending confirmation state (in-memory)
 # - Lazy expiry (60 seconds)
 # - Text campaign trigger
@@ -20,7 +20,7 @@
 # - Unknown admin commands must fall back to admin_menu_service
 #
 # Isolation:
-# - Galitos only
+# - rustic barrel only
 # - No dispatcher changes
 # - No lifecycle states
 # ==================================================
@@ -34,7 +34,7 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
-logger = logging.getLogger("galitos.campaign_handler")
+logger = logging.getLogger("rusticbarrel.campaign_handler")
 
 pending_campaigns: dict[str, dict] = {}
 EXPIRY_SECONDS = 60
@@ -275,7 +275,7 @@ def _execute_broadcast(
             if campaign_type == "text":
 
                 formatted_message = (
-                    "📢 Galitos Announcement\n\n"
+                    "📢 Rustic Barrel Announcement\n\n"
                     f"{message}"
                 )
 
@@ -290,7 +290,7 @@ def _execute_broadcast(
 
                 if message:
                     formatted_caption = (
-                        "📢 Galitos Announcement\n\n"
+                        "📢 Rustic Barrel Announcement\n\n"
                         f"{message}"
                     )
                 else:

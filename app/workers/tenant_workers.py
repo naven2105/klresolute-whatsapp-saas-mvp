@@ -43,18 +43,18 @@ def start_all_workers() -> None:
         logger.exception("TENANT_WORKER_FAIL | tenant=fatginger")
 
     # -------------------------------------------------
-    # Galitos workers
+    # Rustic Barrel workers
     # -------------------------------------------------
     try:
-        from app.clients.galitos.survey.survey_expiry_notifier import (
+        from app.clients.rusticbarrel.survey.survey_expiry_notifier import (
             start_survey_expiry_notifier,
         )
 
         start_survey_expiry_notifier()
 
         logger.info(
-            "TENANT_WORKER_STARTED | tenant=galitos | worker=survey_expiry"
+            "TENANT_WORKER_STARTED | tenant=rusticbarrel  | worker=survey_expiry"
         )
 
     except Exception:
-        logger.exception("TENANT_WORKER_FAIL | tenant=galitos")
+        logger.exception("TENANT_WORKER_FAIL | tenant=rusticbarrel ")

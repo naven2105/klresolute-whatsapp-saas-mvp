@@ -1,6 +1,6 @@
 # ==================================================
 # File: summary.py
-# Path: app/clients/galitos/survey/summary.py
+# Path: app/clients/rusticbarrel/survey/summary.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Purpose:

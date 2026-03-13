@@ -1,9 +1,9 @@
 # ==================================================
 # File: inbound.py
-# Path: app/clients/galitos/inbound.py
+# Path: app/clients/rusticbarrel/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 28 – Galitos Tenant Alignment
+# Sprint 34 – RusticBarrel Tenant Alignment
 #
 # Update:
 # - Ensures "food" and numeric category selections
@@ -18,19 +18,19 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.messaging.client_messenger import send_message
-from app.clients.galitos.customer.booking_service import handle_booking_command
-from app.clients.galitos.customer.main_menu_service import handle_main_menu
-from app.clients.galitos.customer.menu_service import handle_menu_command
-from app.clients.galitos.handlers.campaign_handler import handle_admin_message
-from app.clients.galitos.survey.survey_handler import handle_survey_command
-from app.clients.galitos.admin.admin_menu_service import handle_admin_menu
-from app.clients.galitos.admin.admin_router import route_admin_message
+from app.clients.rusticbarrel.customer.booking_service import handle_booking_command
+from app.clients.rusticbarrel.customer.main_menu_service import handle_main_menu
+from app.clients.rusticbarrel.customer.menu_service import handle_menu_command
+from app.clients.rusticbarrel.handlers.campaign_handler import handle_admin_message
+from app.clients.rusticbarrel.survey.survey_handler import handle_survey_command
+from app.clients.rusticbarrel.admin.admin_menu_service import handle_admin_menu
+from app.clients.rusticbarrel.admin.admin_router import route_admin_message
 
-logger = logging.getLogger("galitos.inbound")
+logger = logging.getLogger("rusticbarrel.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to Galitos 🍗🔥\n"
+    "Welcome to Rustic Barrel 🍗🔥\n"
     "You can:\n"
     "• Type menu to see options\n"
     "• Type food to see food menu\n"
@@ -44,8 +44,8 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍗 About Galitos\n\n"
-    "Galitos is your local spot for flame-grilled chicken.\n"
+    "🍗 About RusticBarrel\n\n"
+    "Rustic Barrel Pub and Grill is your local spot for tasty food.\n"
     "We look forward to hosting you!"
 )
 
@@ -217,7 +217,7 @@ def handle_galitos_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=f"📢 Galitos Announcement\n\n{result.message}",
+                    text=f"📢 Rustic Barrel Announcement\n\n{result.message}",
                 )
             else:
                 send_message(

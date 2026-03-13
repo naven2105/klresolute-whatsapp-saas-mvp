@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: main_menu_service.py
-Path: app/clients/galitos/customer/main_menu_service.py
+Path: app/clients/rusticbarrel/customer/main_menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Galitos chatbot main menu handler (tenant-local).
+Rusticbarrel chatbot main menu handler (tenant-local).
 
 Rules:
 - Handles "menu"
@@ -20,7 +20,7 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🍗 Welcome to Galitos\n\n"
+    "🍗 Welcome to Rusticbarrel\n\n"
     "Please choose an option:\n\n"
     "* food — Browse our food menu\n"
     "* specials — View current specials\n"

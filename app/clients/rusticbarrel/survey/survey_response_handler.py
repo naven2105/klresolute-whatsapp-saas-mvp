@@ -1,6 +1,6 @@
 # ==================================================
 # File: survey_response_handler.py
-# Path: app/clients/galitos/survey/survey_response_handler.py
+# Path: app/clients/rusticbarrel/survey/survey_response_handler.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Sprint 25 – Tenant Survey Isolation
@@ -23,7 +23,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-logger = logging.getLogger("galitos.survey_response_handler")
+logger = logging.getLogger("rusticbarrel.survey_response_handler")
 
 
 def handle_survey_response(

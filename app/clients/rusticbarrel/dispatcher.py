@@ -1,9 +1,9 @@
 # ==================================================
 # File: dispatcher.py
-# Path: app/clients/galitos/dispatcher.py
+# Path: app/clients/rusticbarrel/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 28 – Galitos Template Alignment
+# Sprint 34 – rusticbarrel Template Alignment
 #
 # Update:
 # - Updated logger namespace
@@ -20,15 +20,15 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 
-from app.clients.galitos.inbound import handle_galitos_inbound
-from app.clients.galitos.feedback.handler import (
+from app.clients.rusticbarrel.inbound import handle_galitos_inbound
+from app.clients.rusticbarrel.feedback.handler import (
     handle_feedback_message as galitos_feedback_handler,
 )
-from app.clients.galitos.announcements.media_handler import (
+from app.clients.rusticbarrel.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
 )
 
-logger = logging.getLogger("galitos.dispatcher")
+logger = logging.getLogger("rusticbarrel.dispatcher")
 
 
 def dispatch(
@@ -58,7 +58,7 @@ def dispatch(
         button_text = button_data.get("text")
         button_payload = button_data.get("payload")
 
-        from app.clients.galitos.survey.survey_response_handler import (
+        from app.clients.rusticbarrel.survey.survey_response_handler import (
             handle_survey_response,
         )
 

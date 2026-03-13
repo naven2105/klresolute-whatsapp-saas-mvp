@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: admin_router.py
-Path: app/clients/galitos/admin/admin_router.py
+Path: app/clients/rusticbarrel/admin/admin_router.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Galitos admin command router.
+Rusticbarrel admin command router.
 
 Rules:
 - Entry point for all admin messages
@@ -16,9 +16,9 @@ Rules:
 
 from sqlalchemy.orm import Session
 
-from app.clients.galitos.admin.admin_menu_service import handle_admin_menu
-from app.clients.galitos.survey.survey_handler import handle_survey_command
-from app.clients.galitos.handlers.campaign_handler import handle_admin_message
+from app.clients.rusticbarrel.admin.admin_menu_service import handle_admin_menu
+from app.clients.rusticbarrel.survey.survey_handler import handle_survey_command
+from app.clients.rusticbarrel.handlers.campaign_handler import handle_admin_message
 
 
 def route_admin_message(

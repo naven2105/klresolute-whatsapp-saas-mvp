@@ -22,10 +22,10 @@ FG_ORDER_NOTIFICATION = "order_notification"
 
 
 # ===============================
-# GALITOS
+# RUSTIC BARREL
 # ===============================
 
-GALITOS_NOTIFICATION = "klr_notification_v1"
+RUSTICBARREL_NOTIFICATION = "klr_notification_v1"
 
 
 # ===============================

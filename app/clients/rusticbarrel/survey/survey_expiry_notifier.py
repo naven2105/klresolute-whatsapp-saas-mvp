@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """
 File: survey_expiry_notifier.py
-Path: app/clients/galitos/survey/survey_expiry_notifier.py
+Path: app/clients/rusticbarrel/survey/survey_expiry_notifier.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Background notifier that auto-closes expired Galitos surveys.
+Background notifier that auto-closes expired rusticbarrel surveys.
 
 Rules:
 - Tenant isolated
@@ -22,7 +22,7 @@ from sqlalchemy import text
 
 from app.db import SessionLocal
 
-logger = logging.getLogger("galitos.survey_expiry_notifier")
+logger = logging.getLogger("rusticbarrel.survey_expiry_notifier")
 
 
 def _get_interval_seconds() -> int:

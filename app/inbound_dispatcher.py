@@ -31,7 +31,7 @@ from app.profiles.client_profile import get_client_profile
 
 # Tenant dispatchers
 from app.clients.fatginger.dispatcher import dispatch as fatginger_dispatch
-from app.clients.galitos.dispatcher import dispatch as galitos_dispatch
+from app.clients.rusticbarrel.dispatcher import dispatch as galitos_dispatch
 from app.clients.magen.dispatcher import dispatch as magen_dispatch
 from app.clients.pilateshq.dispatcher import dispatch as pilates_dispatch
 from app.clients.zar.dispatcher import dispatch as zar_dispatch

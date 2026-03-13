@@ -1,10 +1,10 @@
 # ==================================================
 # File: menu_service.py
-# Path: app/clients/galitos/customer/menu_service.py
+# Path: app/clients/rusticbarrel/customer/menu_service.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Purpose:
-# Galitos category-based customer menu using number selection.
+# Rusticbarrel category-based customer menu using number selection.
 # ==================================================
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.messaging.client_messenger import send_message
 
-logger = logging.getLogger("galitos.menu_service")
+logger = logging.getLogger("rusticbarrel.menu_service")
 
 
 def handle_menu_command(
@@ -51,7 +51,7 @@ def handle_menu_command(
             return False
 
         lines = [
-            "🍗 Galitos Menu\n",
+            "🍗 Rustic Barrel Menu\n",
             "Reply with a number:\n",
         ]
 
