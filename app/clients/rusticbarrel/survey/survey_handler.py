@@ -105,11 +105,7 @@ def handle_survey_command(
                     """
                     SELECT phone
                     FROM r_rusticbarrel__customers
-                    WHERE marketing_opt_in = TRUE
-                    AND phone NOT IN (
-                        SELECT msisdn
-                        FROM r_rusticbarrel__staff
-                    )
+                    WHERE marketing_opt_in = TRUE     
                     """
                 )
             ).fetchall()
