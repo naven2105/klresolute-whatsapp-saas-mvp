@@ -108,7 +108,7 @@ def handle_survey_command(
                     WHERE marketing_opt_in = TRUE
                     AND phone NOT IN (
                         SELECT msisdn
-                        FROM rusticbarrel__staff
+                        FROM r_rusticbarrel__staff
                     )
                     """
                 )
