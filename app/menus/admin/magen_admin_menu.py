@@ -5,10 +5,10 @@ File: app/menus/admin/galitos_admin_menu.py
 Project: KLResolute WhatsApp SaaS MVP
 
 Purpose:
-Admin menu definition for Galitos (retail client).
+Admin menu definition for Rustic Barrel (retail client).
 
 EXPLICIT ROLE:
-- This file defines the Galitos admin menu ONLY
+- This file defines the Rustic Barrel admin menu ONLY
 - Menu is hard-coded by design
 - Menu text is instructional, not command-parsed
 

@@ -20,7 +20,7 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🍗 Welcome to Rusticbarrel\n\n"
+    "🍗 Welcome to Rustic Barrel\n\n"
     "Please choose an option:\n\n"
     "* food — Browse our food menu\n"
     "* specials — View current specials\n"

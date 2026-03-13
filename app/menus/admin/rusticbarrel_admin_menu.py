@@ -1,23 +1,22 @@
 # ==================================================
-# File: galitos_admin_menu.py
-# Path: app/menus/admin/galitos_admin_menu.py
+# File: rusticbarrel_admin_menu.py
+# Path: app/menus/admin/rusticbarrel_admin_menu.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 18 – Galitos Admin Menu (MVP Alignment)
+# Sprint 34 – Rustic Barrel Admin Menu
 #
 # Purpose:
-# Configuration-only admin menu definition for Galitos.
+# Configuration-only admin menu definition for Rustic Barrel.
 #
 # Rules:
 # - No logic
 # - No database access
 # - Pure configuration
-# - Must reflect actual supported features only
 # ==================================================
 
-GALITOS_ADMIN_MENU = {
+RUSTICBARREL_ADMIN_MENU = {
     "text": """
-🛠️ Admin Menu
+🛠️ Rustic Barrel Admin Menu
 
 📊 Surveys
 

@@ -110,8 +110,8 @@ async def whatsapp_webhook(
     ):
         return Response(status_code=200)
 
-    # ✅ Scoped Galitos Guard (FIX)
-    if not guard_scoped_galitos_staff_block(
+    # ✅ Scoped Rustic Barrel Guard (FIX)
+    if not guard_scoped_rusticbarrel_staff_block(
         db=db,
         sender=sender,
         business_msisdn=business_msisdn,

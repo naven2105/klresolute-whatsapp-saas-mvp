@@ -50,7 +50,7 @@ ABOUT_MESSAGE = (
 )
 
 
-def handle_galitos_inbound(
+def handle_rusticbarrel_inbound(
     db: Session,
     sender_msisdn: str,
     business_msisdn: str,

@@ -38,7 +38,7 @@ def handle_menu_command(
                 text(
                     """
                     SELECT id,name,display_order
-                    FROM r_galitos__menu_categories
+                    FROM r_rusticbarrel__menu_categories
                     ORDER BY display_order
                     """
                 )
@@ -81,7 +81,7 @@ def handle_menu_command(
                 text(
                     """
                     SELECT id,name
-                    FROM r_galitos__menu_categories
+                    FROM r_rusticbarrel__menu_categories
                     ORDER BY display_order
                     """
                 )
