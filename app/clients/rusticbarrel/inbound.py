@@ -3,11 +3,12 @@
 # Path: app/clients/rusticbarrel/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 34 – RusticBarrel Tenant Alignment
+# Rustic Barrel inbound handler
 #
-# Update:
-# - Structured menu system removed (Sprint 34).
-#   Food menu handled via image menu system.
+# Behaviour:
+# - Admin image upload updates food menu
+# - Customers type "food" to receive menu image
+# - Customer auto-registration preserved
 # ==================================================
 
 from __future__ import annotations
@@ -20,8 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.messaging.client_messenger import send_message
 from app.clients.rusticbarrel.customer.booking_service import handle_booking_command
 from app.clients.rusticbarrel.customer.main_menu_service import handle_main_menu
-
-from app.clients.rusticbarrel.handlers.campaign_handler import handle_admin_message
+from app.clients.rusticbarrel.customer.menu_service import handle_menu_command, store_menu_image
 from app.clients.rusticbarrel.survey.survey_handler import handle_survey_command
 from app.clients.rusticbarrel.admin.admin_menu_service import handle_admin_menu
 from app.clients.rusticbarrel.admin.admin_router import route_admin_message
@@ -30,11 +30,12 @@ logger = logging.getLogger("rusticbarrel.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to Rustic Barrel 🍗🔥\n"
+    "🍗 Welcome to Rustic Barrel\n"
+    "Your neighbourhood pub and grill.\n\n"
     "You can:\n"
     "• Type menu to see options\n"
-    "• Type food to see food menu\n"
-    "• Type book to reserve a table\n"
+    "• Type food to view today's menu\n"
+    "• Type book to reserve a table\n\n"
     "Reply STOP anytime to unsubscribe."
 )
 
@@ -44,9 +45,9 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍗 About RusticBarrel\n\n"
-    "Rustic Barrel Pub and Grill is your local spot for tasty food.\n"
-    "We look forward to hosting you!"
+    "🍗 About Rustic Barrel\n\n"
+    "Rustic Barrel Pub and Grill is your local spot for great food,\n"
+    "good company and relaxed dining."
 )
 
 
@@ -73,9 +74,7 @@ def handle_rusticbarrel_inbound(
         role = "customer"
 
         if db.execute(
-            text(
-                "SELECT 1 FROM r_rusticbarrel__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"
-            ),
+            text("SELECT 1 FROM r_rusticbarrel__staff WHERE msisdn = :phone AND role = 'admin' LIMIT 1"),
             {"phone": sender_msisdn},
         ).fetchone():
             role = "admin"
@@ -85,6 +84,24 @@ def handle_rusticbarrel_inbound(
             {"phone": sender_msisdn},
         ).fetchone():
             role = "staff"
+
+        # --------------------------------------------------
+        # ADMIN IMAGE FOOD MENU INTERCEPT
+        # --------------------------------------------------
+        if role == "admin" and message_type == "image" and msg_lower in ("food", "food menu"):
+
+            logger.info(
+                "RUSTICBARREL_ADMIN_MENU_IMAGE_INTERCEPT | sender=%s | media_id=%s",
+                sender_msisdn,
+                media_url,
+            )
+
+            return store_menu_image(
+                db=db,
+                sender_msisdn=sender_msisdn,
+                business_msisdn=business_msisdn,
+                media_id=media_url,
+            )
 
         # --------------------------------------------------
         # ADMIN COMMANDS
@@ -131,8 +148,10 @@ def handle_rusticbarrel_inbound(
             )
             return True
 
-        # Auto register
-        result = db.execute(
+        # --------------------------------------------------
+        # AUTO REGISTER CUSTOMER
+        # --------------------------------------------------
+        db.execute(
             text(
                 """
                 INSERT INTO r_rusticbarrel__customers (phone)
@@ -144,16 +163,8 @@ def handle_rusticbarrel_inbound(
         )
         db.commit()
 
-        if result.rowcount == 1:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text=WELCOME_MESSAGE,
-            )
-
         # --------------------------------------------------
-        # MAIN MENU
+        # MENU
         # --------------------------------------------------
         if msg_lower == "menu":
             return handle_main_menu(
@@ -163,6 +174,17 @@ def handle_rusticbarrel_inbound(
                 message_text=msg,
             )
 
+        if handle_menu_command(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
+
+        # --------------------------------------------------
+        # ABOUT
+        # --------------------------------------------------
         if msg_lower == "about":
             send_message(
                 db=db,
@@ -172,6 +194,9 @@ def handle_rusticbarrel_inbound(
             )
             return True
 
+        # --------------------------------------------------
+        # BOOKING
+        # --------------------------------------------------
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -180,7 +205,11 @@ def handle_rusticbarrel_inbound(
         ):
             return True
 
+        # --------------------------------------------------
+        # SPECIALS / CAMPAIGNS
+        # --------------------------------------------------
         if msg_lower in ("announcement", "special", "specials"):
+
             result = db.execute(
                 text(
                     """
@@ -206,7 +235,7 @@ def handle_rusticbarrel_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=f"📢 Rustic Barrel Announcement\n\n{result.message}",
+                    text=f"📢 Rustic Barrel Special\n\n{result.message}",
                 )
             else:
                 send_message(

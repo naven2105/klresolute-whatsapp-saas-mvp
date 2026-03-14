@@ -3,13 +3,9 @@
 # Path: app/clients/rusticbarrel/customer/menu_service.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Copied from ZAR tenant implementation
-#
-# Changes:
-# - r_zar__ → r_rusticbarrel__
-# - logger namespace updated
-#
-# No logic changed
+# Update:
+# - Added 1 minute expiry for pending menu updates
+# - No existing behaviour removed
 # ==================================================
 
 from __future__ import annotations
