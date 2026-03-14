@@ -21,7 +21,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.messaging.client_messenger import send_message
 from app.clients.rusticbarrel.customer.booking_service import handle_booking_command
 from app.clients.rusticbarrel.customer.main_menu_service import handle_main_menu
-from app.clients.rusticbarrel.customer.menu_service import handle_menu_command, store_menu_image
+from app.clients.rusticbarrel.customer.menu_service import (
+    handle_menu_command,
+    store_menu_image,
+    handle_menu_confirmation,
+)
 from app.clients.rusticbarrel.survey.survey_handler import handle_survey_command
 from app.clients.rusticbarrel.admin.admin_menu_service import handle_admin_menu
 from app.clients.rusticbarrel.admin.admin_router import route_admin_message
@@ -102,6 +106,17 @@ def handle_rusticbarrel_inbound(
                 business_msisdn=business_msisdn,
                 media_id=media_url,
             )
+
+        # --------------------------------------------------
+        # MENU UPDATE CONFIRMATION
+        # --------------------------------------------------
+        if handle_menu_confirmation(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
 
         # --------------------------------------------------
         # ADMIN COMMANDS
