@@ -5,9 +5,9 @@
 #
 # Sprint 34 – rusticbarrel Template Alignment
 #
-# Update:
-# - Updated logger namespace
-# - Updated log prefixes
+# Fix:
+# - Ensure admin image "food" intercept runs before announcements module
+# - Prevent announcements module from capturing menu image updates
 #
 # Rules:
 # - No logic removed
@@ -114,6 +114,7 @@ def dispatch(
         media_id = image_data.get("id")
         caption = image_data.get("caption")
 
+        # ---- First allow inbound to intercept admin food menu ----
         handled = handle_rusticbarrel_inbound(
             db=db,
             sender_msisdn=sender,
@@ -123,24 +124,23 @@ def dispatch(
             media_url=media_id,
         )
 
-        return handled
-
-    # --------------------------------------------------
-    # ANNOUNCEMENTS MODULE
-    # --------------------------------------------------
-    if "announcements" in profile.enabled_modules:
-
-        handled = announcements_media_handler(
-            db=db,
-            sender=sender,
-            msg=msg,
-            client_id=client_id,
-            business_msisdn=business_msisdn,
-        )
-
         if handled:
             return True
 
-    logger.info("RUSTIC BARREL_DISPATCH_TERMINATE_SAFE")
+        # ---- If not handled, pass to announcements ----
+        if "announcements" in profile.enabled_modules:
+
+            handled = announcements_media_handler(
+                db=db,
+                sender=sender,
+                msg=msg,
+                client_id=client_id,
+                business_msisdn=business_msisdn,
+            )
+
+            if handled:
+                return True
+
+    logger.info("RUSTICBARREL_DISPATCH_TERMINATE_SAFE")
 
     return True
