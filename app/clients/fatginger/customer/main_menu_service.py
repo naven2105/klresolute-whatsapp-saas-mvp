@@ -23,14 +23,13 @@ MAIN_MENU_TEXT = (
     "🍔 Welcome to FatGinger\n\n"
     "Please choose an option:\n\n"
     "* food — View our food menu\n"
-    "* drinks — View our drinks menu\n"
     "* specials — View current specials\n"
     "* book — Reserve a table\n"
     "* feedback: — Send a message to management\n"
     "* about — Learn more about us\n\n"
     "To book, please use this format:\n"
-    "book 4 22/02 19:00\n\n"
-    "To send feedback:\n"
+    "book 4 16/03 19:00\n\n"
+    "To send \n"
     "feedback: Your message to admin"
 )
 

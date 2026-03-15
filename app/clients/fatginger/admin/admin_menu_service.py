@@ -54,7 +54,17 @@ ADMIN_MENU_TEXT = (
     "• New announcement replaces the previous one\n\n"
 
     "Customers can view announcements by typing\n"
-    "announcements"
+    "announcements\n\n"
+
+    "────────────────\n\n"
+
+    "🍽️ Food Menu Image\n\n"
+
+    "Update the food menu image\n"
+    "Send an image with caption\n"
+    "food\n\n"
+
+    "The system will ask for confirmation before updating the menu."
 )
 
 

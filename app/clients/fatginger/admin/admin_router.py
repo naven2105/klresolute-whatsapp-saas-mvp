@@ -20,7 +20,6 @@ from app.clients.fatginger.admin.admin_menu_service import handle_admin_menu
 from app.clients.fatginger.survey.survey_handler import handle_survey_command
 from app.clients.fatginger.handlers.campaign_handler import handle_admin_message
 
-
 def route_admin_message(
     *,
     db: Session,
