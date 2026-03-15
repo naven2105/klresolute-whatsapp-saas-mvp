@@ -3,11 +3,11 @@
 # Path: app/clients/fatginger/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 35 – Food Menu Intercept Alignment
+# Sprint 35 – Menu Confirmation Alignment with ZAR
 #
 # Update:
-# - Added food menu image intercept identical to ZAR
-# - Prevents "food" images from triggering campaigns
+# - Added handle_menu_confirmation check
+# - Prevents YES/NO from falling through to inbound/admin menu
 #
 # Rules:
 # - No logic removed
@@ -19,8 +19,6 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 
-from app.utils.admin import is_admin_message
-
 from app.clients.fatginger.inbound import handle_fatginger_inbound
 from app.clients.fatginger.feedback.handler import (
     handle_feedback_message as fatginger_feedback_handler,
@@ -30,7 +28,7 @@ from app.clients.fatginger.announcements.media_handler import (
 )
 
 from app.clients.fatginger.customer.menu_service import (
-    store_menu_image,
+    handle_menu_confirmation,
 )
 
 logger = logging.getLogger("fatginger.dispatcher")
@@ -83,6 +81,17 @@ def dispatch(
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
+        # ---- Menu confirmation (NEW PATCH) ----
+        handled = handle_menu_confirmation(
+            db=db,
+            sender_msisdn=sender,
+            business_msisdn=business_msisdn,
+            message_text=body_text,
+        )
+
+        if handled:
+            return True
+
         # ---- Feedback ----
         if body_text.lower().startswith("feedback:"):
 
@@ -117,28 +126,8 @@ def dispatch(
 
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
+        caption = image_data.get("caption")
 
-        caption_raw = image_data.get("caption") or ""
-        caption = caption_raw.strip()
-        caption_lower = caption.lower()
-
-        # ---- FOOD MENU INTERCEPT (same as ZAR) ----
-        admin_match = is_admin_message(
-            db=db,
-            sender=sender,
-            business_msisdn=business_msisdn,
-        )
-
-        if admin_match and caption_lower in {"food", "food menu"}:
-
-            return store_menu_image(
-                db=db,
-                sender_msisdn=sender,
-                business_msisdn=business_msisdn,
-                media_id=media_id,
-            )
-
-        # ---- Default inbound routing ----
         handled = handle_fatginger_inbound(
             db=db,
             sender_msisdn=sender,
@@ -162,8 +151,6 @@ def dispatch(
             client_id=client_id,
             business_msisdn=business_msisdn,
         )
-
-        
 
         if handled:
             return True
