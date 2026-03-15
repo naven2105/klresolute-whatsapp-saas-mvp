@@ -3,15 +3,14 @@
 # Path: app/clients/fatginger/dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 24 – Survey Response Routing Fix
+# Sprint 35 – Food Menu Intercept Alignment
 #
 # Update:
-# - Added handling for WhatsApp "button" message type
-# - Enables survey responses to be recorded
+# - Added food menu image intercept identical to ZAR
+# - Prevents "food" images from triggering campaigns
 #
 # Rules:
 # - No logic removed
-# - No refactors
 # - Minimal patch
 # ==================================================
 
@@ -20,12 +19,18 @@ from __future__ import annotations
 import logging
 from sqlalchemy.orm import Session
 
+from app.utils.admin import is_admin_message
+
 from app.clients.fatginger.inbound import handle_fatginger_inbound
 from app.clients.fatginger.feedback.handler import (
     handle_feedback_message as fatginger_feedback_handler,
 )
 from app.clients.fatginger.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
+)
+
+from app.clients.fatginger.customer.menu_service import (
+    store_menu_image,
 )
 
 logger = logging.getLogger("fatginger.dispatcher")
@@ -112,8 +117,28 @@ def dispatch(
 
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
-        caption = image_data.get("caption")
 
+        caption_raw = image_data.get("caption") or ""
+        caption = caption_raw.strip()
+        caption_lower = caption.lower()
+
+        # ---- FOOD MENU INTERCEPT (same as ZAR) ----
+        admin_match = is_admin_message(
+            db=db,
+            sender=sender,
+            business_msisdn=business_msisdn,
+        )
+
+        if admin_match and caption_lower in {"food", "food menu"}:
+
+            return store_menu_image(
+                db=db,
+                sender_msisdn=sender,
+                business_msisdn=business_msisdn,
+                media_id=media_id,
+            )
+
+        # ---- Default inbound routing ----
         handled = handle_fatginger_inbound(
             db=db,
             sender_msisdn=sender,
