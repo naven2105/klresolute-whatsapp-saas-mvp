@@ -6,6 +6,8 @@
 # Update:
 # - Standardised to ZAR menu image architecture
 # - Uses r_fg__menu_images
+# - Added support for "menu" keyword
+# - Added PDF link after image send
 # ==================================================
 
 from __future__ import annotations
@@ -149,7 +151,7 @@ def handle_menu_confirmation(
 
 
 # --------------------------------------------------
-# CUSTOMER FOOD COMMAND
+# CUSTOMER FOOD / MENU COMMAND
 # --------------------------------------------------
 
 def handle_menu_command(
@@ -160,7 +162,9 @@ def handle_menu_command(
     message_text: str,
 ) -> bool:
 
-    if message_text.lower() != "food":
+    msg = message_text.strip().lower()
+
+    if msg not in ("food", "menu"):
         return False
 
     result = db.execute(
@@ -185,11 +189,23 @@ def handle_menu_command(
 
         return True
 
+    # Send image (existing behaviour)
     send_message(
         db=db,
         business_msisdn=business_msisdn,
         to_number=sender_msisdn,
         image_id=result.media_id,
+    )
+
+    # NEW: Send PDF link immediately after
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        text=(
+            "📄 View full menu:\n"
+            "https://thefatginger.co.za/pdf/2025-07-A4%20Menu-Web.pdf"
+        ),
     )
 
     return True

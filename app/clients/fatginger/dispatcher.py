@@ -5,7 +5,7 @@
 #
 # Patch:
 # - Add menu confirmation handling
-# - Add admin food image intercept (same pattern as ZAR)
+# - Add admin food image intercept (same pattern as ZAR) 
 # ==================================================
 
 from __future__ import annotations
