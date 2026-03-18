@@ -122,8 +122,34 @@ def handle_survey_command(
                         template_params=[question],
                     )
 
+                    # ✅ ADD: broadcast log
+                    db.execute(
+                        text(
+                            """
+                            INSERT INTO r_rusticbarrel__broadcast_logs (
+                                campaign_id,
+                                customer_phone,
+                                delivery_status,
+                                sent_at
+                            )
+                            VALUES (
+                                :campaign_id,
+                                :customer_phone,
+                                'SENT',
+                                now()
+                            )
+                            """
+                        ),
+                        {
+                            "campaign_id": survey_id,
+                            "customer_phone": row.phone,
+                        },
+                    )
+
                 except Exception:
                     logger.exception("SURVEY_BROADCAST_FAIL")
+
+            db.commit()  # ✅ ensure logs are saved
 
             send_message(
                 db=db,
