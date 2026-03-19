@@ -1,24 +1,7 @@
 # ==================================================
 # File: inbound_dispatcher.py
+# pathe: app/inbound_dispatcher.py
 # Project: KLResolute WhatsApp SaaS MVP
-#
-# Sprint 32 - ZAR Tenant Deployment
-#
-# Purpose:
-# Central inbound routing entry point.
-#
-# Responsibilities:
-# - Reset DB session
-# - Resolve tenant (UUID only)
-# - Route to tenant-specific dispatcher
-# - Return immediately
-#
-# Isolation:
-# - No business logic
-# - No module execution
-# - No cross-client routing
-# - No fallback
-# - UUID-based routing only
 # ==================================================
 
 from __future__ import annotations
@@ -35,6 +18,7 @@ from app.clients.rusticbarrel.dispatcher import dispatch as rusticbarrel_dispatc
 from app.clients.magen.dispatcher import dispatch as magen_dispatch
 from app.clients.pilateshq.dispatcher import dispatch as pilates_dispatch
 from app.clients.zar.dispatcher import dispatch as zar_dispatch
+from app.clients.periperi.dispatcher import dispatch as periperi_dispatch  # ✅ added
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -135,6 +119,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
 
     if client_id == "254d478e-da3a-4239-be94-c26aa75d30c0":
         return fatginger_dispatch(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            profile=profile,
+            client_id=client_id,
+        )
+
+    # ✅ PeriPeri (correct — own dispatcher)
+    if client_id == "09178be4-23b9-4650-bcbb-f5fb2cf32a18":
+        return periperi_dispatch(
             db=db,
             msg=msg,
             sender=sender,
