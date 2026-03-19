@@ -23,7 +23,9 @@ from app.clients.periperi.handlers.campaign_handler import (
     handle_admin_message,
 )
 from app.clients.periperi.survey.survey_handler import handle_survey_command
-from app.clients.periperi.admin.admin_admin_menu_service import handle_admin_menu
+
+from app.clients.periperi.admin.admin_menu_service import handle_admin_menu
+
 from app.clients.periperi.admin.admin_router import route_admin_message
 
 logger = logging.getLogger("periperi.inbound")
