@@ -3,13 +3,9 @@
 # Path: app/clients/periperi/inbound.py
 # Project: KLResolute WhatsApp SaaS MVP
 #
-# Sprint 16 – Campaign Integration
-#
-# Purpose:
-# periperi Client-Specific Inbound Handler
-#
-# Isolation:
-# - No dispatcher changes
+# Patch:
+# - Added Lite AI fallback (non-intrusive)
+# - Updated welcome branding to O' Peri Peri Edenvale
 # ==================================================
 
 from __future__ import annotations
@@ -27,14 +23,14 @@ from app.clients.periperi.handlers.campaign_handler import (
     handle_admin_message,
 )
 from app.clients.periperi.survey.survey_handler import handle_survey_command
-from app.clients.periperi.admin.admin_menu_service import handle_admin_menu
+from app.clients.periperi.admin.admin_admin_menu_service import handle_admin_menu
 from app.clients.periperi.admin.admin_router import route_admin_message
 
 logger = logging.getLogger("periperi.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to periperi 🍔🔥\n"
+    "Welcome to O' Peri Peri Edenvale 🍗🔥\n"
     "You can:\n"
     "• Type menu to see options\n"
     "• Type food to see food menu\n"
@@ -48,9 +44,49 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍔 About O' Peri Peri Edenvale\n\n"
-    "Peri Peri is a Portuguese restaurant and take aways. For authentic Portuguese food give us a call"
+    "🍗 About O' Peri Peri Edenvale\n\n"
+    "Portuguese flame-grilled chicken and seafood. Known for peri-peri flavour and spicy options."
 )
+
+
+# --------------------------------------------------
+# Lite AI Fallback
+# --------------------------------------------------
+def handle_lite_ai_fallback(message_text: str) -> str:
+
+    context = """
+You are a helpful WhatsApp assistant for O' Peri Peri Edenvale, a Portuguese-style restaurant in South Africa.
+
+- We serve peri-peri chicken and prawns
+- We specialise in spicy food (mild to hot)
+- We are located in Edenvale
+
+Rules:
+- Keep answers short
+- Do not guess unknown details
+- Always guide user:
+  Reply *menu* to view our menu
+  Reply *book* to reserve a table
+"""
+
+    try:
+        from openai import OpenAI
+        client = OpenAI()
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": context},
+                {"role": "user", "content": message_text},
+            ],
+            max_tokens=80,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception:
+        logger.exception("LITE_AI_FAIL")
+        return "Please reply *menu* to view options or *book* to reserve a table."
 
 
 def handle_periperi_inbound(
@@ -168,6 +204,7 @@ def handle_periperi_inbound(
             message_text=msg,
         ):
             return True
+
         if msg_lower == "about":
             send_message(
                 db=db,
@@ -211,7 +248,7 @@ def handle_periperi_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=f"📢 Fat Ginger Announcement\n\n{result.message}",
+                    text=f"📢 O' Peri Peri Special\n\n{result.message}",
                 )
             else:
                 send_message(
@@ -226,17 +263,24 @@ def handle_periperi_inbound(
 
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("FG_DB_ERROR")
+        logger.exception("PERIPERI_DB_ERROR")
         return True
 
     except Exception:
         db.rollback()
-        logger.exception("FG_UNEXPECTED_ERROR")
+        logger.exception("PERIPERI_UNEXPECTED_ERROR")
         return True
 
-    return handle_main_menu(
+    # --------------------------------------------------
+    # Lite AI fallback (only if nothing matched)
+    # --------------------------------------------------
+    ai_reply = handle_lite_ai_fallback(msg)
+
+    send_message(
         db=db,
-        sender_msisdn=sender_msisdn,
         business_msisdn=business_msisdn,
-        message_text=msg,
+        to_number=sender_msisdn,
+        text=ai_reply,
     )
+
+    return True
