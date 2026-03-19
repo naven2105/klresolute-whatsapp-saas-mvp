@@ -48,9 +48,8 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍔 About periperi\n\n"
-    "periperi is your local spot for great burgers, drinks and specials.\n"
-    "We look forward to hosting you!"
+    "🍔 About O' Peri Peri Edenvale\n\n"
+    "Peri Peri is a Portuguese restaurant and take aways. For authentic Portuguese food give us a call"
 )
 
 

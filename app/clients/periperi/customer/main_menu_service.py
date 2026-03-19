@@ -20,7 +20,7 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🍔 Welcome to periperi\n\n"
+    "🍔 Welcome to O' Peri Peri Edenvale\n\n"
     "Please choose an option:\n\n"
     "* food — View our food menu\n"
     "* specials — View current specials\n"

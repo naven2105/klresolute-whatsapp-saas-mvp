@@ -204,7 +204,7 @@ def handle_menu_command(
         to_number=sender_msisdn,
         text=(
             "📄 View full menu:\n"
-            "https://theperiperi.co.za/pdf/2025-07-A4%20Menu-Web.pdf"
+            "not available"
         ),
     )
 
