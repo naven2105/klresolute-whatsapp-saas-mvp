@@ -4,9 +4,7 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Add Lite AI fallback (menu recommendations)
-# - Uses r_periperi__menu_items
-# - Keyword → category mapping
+# - Improved Lite AI fallback (stronger matching)
 # ==================================================
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ logger = logging.getLogger("periperi.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to O' Peri Peri Edenvale 🐔🔥\n"
+    "Welcome to O' Peri Peri Edenvale 🍔🔥\n"
     "You can:\n"
     "• Type menu to see options\n"
     "• Type food to see menu\n"
@@ -42,7 +40,7 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🐔 About O' Peri Peri Edenvale\n\n"
+    "🍔 About O' Peri Peri Edenvale\n\n"
     "Authentic Portuguese cuisine with flame-grilled peri-peri flavours."
 )
 
@@ -85,6 +83,11 @@ def handle_lite_ai_fallback(
             matched_category = category
             break
 
+    # fallback intent
+    if not matched_category:
+        if "food" in msg_lower or "eat" in msg_lower or "recommend" in msg_lower:
+            matched_category = "Chicken"
+
     if not matched_category:
         return False
 
@@ -93,8 +96,7 @@ def handle_lite_ai_fallback(
             """
             SELECT name, price
             FROM r_periperi__menu_items
-            WHERE category = :category
-            ORDER BY name
+            WHERE LOWER(category) = LOWER(:category)
             LIMIT 3
             """
         ),
@@ -107,7 +109,7 @@ def handle_lite_ai_fallback(
     lines = [f"• {i.name} - R{i.price}" for i in items]
 
     response = (
-        f"🔥 Here are some {matched_category.lower()} options:\n\n"
+        f"🔥 Yes we do! Here are some {matched_category.lower()} options:\n\n"
         + "\n".join(lines)
         + "\n\nType menu to view full menu or specials for deals."
     )
@@ -294,7 +296,7 @@ def handle_periperi_inbound(
 
             return True
 
-        # 🔥 LITE AI FALLBACK (NEW)
+        # 🔥 LITE AI
         if handle_lite_ai_fallback(
             db=db,
             sender_msisdn=sender_msisdn,
