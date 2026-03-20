@@ -5,7 +5,8 @@
 #
 # Patch:
 # - Full flavour map
-# - DB-driven smart matching (no keyword dependency)
+# - DB-driven matching
+# - Added SPICY intent (pre-check)
 # ==================================================
 
 from __future__ import annotations
@@ -25,7 +26,6 @@ logger = logging.getLogger("periperi.menu_service")
 # --------------------------------------------------
 
 FLAVOUR_MAP = {
-
     "12 Prawns": [
         "juicy flame-grilled prawns with bold peri-peri 🔥",
         "succulent prawns grilled to perfection",
@@ -189,7 +189,7 @@ def build_menu_response(items):
 
 
 # --------------------------------------------------
-# HANDLE MENU COMMAND (SMART MATCH)
+# HANDLE MENU COMMAND
 # --------------------------------------------------
 
 def handle_menu_command(
@@ -203,7 +203,35 @@ def handle_menu_command(
     msg = message_text.lower()
 
     # --------------------------------------------------
-    # LOAD ALL ITEMS
+    # INTENT: SPICY (NEW)
+    # --------------------------------------------------
+
+    SPICY_KEYWORDS = ["spicy", "hot", "chilli", "peri peri", "extra hot"]
+
+    if any(word in msg for word in SPICY_KEYWORDS):
+
+        items = get_menu_items_by_category(db, "Chicken")
+
+        if items:
+            response = (
+                "🔥 Feeling something spicy?\n\n"
+                "Here are some great choices:\n\n"
+                f"{build_menu_response(items)}\n\n"
+                "All with a Portuguese twist 🇵🇹\n\n"
+                "Type menu to explore more"
+            )
+
+            send_message(
+                db=db,
+                business_msisdn=business_msisdn,
+                to_number=sender_msisdn,
+                text=response,
+            )
+
+            return True
+
+    # --------------------------------------------------
+    # SMART MATCH (DB-DRIVEN)
     # --------------------------------------------------
 
     all_items = db.execute(
@@ -226,7 +254,7 @@ def handle_menu_command(
             break
 
     # --------------------------------------------------
-    # RESPONSE
+    # CATEGORY RESPONSE
     # --------------------------------------------------
 
     if matched_category:
