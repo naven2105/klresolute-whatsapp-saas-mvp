@@ -4,9 +4,10 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
+# - Full menu command (food)
+# - Spicy intent
+# - DB-driven smart matching
 # - Full flavour map
-# - DB-driven matching
-# - Added SPICY intent (pre-check)
 # ==================================================
 
 from __future__ import annotations
@@ -200,10 +201,45 @@ def handle_menu_command(
     message_text: str,
 ) -> bool:
 
-    msg = message_text.lower()
+    msg = message_text.lower().strip()
 
     # --------------------------------------------------
-    # INTENT: SPICY (NEW)
+    # FULL MENU (PRIORITY)
+    # --------------------------------------------------
+
+    if msg == "food":
+
+        items = db.execute(
+            text(
+                """
+                SELECT name, price
+                FROM r_periperi__menu_items
+                WHERE active = TRUE
+                ORDER BY category, name
+                """
+            )
+        ).fetchall()
+
+        if not items:
+            return True
+
+        response = (
+            "🍽️ Here’s our full menu:\n\n"
+            f"{build_menu_response(items)}\n\n"
+            "Type specials for deals or tell me what you're craving 😋"
+        )
+
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            text=response,
+        )
+
+        return True
+
+    # --------------------------------------------------
+    # INTENT: SPICY
     # --------------------------------------------------
 
     SPICY_KEYWORDS = ["spicy", "hot", "chilli", "peri peri", "extra hot"]
@@ -252,10 +288,6 @@ def handle_menu_command(
         if any(word in msg for word in name_lower.split()):
             matched_category = item.category
             break
-
-    # --------------------------------------------------
-    # CATEGORY RESPONSE
-    # --------------------------------------------------
 
     if matched_category:
 
