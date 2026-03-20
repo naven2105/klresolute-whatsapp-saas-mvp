@@ -4,10 +4,9 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Full menu command (food)
-# - Spicy intent
-# - DB-driven smart matching
-# - Full flavour map
+# - Dynamic intros
+# - Dynamic flavour descriptions
+# - Dynamic brand + closing lines (NEW)
 # ==================================================
 
 from __future__ import annotations
@@ -20,6 +19,52 @@ from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 
 logger = logging.getLogger("periperi.menu_service")
+
+
+# --------------------------------------------------
+# INTRO VARIATIONS
+# --------------------------------------------------
+
+INTRO_VARIATIONS = [
+    "Nice choice 👌",
+    "That’s a great pick 😋",
+    "You’ve got good taste 🔥",
+    "Let me show you some options 👇",
+    "Here’s something you might like 👀",
+    "Good choice — have a look at these 👇",
+    "This might hit the spot 😋",
+    "Let’s get you something tasty 🔥",
+    "Here are some great options 👇",
+    "Take a look at these favourites 👇",
+]
+
+SPICY_INTROS = [
+    "🔥 Feeling something spicy?",
+    "🌶️ In the mood for heat?",
+    "🔥 Let’s turn up the flavour",
+    "🌶️ Something spicy coming right up",
+    "🔥 You’re speaking my language",
+]
+
+
+# --------------------------------------------------
+# BRAND + CLOSING VARIATIONS (NEW)
+# --------------------------------------------------
+
+BRAND_VARIATIONS = [
+    "All with a Portuguese twist 🇵🇹",
+    "Authentic Portuguese flavour 🇵🇹",
+    "Cooked the Portuguese way 🇵🇹",
+    "Full of Portuguese flavour 🇵🇹",
+]
+
+CLOSING_VARIATIONS = [
+    "Tell me what you’re craving 😋",
+    "Want something else? Just say the word 👌",
+    "Looking for something specific?",
+    "I can help you find the perfect meal 🔥",
+    "Say menu to explore everything",
+]
 
 
 # --------------------------------------------------
@@ -203,10 +248,7 @@ def handle_menu_command(
 
     msg = message_text.lower().strip()
 
-    # --------------------------------------------------
-    # FULL MENU (PRIORITY)
-    # --------------------------------------------------
-
+    # FULL MENU
     if msg == "food":
 
         items = db.execute(
@@ -223,10 +265,14 @@ def handle_menu_command(
         if not items:
             return True
 
+        brand = random.choice(BRAND_VARIATIONS)
+        closing = random.choice(CLOSING_VARIATIONS)
+
         response = (
             "🍽️ Here’s our full menu:\n\n"
             f"{build_menu_response(items)}\n\n"
-            "Type specials for deals or tell me what you're craving 😋"
+            f"{brand}\n\n"
+            f"{closing}"
         )
 
         send_message(
@@ -238,23 +284,23 @@ def handle_menu_command(
 
         return True
 
-    # --------------------------------------------------
-    # INTENT: SPICY
-    # --------------------------------------------------
-
-    SPICY_KEYWORDS = ["spicy", "hot", "chilli", "peri peri", "extra hot"]
-
-    if any(word in msg for word in SPICY_KEYWORDS):
+    # SPICY
+    if any(word in msg for word in ["spicy", "hot", "chilli", "peri peri", "extra hot"]):
 
         items = get_menu_items_by_category(db, "Chicken")
 
         if items:
+
+            intro = random.choice(SPICY_INTROS)
+            brand = random.choice(BRAND_VARIATIONS)
+            closing = random.choice(CLOSING_VARIATIONS)
+
             response = (
-                "🔥 Feeling something spicy?\n\n"
+                f"{intro}\n\n"
                 "Here are some great choices:\n\n"
                 f"{build_menu_response(items)}\n\n"
-                "All with a Portuguese twist 🇵🇹\n\n"
-                "Type menu to explore more"
+                f"{brand}\n\n"
+                f"{closing}"
             )
 
             send_message(
@@ -266,10 +312,7 @@ def handle_menu_command(
 
             return True
 
-    # --------------------------------------------------
-    # SMART MATCH (DB-DRIVEN)
-    # --------------------------------------------------
-
+    # SMART MATCH
     all_items = db.execute(
         text(
             """
@@ -283,9 +326,7 @@ def handle_menu_command(
     matched_category = None
 
     for item in all_items:
-        name_lower = item.name.lower()
-
-        if any(word in msg for word in name_lower.split()):
+        if any(word in msg for word in item.name.lower().split()):
             matched_category = item.category
             break
 
@@ -296,12 +337,16 @@ def handle_menu_command(
         if not items:
             return True
 
+        intro = random.choice(INTRO_VARIATIONS)
+        brand = random.choice(BRAND_VARIATIONS)
+        closing = random.choice(CLOSING_VARIATIONS)
+
         response = (
-            "🔥 Great choice!\n\n"
+            f"{intro}\n\n"
             f"Here are some {matched_category.lower()} favourites:\n\n"
             f"{build_menu_response(items)}\n\n"
-            "All with a Portuguese twist 🇵🇹\n\n"
-            "Type menu to explore more or specials for deals"
+            f"{brand}\n\n"
+            f"{closing}"
         )
 
         send_message(
