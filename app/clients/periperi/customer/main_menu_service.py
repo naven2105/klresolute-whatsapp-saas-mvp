@@ -20,17 +20,14 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🍔 Welcome to O' Peri Peri Edenvale\n\n"
-    "Please choose an option:\n\n"
-    "* food — View our food menu\n"
-    "* specials — View current specials\n"
+    "🐔 O' Peri Peri Edenvale\n\n"
+    "How can we help you today?\n\n"
+    "* food — View our menu\n"
+    "* specials — See current specials\n"
     "* book — Reserve a table\n"
-    "* feedback: — Send a message to management\n"
-    "* about — Learn more about us\n\n"
-    "To book, please use this format:\n"
-    "book 4 16/03 19:00\n\n"
-    "To send \n"
-    "feedback: Your message to admin"
+    "* about — Learn more about us\n"
+    "* feedback: — Message management\n\n"
+    "Or just ask us anything 😊"
 )
 
 
