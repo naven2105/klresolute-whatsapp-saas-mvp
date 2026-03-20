@@ -4,9 +4,7 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Cloned from FatGinger dispatcher
-# - Updated imports to periperi namespace
-# - No logic changes
+# - Removed handle_menu_confirmation dependency
 # ==================================================
 
 from __future__ import annotations
@@ -22,11 +20,6 @@ from app.clients.periperi.feedback.handler import (
 )
 from app.clients.periperi.announcements.media_handler import (
     handle_media_message as announcements_media_handler,
-)
-
-from app.clients.periperi.customer.menu_service import (
-    handle_menu_confirmation,
-    store_menu_image,
 )
 
 logger = logging.getLogger("periperi.dispatcher")
@@ -79,16 +72,7 @@ def dispatch(
 
         body_text = (msg.get("text", {}) or {}).get("body", "").strip()
 
-        # Menu confirmation
-        handled = handle_menu_confirmation(
-            db=db,
-            sender_msisdn=sender,
-            business_msisdn=business_msisdn,
-            message_text=body_text,
-        )
-
-        if handled:
-            return True
+        # ❌ REMOVED menu confirmation dependency
 
         # Feedback
         if body_text.lower().startswith("feedback:"):
@@ -126,23 +110,12 @@ def dispatch(
 
         caption_raw = image_data.get("caption") or ""
         caption = caption_raw.strip()
-        caption_lower = caption.lower()
 
         admin_match = is_admin_message(
             db=db,
             sender=sender,
             business_msisdn=business_msisdn,
         )
-
-        # FOOD MENU IMAGE INTERCEPT
-        if admin_match and caption_lower in {"food", "food menu"}:
-
-            return store_menu_image(
-                db=db,
-                sender_msisdn=sender,
-                business_msisdn=business_msisdn,
-                media_id=media_id,
-            )
 
         handled = handle_periperi_inbound(
             db=db,
