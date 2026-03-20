@@ -4,7 +4,7 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Ensure Lite AI executes BEFORE final menu fallback
+# - Fix Lite AI category matching (LIKE instead of =)
 # ==================================================
 
 from __future__ import annotations
@@ -26,12 +26,8 @@ logger = logging.getLogger("periperi.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to O' Peri Peri Edenvale 🐔🔥\n"
-    "You can:\n"
-    "• Type menu to see options\n"
-    "• Type food to see menu\n"
-    "• Type book to reserve a table\n"
-    "Ask anything 😊"
+    "🐔 Welcome to O' Peri Peri Edenvale!\n\n"
+    "Ask anything or type menu to get started 😊"
 )
 
 STOP_CONFIRMATION = (
@@ -91,16 +87,17 @@ def handle_lite_ai_fallback(
     if not matched_category:
         return False
 
+    # 🔥 FIXED QUERY (LIKE instead of =)
     items = db.execute(
         text(
             """
             SELECT name, price
             FROM r_periperi__menu_items
-            WHERE LOWER(category) = LOWER(:category)
+            WHERE LOWER(category) LIKE LOWER(:category)
             LIMIT 3
             """
         ),
-        {"category": matched_category},
+        {"category": f"%{matched_category}%"},
     ).fetchall()
 
     if not items:
@@ -296,7 +293,7 @@ def handle_periperi_inbound(
 
             return True
 
-        # 🔥 LITE AI (runs BEFORE fallback)
+        # 🔥 LITE AI
         if handle_lite_ai_fallback(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -315,7 +312,7 @@ def handle_periperi_inbound(
         logger.exception("PP_UNEXPECTED_ERROR")
         return True
 
-    # 🔥 FINAL FALLBACK
+    # FINAL FALLBACK
     return handle_main_menu(
         db=db,
         sender_msisdn=sender_msisdn,
