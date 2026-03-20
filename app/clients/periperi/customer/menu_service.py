@@ -4,8 +4,8 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Full flavour map for all menu items
-# - Randomised descriptions per item
+# - Full flavour map
+# - DB-driven smart matching (no keyword dependency)
 # ==================================================
 
 from __future__ import annotations
@@ -21,12 +21,11 @@ logger = logging.getLogger("periperi.menu_service")
 
 
 # --------------------------------------------------
-# FLAVOUR MAP (ALL ITEMS)
+# FLAVOUR MAP
 # --------------------------------------------------
 
 FLAVOUR_MAP = {
 
-    # ---------------- SEAFOOD ----------------
     "12 Prawns": [
         "juicy flame-grilled prawns with bold peri-peri 🔥",
         "succulent prawns grilled to perfection",
@@ -63,8 +62,6 @@ FLAVOUR_MAP = {
         "juicy chicken balanced with fresh prawns",
         "flavour-packed and filling",
     ],
-
-    # ---------------- CHICKEN ----------------
     "Half Chicken": [
         "flame-grilled and full of peri-peri flavour 🐔",
         "juicy, tender and perfectly spiced",
@@ -101,8 +98,6 @@ FLAVOUR_MAP = {
         "creamy, spicy and delicious",
         "a must-try for liver lovers",
     ],
-
-    # ---------------- GRILLS ----------------
     "Rump Steak": [
         "juicy, tender and grilled to perfection 🥩",
         "a classic cut packed with flavour",
@@ -127,8 +122,6 @@ FLAVOUR_MAP = {
         "sweet, smoky and irresistible",
         "grilled to perfection",
     ],
-
-    # ---------------- BURGERS ----------------
     "Chicken Burger": [
         "juicy grilled chicken on a fresh roll 🍔",
         "simple, tasty and satisfying",
@@ -196,7 +189,7 @@ def build_menu_response(items):
 
 
 # --------------------------------------------------
-# HANDLE MENU COMMAND
+# HANDLE MENU COMMAND (SMART MATCH)
 # --------------------------------------------------
 
 def handle_menu_command(
@@ -209,25 +202,46 @@ def handle_menu_command(
 
     msg = message_text.lower()
 
-    if "prawn" in msg or "seafood" in msg:
+    # --------------------------------------------------
+    # LOAD ALL ITEMS
+    # --------------------------------------------------
 
-        items = get_menu_items_by_category(db, "Seafood")
+    all_items = db.execute(
+        text(
+            """
+            SELECT name, category
+            FROM r_periperi__menu_items
+            WHERE active = TRUE
+            """
+        )
+    ).fetchall()
+
+    matched_category = None
+
+    for item in all_items:
+        name_lower = item.name.lower()
+
+        if any(word in msg for word in name_lower.split()):
+            matched_category = item.category
+            break
+
+    # --------------------------------------------------
+    # RESPONSE
+    # --------------------------------------------------
+
+    if matched_category:
+
+        items = get_menu_items_by_category(db, matched_category)
 
         if not items:
-            send_message(
-                db=db,
-                business_msisdn=business_msisdn,
-                to_number=sender_msisdn,
-                text="No seafood options available right now.",
-            )
             return True
 
         response = (
-            "🔥 Yes we do!\n\n"
-            "Here are some seafood favourites:\n\n"
+            "🔥 Great choice!\n\n"
+            f"Here are some {matched_category.lower()} favourites:\n\n"
             f"{build_menu_response(items)}\n\n"
             "All with a Portuguese twist 🇵🇹\n\n"
-            "Type menu to view full menu or specials for deals"
+            "Type menu to explore more or specials for deals"
         )
 
         send_message(
