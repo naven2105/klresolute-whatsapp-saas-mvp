@@ -56,38 +56,70 @@ def _parse_booking(message_text: str):
 
 def handle_booking_command(
     *,
-    db: Session,
+    db,
     sender_msisdn: str,
     business_msisdn: str,
     message_text: str,
 ) -> bool:
-    """
-    Returns True if this was a booking command (handled), otherwise False.
-    """
-    msg = (message_text or "").strip()
-    if not msg.lower().startswith("book"):
-        return False
 
-    parsed = _parse_booking(msg)
+    msg = (message_text or "").strip().lower()
 
-    if not parsed:
+    if msg.startswith("book"):
+        from app.messaging.client_messenger import send_message
+
         send_message(
             db=db,
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
-            text="Please use this format:\nbook 4 22/02 19:00",
+            text=(
+                "🍽️ Book a Table at O' Peri Peri Edenvale\n\n"
+                "Tap below to reserve your table:\n\n"
+                "<INSERT_DINEPLAN_LINK_HERE>"
+            ),
         )
         return True
 
-    guests, requested_date, requested_time = parsed
+    return False
 
-    handle_booking(
-        db=db,
-        sender_msisdn=sender_msisdn,
-        business_msisdn=business_msisdn,
-        guests=guests,
-        requested_date=requested_date,
-        requested_time=requested_time,
-    )
+# """
 
-    return True
+# #old booking process
+# """ def handle_booking_command(
+#     *,
+#     db: Session,
+#     sender_msisdn: str,
+#     business_msisdn: str,
+#     message_text: str,
+# ) -> bool:
+#     """
+#     """    Returns True if this was a booking command (handled), otherwise False.
+#     """
+#     msg = (message_text or "").strip()
+#     if not msg.lower().startswith("book"):
+#         return False
+
+#     parsed = _parse_booking(msg)
+
+#     if not parsed:
+#         send_message(
+#             db=db,
+#             business_msisdn=business_msisdn,
+#             to_number=sender_msisdn,
+#             text="Please use this format:\nbook 4 22/02 19:00",
+#         )
+#         return True
+
+#     guests, requested_date, requested_time = parsed
+
+#     handle_booking(
+#         db=db,
+#         sender_msisdn=sender_msisdn,
+#         business_msisdn=business_msisdn,
+#         guests=guests,
+#         requested_date=requested_date,
+#         requested_time=requested_time,
+#     )
+
+#     return True 
+
+# """ 

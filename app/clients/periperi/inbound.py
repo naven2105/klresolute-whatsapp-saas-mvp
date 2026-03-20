@@ -4,8 +4,9 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Added Lite AI fallback (non-intrusive)
-# - Updated welcome branding to O' Peri Peri Edenvale
+# - Add Lite AI fallback (menu recommendations)
+# - Uses r_periperi__menu_items
+# - Keyword → category mapping
 # ==================================================
 
 from __future__ import annotations
@@ -19,25 +20,20 @@ from app.messaging.client_messenger import send_message
 from app.clients.periperi.customer.booking_service import handle_booking_command
 from app.clients.periperi.customer.main_menu_service import handle_main_menu
 from app.clients.periperi.customer.menu_service import handle_menu_command
-from app.clients.periperi.handlers.campaign_handler import (
-    handle_admin_message,
-)
+from app.clients.periperi.handlers.campaign_handler import handle_admin_message
 from app.clients.periperi.survey.survey_handler import handle_survey_command
-
-from app.clients.periperi.admin.admin_menu_service import handle_admin_menu
-
 from app.clients.periperi.admin.admin_router import route_admin_message
 
 logger = logging.getLogger("periperi.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to O' Peri Peri Edenvale 🍗🔥\n"
+    "Welcome to O' Peri Peri Edenvale 🐔🔥\n"
     "You can:\n"
     "• Type menu to see options\n"
-    "• Type food to see food menu\n"
+    "• Type food to see menu\n"
     "• Type book to reserve a table\n"
-    "Reply STOP anytime to unsubscribe."
+    "Ask anything 😊"
 )
 
 STOP_CONFIRMATION = (
@@ -46,50 +42,89 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍗 About O' Peri Peri Edenvale\n\n"
-    "Portuguese flame-grilled chicken and seafood. Known for peri-peri flavour and spicy options."
+    "🐔 About O' Peri Peri Edenvale\n\n"
+    "Authentic Portuguese cuisine with flame-grilled peri-peri flavours."
 )
 
+# --------------------------------------------------
+# LITE AI CONFIG
+# --------------------------------------------------
+
+KEYWORD_MAP = {
+    "prawn": "Seafood",
+    "prawns": "Seafood",
+    "fish": "Seafood",
+    "calamari": "Seafood",
+    "spicy": "Chicken",
+    "chicken": "Chicken",
+    "burger": "Burgers",
+    "roll": "Burgers",
+    "steak": "Grills",
+    "rump": "Grills",
+    "pizza": "Pizza",
+    "pasta": "Pasta",
+    "salad": "Salads",
+    "combo": "Combos",
+    "ribs": "Grills",
+}
+
+
+def handle_lite_ai_fallback(
+    db: Session,
+    sender_msisdn: str,
+    business_msisdn: str,
+    message_text: str,
+) -> bool:
+
+    msg_lower = message_text.lower()
+
+    matched_category = None
+
+    for keyword, category in KEYWORD_MAP.items():
+        if keyword in msg_lower:
+            matched_category = category
+            break
+
+    if not matched_category:
+        return False
+
+    items = db.execute(
+        text(
+            """
+            SELECT name, price
+            FROM r_periperi__menu_items
+            WHERE category = :category
+            ORDER BY name
+            LIMIT 3
+            """
+        ),
+        {"category": matched_category},
+    ).fetchall()
+
+    if not items:
+        return False
+
+    lines = [f"• {i.name} - R{i.price}" for i in items]
+
+    response = (
+        f"🔥 Here are some {matched_category.lower()} options:\n\n"
+        + "\n".join(lines)
+        + "\n\nType menu to view full menu or specials for deals."
+    )
+
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        text=response,
+    )
+
+    return True
+
 
 # --------------------------------------------------
-# Lite AI Fallback
+# MAIN HANDLER
 # --------------------------------------------------
-def handle_lite_ai_fallback(message_text: str) -> str:
-
-    context = """
-You are a helpful WhatsApp assistant for O' Peri Peri Edenvale, a Portuguese-style restaurant in South Africa.
-
-- We serve peri-peri chicken and prawns
-- We specialise in spicy food (mild to hot)
-- We are located in Edenvale
-
-Rules:
-- Keep answers short
-- Do not guess unknown details
-- Always guide user:
-  Reply *menu* to view our menu
-  Reply *book* to reserve a table
-"""
-
-    try:
-        from openai import OpenAI
-        client = OpenAI()
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": context},
-                {"role": "user", "content": message_text},
-            ],
-            max_tokens=80,
-        )
-
-        return response.choices[0].message.content.strip()
-
-    except Exception:
-        logger.exception("LITE_AI_FAIL")
-        return "Please reply *menu* to view options or *book* to reserve a table."
-
 
 def handle_periperi_inbound(
     db: Session,
@@ -108,9 +143,7 @@ def handle_periperi_inbound(
 
     try:
 
-        # --------------------------------------------------
         # ROLE DETECTION
-        # --------------------------------------------------
         role = "customer"
 
         if db.execute(
@@ -125,9 +158,7 @@ def handle_periperi_inbound(
         ).fetchone():
             role = "staff"
 
-        # --------------------------------------------------
-        # ADMIN COMMANDS
-        # --------------------------------------------------
+        # ADMIN
         if role == "admin":
             return route_admin_message(
                 db=db,
@@ -138,16 +169,11 @@ def handle_periperi_inbound(
                 media_url=media_url,
             )
 
-        # --------------------------------------------------
         # STAFF
-        # --------------------------------------------------
         if role == "staff":
             return True
 
-        # --------------------------------------------------
-        # CUSTOMER
-        # --------------------------------------------------
-
+        # STOP
         if msg_lower in ("stop", "unsubscribe"):
             db.execute(
                 text(
@@ -170,7 +196,7 @@ def handle_periperi_inbound(
             )
             return True
 
-        # Auto register
+        # REGISTER
         result = db.execute(
             text(
                 """
@@ -191,6 +217,7 @@ def handle_periperi_inbound(
                 text=WELCOME_MESSAGE,
             )
 
+        # MENU
         if msg_lower == "menu":
             return handle_main_menu(
                 db=db,
@@ -199,6 +226,7 @@ def handle_periperi_inbound(
                 message_text=msg,
             )
 
+        # FOOD MENU
         if handle_menu_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -207,6 +235,7 @@ def handle_periperi_inbound(
         ):
             return True
 
+        # ABOUT
         if msg_lower == "about":
             send_message(
                 db=db,
@@ -216,6 +245,7 @@ def handle_periperi_inbound(
             )
             return True
 
+        # BOOKING
         if handle_booking_command(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -224,6 +254,7 @@ def handle_periperi_inbound(
         ):
             return True
 
+        # SPECIALS
         if msg_lower in ("announcement", "special", "specials"):
             result = db.execute(
                 text(
@@ -263,26 +294,28 @@ def handle_periperi_inbound(
 
             return True
 
+        # 🔥 LITE AI FALLBACK (NEW)
+        if handle_lite_ai_fallback(
+            db=db,
+            sender_msisdn=sender_msisdn,
+            business_msisdn=business_msisdn,
+            message_text=msg,
+        ):
+            return True
+
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("PERIPERI_DB_ERROR")
+        logger.exception("PP_DB_ERROR")
         return True
 
     except Exception:
         db.rollback()
-        logger.exception("PERIPERI_UNEXPECTED_ERROR")
+        logger.exception("PP_UNEXPECTED_ERROR")
         return True
 
-    # --------------------------------------------------
-    # Lite AI fallback (only if nothing matched)
-    # --------------------------------------------------
-    ai_reply = handle_lite_ai_fallback(msg)
-
-    send_message(
+    return handle_main_menu(
         db=db,
+        sender_msisdn=sender_msisdn,
         business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        text=ai_reply,
+        message_text=msg,
     )
-
-    return True
