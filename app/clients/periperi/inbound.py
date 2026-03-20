@@ -4,7 +4,7 @@
 # Project: KLResolute WhatsApp SaaS MVP
 #
 # Patch:
-# - Improved Lite AI fallback (stronger matching)
+# - Ensure Lite AI executes BEFORE final menu fallback
 # ==================================================
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger("periperi.inbound")
 
 
 WELCOME_MESSAGE = (
-    "Welcome to O' Peri Peri Edenvale 🍔🔥\n"
+    "Welcome to O' Peri Peri Edenvale 🐔🔥\n"
     "You can:\n"
     "• Type menu to see options\n"
     "• Type food to see menu\n"
@@ -40,7 +40,7 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🍔 About O' Peri Peri Edenvale\n\n"
+    "🐔 About O' Peri Peri Edenvale\n\n"
     "Authentic Portuguese cuisine with flame-grilled peri-peri flavours."
 )
 
@@ -296,7 +296,7 @@ def handle_periperi_inbound(
 
             return True
 
-        # 🔥 LITE AI
+        # 🔥 LITE AI (runs BEFORE fallback)
         if handle_lite_ai_fallback(
             db=db,
             sender_msisdn=sender_msisdn,
@@ -315,6 +315,7 @@ def handle_periperi_inbound(
         logger.exception("PP_UNEXPECTED_ERROR")
         return True
 
+    # 🔥 FINAL FALLBACK
     return handle_main_menu(
         db=db,
         sender_msisdn=sender_msisdn,
