@@ -101,12 +101,18 @@ def dispatch(
         return handled
 
     # --------------------------------------------------
-    # IMAGE MESSAGES
+    # IMAGE MESSAGES   
     # --------------------------------------------------
     if msg_type == "image":
 
         image_data = msg.get("image", {}) or {}
         media_id = image_data.get("id")
+
+        logger.info("KLR_DEMO_IMAGE_MEDIA_ID | media_id=%s", media_id)
+
+        logger.info("KLR_IMAGE_ID | %s", msg.get("image", {}).get("id"))
+
+
 
         caption_raw = image_data.get("caption") or ""
         caption = caption_raw.strip()
