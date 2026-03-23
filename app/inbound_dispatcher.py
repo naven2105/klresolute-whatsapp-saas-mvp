@@ -18,7 +18,8 @@ from app.clients.rusticbarrel.dispatcher import dispatch as rusticbarrel_dispatc
 from app.clients.magen.dispatcher import dispatch as magen_dispatch
 from app.clients.pilateshq.dispatcher import dispatch as pilates_dispatch
 from app.clients.zar.dispatcher import dispatch as zar_dispatch
-from app.clients.periperi.dispatcher import dispatch as periperi_dispatch  # ✅ added
+from app.clients.periperi.dispatcher import dispatch as periperi_dispatch
+from app.clients.klr_demo.dispatcher import dispatch as klr_demo_dispatch  # ✅ ADDED
 
 logger = logging.getLogger("inbound.dispatcher")
 
@@ -130,6 +131,17 @@ def dispatch(*, db: Session, msg: dict, sender: str, business_msisdn: str) -> bo
     # ✅ PeriPeri (correct — own dispatcher)
     if client_id == "09178be4-23b9-4650-bcbb-f5fb2cf32a18":
         return periperi_dispatch(
+            db=db,
+            msg=msg,
+            sender=sender,
+            business_msisdn=business_msisdn,
+            profile=profile,
+            client_id=client_id,
+        )
+
+    # ✅ KLR Demo (copy of Peri Peri)
+    if client_id == "6e9d6052-535c-4dab-971b-48fb203705ca":
+        return klr_demo_dispatch(
             db=db,
             msg=msg,
             sender=sender,
