@@ -78,7 +78,7 @@ def handle_feedback_message(
 
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("FG_FEEDBACK_STORE_FAIL")
+        logger.exception("KLR_FEEDBACK_STORE_FAIL")
         return True
 
     # --------------------------------------------------
@@ -112,7 +112,7 @@ def handle_feedback_message(
                 template_params=[alert_text],
             )
         except Exception:
-            logger.exception("FG_FEEDBACK_ADMIN_SEND_FAIL")
+            logger.exception("KLR_FEEDBACK_ADMIN_SEND_FAIL")
 
     # --------------------------------------------------
     # Customer acknowledgement (session message)

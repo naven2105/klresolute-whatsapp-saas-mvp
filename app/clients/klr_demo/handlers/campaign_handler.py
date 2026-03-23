@@ -275,7 +275,7 @@ def _execute_broadcast(
             if campaign_type == "text":
 
                 formatted_message = (
-                    "📢 Fat Ginger Announcement\n\n"
+                    "📢 Announcement\n\n"
                     f"{message}"
                 )
 
@@ -290,7 +290,7 @@ def _execute_broadcast(
 
                 if message:
                     formatted_caption = (
-                        "📢 Fat Ginger Announcement\n\n"
+                        "📢 Announcement\n\n"
                         f"{message}"
                     )
                 else:

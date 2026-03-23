@@ -20,7 +20,7 @@ from app.messaging.client_messenger import send_message
 
 
 ADMIN_MENU_TEXT = (
-    "🛠️ Fat Ginger Admin Menu\n\n"
+    "🛠️ Admin Menu\n\n"
 
     "📊 Customer Surveys\n\n"
 

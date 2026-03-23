@@ -102,7 +102,7 @@ def handle_booking(
                 # Skip sending template to the business number itself
                 if to_msisdn == business_msisdn:
                     logger.warning(
-                        "FG_STAFF_TEMPLATE_SKIP_SELF | business=%s | staff_raw=%s | staff_norm=%s",
+                        "KLR_STAFF_TEMPLATE_SKIP_SELF | business=%s | staff_raw=%s | staff_norm=%s",
                         business_msisdn,
                         getattr(row, "msisdn", None),
                         to_msisdn,
@@ -119,13 +119,13 @@ def handle_booking(
 
             except Exception:
                 logger.exception(
-                    "FG_STAFF_TEMPLATE_SEND_FAIL | business=%s | staff_raw=%s",
+                    "KLR_STAFF_TEMPLATE_SEND_FAIL | business=%s | staff_raw=%s",
                     business_msisdn,
                     getattr(row, "msisdn", None),
                 )
 
     except Exception:
-        logger.exception("FG_STAFF_TEMPLATE_QUERY_FAIL_CONTINUE")
+        logger.exception("KLR_STAFF_TEMPLATE_QUERY_FAIL_CONTINUE")
 
     # --------------------------------------------------
     # 3. Customer confirmation (ALWAYS execute)

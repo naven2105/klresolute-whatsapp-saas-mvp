@@ -38,7 +38,7 @@ async def _run_forever() -> None:
     interval = _get_interval_seconds()
 
     logger.info(
-        "FG_EXPIRY_NOTIFIER_START | interval_seconds=%s",
+        "KLR_EXPIRY_NOTIFIER_START | interval_seconds=%s",
         interval,
     )
 
@@ -65,7 +65,7 @@ async def _run_forever() -> None:
                 .all()
             )
 
-            logger.info("FG_EXPIRY_SCAN | expired_found=%s", len(rows))
+            logger.info("KLR_EXPIRY_SCAN | expired_found=%s", len(rows))
 
             for r in rows:
 
@@ -88,7 +88,7 @@ async def _run_forever() -> None:
                     db.commit()
 
                     logger.info(
-                        "FG_EXPIRY_SURVEY_CLOSED | survey_id=%s",
+                        "KLR_EXPIRY_SURVEY_CLOSED | survey_id=%s",
                         survey_id,
                     )
 
@@ -97,12 +97,12 @@ async def _run_forever() -> None:
                     db.rollback()
 
                     logger.exception(
-                        "FG_EXPIRY_CLOSE_FAIL | survey_id=%s",
+                        "KLR_EXPIRY_CLOSE_FAIL | survey_id=%s",
                         survey_id,
                     )
 
         except Exception:
-            logger.exception("FG_EXPIRY_LOOP_FAIL")
+            logger.exception("KLR_EXPIRY_LOOP_FAIL")
 
         finally:
             try:
@@ -118,9 +118,9 @@ def start_survey_expiry_notifier() -> None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        logger.warning("FG_EXPIRY_NO_LOOP")
+        logger.warning("KLR_EXPIRY_NO_LOOP")
         return
 
-    logger.info("FG_EXPIRY_NOTIFIER_SPAWN")
+    logger.info("KLR_EXPIRY_NOTIFIER_SPAWN")
 
     asyncio.create_task(_run_forever())

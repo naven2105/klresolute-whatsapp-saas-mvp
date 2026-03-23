@@ -19,7 +19,7 @@ from sqlalchemy import text
 from app.models import Contact
 from app.outbound.factory import get_meta_client
 from app.utils.admin import is_admin_message
-from app.messaging.template_registry import FG_CAMPAIGN_TEMPLATE
+from app.messaging.template_registry import KLR_CAMPAIGN_TEMPLATE
 
 logger = logging.getLogger("announcements.admin_media")
 
@@ -195,7 +195,7 @@ def handle_media_message(
     try:
         meta.send_template(
             to_msisdn=sender,
-            template_name=FG_CAMPAIGN_TEMPLATE,
+            template_name=KLR_CAMPAIGN_TEMPLATE,
             body_params=[
                 f"Announcement sent to customers. Delivered: {sent}. Failed: {failed}."
             ],

@@ -62,6 +62,6 @@ def send_survey(
             )
         except Exception:
             logger.exception(
-                "FG_SURVEY_SEND_FAIL | phone=%s",
+                "KLR_SURVEY_SEND_FAIL | phone=%s",
                 getattr(row, "phone", None),
             )
