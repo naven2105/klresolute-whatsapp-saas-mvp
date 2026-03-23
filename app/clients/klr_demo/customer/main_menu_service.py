@@ -20,13 +20,13 @@ from app.messaging.client_messenger import send_message
 
 
 MAIN_MENU_TEXT = (
-    "🐔 O' Peri Peri Edenvale\n\n"
+    "KLResolute Demo\n\n"
     "How can we help you today?\n\n"
-    "* food — View our menu\n"
-    "* specials — See current specials\n"
-    "* book — Reserve a table\n"
-    "* about — Learn more about us\n"
-    "* feedback: — Message management\n\n"
+    "* menu — View offerings\n"
+    "* options — Show menu\n"
+    "* specials — Latest updates\n"
+    "* book — Make a booking\n"
+    "* about — Learn more\n\n"
     "Or just ask us anything 😊"
 )
 
