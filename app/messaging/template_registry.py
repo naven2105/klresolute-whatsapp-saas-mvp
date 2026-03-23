@@ -34,6 +34,10 @@ RUSTICBARREL_NOTIFICATION = "klr_notification_v1"
 
 ZAR_CAMPAIGN_TEMPLATE = "generic_business_update"
 
+# ===============================
+# KLR_demo
+# ===============================
+KLR_CAMPAIGN_TEMPLATE = "generic_business_update"
 
 # ===============================
 # SURVEY (Marketing)
