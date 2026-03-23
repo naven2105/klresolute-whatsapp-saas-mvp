@@ -216,16 +216,7 @@ def handle_klr_demo_inbound(
                 text=WELCOME_MESSAGE,
             )
 
-        # MENU
-        if msg_lower == "menu":
-            return handle_main_menu(
-                db=db,
-                sender_msisdn=sender_msisdn,
-                business_msisdn=business_msisdn,
-                message_text=msg,
-            )
-
-        # FOOD MENU
+        # MENU COMMANDS
         if handle_menu_command(
             db=db,
             sender_msisdn=sender_msisdn,
