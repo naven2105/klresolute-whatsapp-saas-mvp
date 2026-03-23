@@ -127,4 +127,5 @@ def handle_menu_command(
 
         return True
 
+
     return False
