@@ -105,7 +105,7 @@ def handle_menu_command(
             to_number=sender_msisdn,
             text=(
                 "📄 Here’s our menu:\n"
-                "https://klresolute.co.za/KLResolute_Demo_Menu.pdf"
+                "https://klresolute.co.za/KLR_Demo_Fun.pdf"
             ),
         )
 
