@@ -26,7 +26,7 @@ logger = logging.getLogger("klr_demo.inbound")
 
 
 WELCOME_MESSAGE = (
-    "🐔 Welcome to O' Peri Peri Edenvale!\n\n"
+    "🐔 Welcome!\n\n"
     "Ask anything or type menu to get started 😊"
 )
 
@@ -36,8 +36,8 @@ STOP_CONFIRMATION = (
 )
 
 ABOUT_MESSAGE = (
-    "🐔 About O' Peri Peri Edenvale\n\n"
-    "Authentic Portuguese cuisine with flame-grilled peri-peri flavours."
+    "🐔 About \n\n"
+    "Here you can share address/mobile/email... "
 )
 
 # --------------------------------------------------
@@ -271,7 +271,7 @@ def handle_klr_demo_inbound(
                     db=db,
                     business_msisdn=business_msisdn,
                     to_number=sender_msisdn,
-                    text=f"📢 O' Peri Peri Special\n\n{result.message}",
+                    text=f"📢 Special\n\n{result.message}",
                 )
             else:
                 send_message(

@@ -72,7 +72,7 @@ def handle_booking_command(
             business_msisdn=business_msisdn,
             to_number=sender_msisdn,
             text=(
-                "🍽️ Book a Table at O' Peri Peri Edenvale\n\n"
+                "🍽️ Book a Table\n\n"
                 "Tap below to reserve your table:\n\n"
                 "<INSERT_DINEPLAN_LINK_HERE>"
             ),

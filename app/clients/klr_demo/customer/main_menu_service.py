@@ -4,15 +4,6 @@ from __future__ import annotations
 File: main_menu_service.py
 Path: app/clients/klr_demo/customer/main_menu_service.py
 Project: KLResolute WhatsApp SaaS MVP
-
-Purpose:
-klr_demo chatbot main menu handler (tenant-local).
-
-Rules:
-- Handles "menu"
-- Handles unknown commands (fallback)
-- Customer-only logic
-- No dispatcher logic
 """
 
 from sqlalchemy.orm import Session
@@ -38,10 +29,16 @@ def handle_main_menu(
     business_msisdn: str,
     message_text: str,
 ) -> bool:
-    """
-    Always returns True (fallback handler).
-    """
 
+    # 🔹 Send logo (URL)
+    send_message(
+        db=db,
+        business_msisdn=business_msisdn,
+        to_number=sender_msisdn,
+        image_url="https://klresolute.co.za/logos/demo_logo.png",
+    )
+
+    # 🔹 Menu text
     send_message(
         db=db,
         business_msisdn=business_msisdn,
