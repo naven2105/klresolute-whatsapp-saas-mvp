@@ -1,12 +1,16 @@
+# ==================================================
+# File: main_menu_service.py
+# Path: app/clients/klr_demo/customer/main_menu_service.py
+# Project: KLResolute WhatsApp SaaS MVP
+#
+# Patch:
+# - Add logo support via campaigns table (type='logo')
+# ==================================================
+
 from __future__ import annotations
 
-"""
-File: main_menu_service.py
-Path: app/clients/klr_demo/customer/main_menu_service.py
-Project: KLResolute WhatsApp SaaS MVP
-"""
-
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.messaging.client_messenger import send_message
 
 
@@ -30,15 +34,29 @@ def handle_main_menu(
     message_text: str,
 ) -> bool:
 
-    # 🔹 Send logo (URL)
-    send_message(
-        db=db,
-        business_msisdn=business_msisdn,
-        to_number=sender_msisdn,
-        image_url="https://klresolute.co.za/logos/demo_logo.png",
-    )
+    # 🔹 FETCH LOGO (NEW)
+    result = db.execute(
+        text(
+            """
+            SELECT image_url
+            FROM r_klr_demo__campaigns
+            WHERE type = 'logo'
+            ORDER BY sent_at DESC
+            LIMIT 1
+            """
+        )
+    ).fetchone()
 
-    # 🔹 Menu text
+    # 🔹 SEND LOGO IF EXISTS
+    if result and result.image_url:
+        send_message(
+            db=db,
+            business_msisdn=business_msisdn,
+            to_number=sender_msisdn,
+            image_id=result.image_url,  # matches your campaign logic
+        )
+
+    # 🔹 EXISTING MENU TEXT
     send_message(
         db=db,
         business_msisdn=business_msisdn,
